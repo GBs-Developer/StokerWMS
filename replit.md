@@ -1,10 +1,10 @@
-# GLA WMS - Warehouse Management System
+# Stokar WMS - Warehouse Management System
 
 ## Overview
 
-GLA WMS is a warehouse management system designed for logistics operations in Brazil. The application handles order picking (separação), verification (conferência), and counter service (balcão) workflows. It features role-based access control with distinct interfaces for supervisors and operators, real-time work unit locking to prevent concurrent operations on the same orders, and barcode scanning integration for mobile collector devices.
+Stokar WMS is a warehouse management system designed for logistics operations in Brazil (Portuguese UI). The application handles order picking (separação), verification (conferência), counter service (balcão) workflows, plus new WMS modules: addressing, pallet receiving, check-in/allocation, transfer, and counting cycles. It features multi-company support (companies 1 and 3), role-based access control with distinct interfaces for supervisors and operators, real-time work unit locking, and barcode scanning integration for mobile collector devices.
 
-The system follows a dual-database architecture pattern with PostgreSQL as the operational database, supporting ERP synchronization via a staging layer concept. Work units represent atomic tasks that can be locked, tracked through state machines, and audited for accountability.
+The system uses SQLite (libsql) as the operational database, supporting ERP synchronization via a staging layer concept. Work units represent atomic tasks that can be locked, tracked through state machines, and audited for accountability.
 
 ## User Preferences
 
@@ -20,41 +20,102 @@ Preferred communication style: Simple, everyday language.
 - **Form Handling**: React Hook Form with Zod validation
 - **Date Utilities**: date-fns
 
-The frontend is organized with pages under `client/src/pages/` grouped by role (supervisor, separacao, conferencia, balcao). Reusable UI components are in `client/src/components/ui/` following shadcn conventions. Custom application components include scan input for barcode readers, status badges, action tiles, and gradient headers.
+The frontend is organized with pages under `client/src/pages/` grouped by role:
+- **Legacy modules**: `separacao/`, `conferencia/`, `balcao/`, `supervisor/`, `fila-pedidos/`, `handheld/`
+- **WMS modules**: `wms/enderecos.tsx`, `wms/recebimento.tsx`, `wms/checkin.tsx`, `wms/transferencia.tsx`, `wms/contagem.tsx`
+- **Auth pages**: `login.tsx`, `company-select.tsx`, `home.tsx`
+
+Reusable UI components are in `client/src/components/ui/` following shadcn conventions.
 
 ### Backend Architecture
 - **Runtime**: Node.js with Express (ESM modules)
 - **Language**: TypeScript
-- **Database ORM**: Drizzle ORM with PostgreSQL
+- **Database ORM**: Drizzle ORM with SQLite (libsql)
 - **Authentication**: JWT tokens stored in HttpOnly cookies with bcrypt password hashing
-- **Session Management**: Custom session table with tokens, session keys, and expiration
+- **Session Management**: Custom session table with tokens, session keys, company context, and expiration
 
-Routes are registered in `server/routes.ts` and follow RESTful patterns under `/api/*`. The storage layer (`server/storage.ts`) implements an `IStorage` interface that abstracts all database operations, separating business logic from data access.
+Routes are registered in `server/routes.ts` (legacy + auth) and `server/wms-routes.ts` (WMS modules). The storage layer (`server/storage.ts`) implements an `IStorage` interface that abstracts all database operations.
 
 ### Authentication and Authorization
-- Role-based access control with four roles: `supervisor`, `separacao`, `conferencia`, `balcao`
-- Middleware functions `isAuthenticated`, `requireRole` protect routes
+- Role-based access control with roles: `administrador`, `supervisor`, `separacao`, `conferencia`, `balcao`, `fila_pedidos`, `recebedor`, `empilhador`, `conferente_wms`
+- Multi-company support: login → company selection (if user has access to multiple companies) → home
+- Middleware functions: `isAuthenticated`, `requireRole`, `requireCompany` protect routes
+- Backend WMS routes enforce both company context and role checks on all endpoints
 - Sessions include a unique session key for cache invalidation on logout
 - 24-hour token expiry with cookie-based storage
+- 2-hour inactivity timeout on frontend
 
-### Work Unit and Locking System
+### Multi-Company Architecture
+- Companies: ID 1 ("Empresa 1"), ID 3 ("Empresa 3")
+- `companyId` flows from login → session → all WMS requests via `requireCompany` middleware
+- All WMS data (addresses, pallets, movements, counting cycles) is scoped by company
+- Company selection page shown after login when user has access to multiple companies
+- `getCompanyLabel()` utility maps company IDs to display names
+
+### Work Unit and Locking System (Legacy)
 - Work units represent atomic tasks derived from orders
 - Lock mechanism with TTL (15 minutes default) prevents concurrent operations
 - Heartbeat system extends locks for active sessions
 - Force unlock capability for supervisors
-- State machine for work units: `pendente` → `em_andamento` → `concluido` (with `recontagem` and `excecao` branches)
+- State machine: `pendente` → `em_andamento` → `concluido` (with `recontagem` and `excecao` branches)
+
+### WMS Modules
+
+#### Addressing (Endereços)
+- Address code format: `{bairro}-{rua}-{bloco}-{nivel}`
+- Types: standard, picking, recebimento, expedicao
+- Active/inactive toggle, bulk import support
+- Supervisor-only management
+
+#### Pallet Receiving (Recebimento)
+- NF (nota fiscal) search and association
+- Add items by barcode with lot/expiry tracking
+- Auto-generated pallet codes: `PLT-{companyId}-{timestamp}`
+- Creates movement audit trail on creation
+
+#### Check-in/Allocation
+- Scan pallet → select available address → allocate
+- Rule: 1 pallet per address max
+- Address must belong to same company
+- Forklift operator or supervisor access
+
+#### Transfer
+- Scan pallet → select destination address → transfer
+- Validates destination is empty and same company
+- Supervisor can cancel pallets with reason
+- Full movement audit trail
+
+#### Counting Cycles (Contagem)
+- Types: por_endereco, por_produto
+- Blind count: expectedQty hidden from operators (supervisor can reveal)
+- State machine: pendente → em_andamento → concluido → aprovado/rejeitado
+- Approval updates product_company_stock with counted quantities
+- Divergence percentage calculated automatically
 
 ### Database Schema
 Tables defined in `shared/schema.ts`:
-- `users` - User accounts with roles and section assignments
+
+**Legacy tables:**
+- `users` - User accounts with roles, sections, company access
 - `orders` - Orders synced from ERP with status tracking
 - `orderItems` - Line items with separation/verification status
 - `products` - Product catalog with barcodes and pickup locations
 - `routes` - Delivery routes for order grouping
 - `workUnits` - Atomic work tasks with locking fields
-- `exceptions` - Exception records (not found, damaged, expired)
+- `exceptions` - Exception records
 - `auditLogs` - Operation audit trail
-- `sessions` - Authentication sessions
+- `sessions` - Authentication sessions (with companyId)
+
+**WMS tables:**
+- `wmsAddresses` - Warehouse addresses with bairro/rua/bloco/nivel grid
+- `pallets` - Pallet tracking with status and address assignment
+- `palletItems` - Items on each pallet with lot/expiry/FEFO
+- `palletMovements` - Full movement audit trail
+- `nfCache` - Cached NF data from ERP sync
+- `nfItems` - NF line items
+- `countingCycles` - Counting cycle headers with approval workflow
+- `countingCycleItems` - Individual count items with divergence tracking
+- `productCompanyStock` - Per-company stock quantities
 
 ### Build System
 - **Development**: Vite dev server with HMR, proxied through Express
@@ -64,17 +125,12 @@ Tables defined in `shared/schema.ts`:
 ## External Dependencies
 
 ### Database
-- **PostgreSQL**: Primary operational database
-- Connection via `DATABASE_URL` environment variable
-- Drizzle Kit for migrations (`drizzle-kit push`)
-- Connection pooling with `pg` package
-
-### Third-Party Services
-- No external API integrations currently implemented
-- Architecture supports ERP synchronization via staging database pattern (sync logic to be implemented)
+- **SQLite (libsql)**: Primary operational database
+- Connection via `SQLITE_URL` environment variable
+- Auto-migrations in `server/db.ts` (safe to run multiple times)
 
 ### Key npm Packages
-- `drizzle-orm` / `drizzle-kit` - Database ORM and migrations
+- `drizzle-orm` / `@libsql/client` - Database ORM with SQLite
 - `bcrypt` - Password hashing
 - `cookie-parser` - Cookie handling for auth tokens
 - `zod` - Schema validation for API payloads
@@ -83,35 +139,5 @@ Tables defined in `shared/schema.ts`:
 
 ### Real-Time Updates (SSE)
 - Server-Sent Events via `/api/sse` endpoint
-- Event types: `picking_started`, `item_picked`, `picking_finished`, `conference_started`, `conference_finished`, `exception_created`, `lock_acquired`, `lock_released`, `work_unit_created`, `picking_update`
-- Supervisor Orders page subscribes to all events for instant updates
-- Conference page subscribes to all events for work unit availability updates
-- Separation page uses polling (refetchInterval: 1000ms) for real-time data
-
-### Development Tools
-- `@replit/vite-plugin-runtime-error-modal` - Runtime error display
-- `@replit/vite-plugin-cartographer` - Development navigation (Replit-specific)
-
-## Recent Changes
-
-### February 8, 2026
-- Migrated database from SQLite (better-sqlite3) to PostgreSQL using pg driver and Drizzle ORM
-- Schema updated: sqliteTable to pgTable, real to doublePrecision, JSON columns now use jsonb, boolean uses native pg boolean, serial for auto-increment IDs
-- Supervisor Orders page: standardized period filter (De/Ate + Buscar button), removed pendente_conferencia and finalizado from status filter, updated table header to Status Sep./Conf.
-- Enhanced SSE broadcasting: added picking_started, item_picked, picking_finished, conference_started, conference_finished, exception_created events across backend routes
-- Conference page: enhanced SSE subscriptions for real-time work unit updates, scan-pallet now updates order status to em_conferencia
-- Fixed Windows line endings (CRLF to LF) across all TypeScript files
-- Added `referenceCode` (text) field to products table for CODIGOINTERNOFORN reference codes
-- Added `boxBarcode` seed data for products (some with DUN barcodes, some null)
-- Complete separation module UI/UX overhaul for handheld/collector devices:
-  - Compact header (minimal, no gradient) to maximize screen space
-  - Period filter with "Buscar" button (same pattern as supervisor orders)
-  - Simplified order list: order number, client, qty items (section-filtered), date
-  - Removed cart scan step - goes directly from select to picking
-  - Two-tab bottom navigation: Product detail (Package icon) + Product list (List icon)
-  - Product tab shows: order codes, erpCode, referenceCode, barcode, boxBarcode (or "Indisponivel"), qty with + button
-  - List tab shows: all products with code/barcode/qty/orders, section filter, green checkmarks, exception indicators
-  - Barcode scan always navigates to Product tab
-  - Session persistence via localStorage (auto-resume on reconnect)
-  - Completion returns to initial order list (not cart/complete screen)
-  - SSE real-time updates for all picking events
+- Event types include picking, conference, exception, lock, work unit, and pallet events
+- WMS events: `pallet_created`, `pallet_allocated`, `pallet_transferred`, `pallet_cancelled`

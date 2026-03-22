@@ -2,8 +2,9 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import cookieParser from "cookie-parser";
 import { storage } from "./storage";
-import { hashPassword, verifyPassword, createAuthSession, isAuthenticated, requireRole, getTokenFromRequest, getUserFromToken, generateBadgeCode } from "./auth";
+import { hashPassword, verifyPassword, createAuthSession, isAuthenticated, requireRole, requireCompany, getTokenFromRequest, getUserFromToken, generateBadgeCode } from "./auth";
 import { loginSchema, insertRouteSchema, orderItems, pickingSessions, pickupPoints, type MappingField, datasetEnum, type User, type OrderItem, type Product, type WorkUnit, type Exception, type PickingSession, type ExceptionType, type ManualQtyRule, type UserSettings, BatchSyncPayload } from "@shared/schema";
+import { registerWmsRoutes } from "./wms-routes";
 import { z } from "zod";
 import { exec, spawn } from "child_process";
 import path from "path";
@@ -218,7 +219,18 @@ export async function registerRoutes(
         return res.status(401).json({ error: "Usuário inativo" });
       }
 
-      const { token, sessionKey } = await createAuthSession(user.id);
+      const allowedCompanies: number[] = (user as any).allowedCompanies || [1, 3];
+      let companyId = data.companyId;
+
+      if (allowedCompanies.length === 1) {
+        companyId = allowedCompanies[0];
+      }
+
+      if (companyId && !allowedCompanies.includes(companyId)) {
+        return res.status(403).json({ error: "Empresa não permitida para este usuário" });
+      }
+
+      const { token, sessionKey } = await createAuthSession(user.id, companyId);
 
       res.cookie("authToken", token, {
         httpOnly: true,
@@ -231,13 +243,21 @@ export async function registerRoutes(
         action: "login",
         entityType: "user",
         entityId: user.id,
-        details: "Login realizado",
+        details: `Login realizado - Empresa: ${companyId || 'não selecionada'}`,
         ipAddress: getClientIp(req),
         userAgent: getUserAgent(req),
+        companyId: companyId ?? undefined,
       });
 
       const { password: _, ...safeUser } = user;
-      res.json({ user: safeUser, sessionKey, token });
+      res.json({
+        user: safeUser,
+        sessionKey,
+        token,
+        companyId: companyId || null,
+        allowedCompanies,
+        requireCompanySelection: !companyId && allowedCompanies.length > 1,
+      });
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: "Dados inválidos" });
@@ -274,8 +294,47 @@ export async function registerRoutes(
   app.get("/api/auth/me", isAuthenticated, (req: Request, res: Response) => {
     const user = (req as any).user;
     const sessionKey = (req as any).sessionKey;
+    const companyId = (req as any).companyId;
     const { password: _, ...safeUser } = user;
-    res.json({ user: safeUser, sessionKey });
+    const allowedCompanies: number[] = (user as any).allowedCompanies || [1, 3];
+    res.json({ user: safeUser, sessionKey, companyId, allowedCompanies });
+  });
+
+  app.post("/api/auth/select-company", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { companyId } = req.body;
+      const user = (req as any).user;
+      const token = getTokenFromRequest(req);
+
+      if (!companyId || typeof companyId !== "number") {
+        return res.status(400).json({ error: "ID da empresa inválido" });
+      }
+
+      const allowedCompanies: number[] = (user as any).allowedCompanies || [1, 3];
+      if (!allowedCompanies.includes(companyId)) {
+        return res.status(403).json({ error: "Empresa não permitida" });
+      }
+
+      if (token) {
+        await storage.updateSessionCompany(token, companyId);
+      }
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "select_company",
+        entityType: "session",
+        entityId: user.id,
+        details: `Empresa selecionada: ${companyId}`,
+        companyId,
+        ipAddress: getClientIp(req),
+        userAgent: getUserAgent(req),
+      });
+
+      res.json({ success: true, companyId });
+    } catch (error) {
+      console.error("Select company error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
   });
 
   // Users routes
@@ -2794,6 +2853,8 @@ export async function registerRoutes(
       res.status(500).json({ error: "Erro ao remover volumes" });
     }
   });
+
+  registerWmsRoutes(app);
 
   return httpServer;
 }

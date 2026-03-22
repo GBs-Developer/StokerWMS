@@ -9,16 +9,30 @@ const LAST_ACTIVITY_KEY = "stokar:lastActivity";
 interface AuthContextType {
   user: User | null;
   sessionKey: string | null;
+  companyId: number | null;
+  allowedCompanies: number[];
   status: "loading" | "authenticated" | "unauthenticated";
-  login: (username: string, password: string) => Promise<boolean>;
+  login: (username: string, password: string, companyId?: number) => Promise<{ success: boolean; requireCompanySelection?: boolean; allowedCompanies?: number[] }>;
+  selectCompany: (companyId: number) => Promise<boolean>;
   logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
+const COMPANY_LABELS: Record<number, string> = {
+  1: "Empresa 1",
+  3: "Empresa 3",
+};
+
+export function getCompanyLabel(id: number): string {
+  return COMPANY_LABELS[id] || `Empresa ${id}`;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [sessionKey, setSessionKey] = useState<string | null>(null);
+  const [companyId, setCompanyId] = useState<number | null>(null);
+  const [allowedCompanies, setAllowedCompanies] = useState<number[]>([]);
   const [status, setStatus] = useState<"loading" | "authenticated" | "unauthenticated">("loading");
   const queryClient = useQueryClient();
   const inactivityTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -35,6 +49,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     keysToRemove.forEach(key => localStorage.removeItem(key));
     setUser(null);
     setSessionKey(null);
+    setCompanyId(null);
+    setAllowedCompanies([]);
     setStatus("unauthenticated");
   }, [queryClient]);
 
@@ -79,6 +95,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const data = await res.json();
         setUser(data.user);
         setSessionKey(data.sessionKey);
+        setCompanyId(data.companyId || null);
+        setAllowedCompanies(data.allowedCompanies || []);
         setStatus("authenticated");
       } else {
         clearSession();
@@ -126,13 +144,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [status, startInactivityMonitor, updateActivity]);
 
-  const login = async (username: string, password: string): Promise<boolean> => {
+  const login = async (username: string, password: string, selectedCompanyId?: number): Promise<{ success: boolean; requireCompanySelection?: boolean; allowedCompanies?: number[] }> => {
     try {
       clearSession();
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, companyId: selectedCompanyId }),
         credentials: "include",
       });
 
@@ -140,7 +158,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const data = await res.json();
         setUser(data.user);
         setSessionKey(data.sessionKey);
+        setCompanyId(data.companyId || null);
+        setAllowedCompanies(data.allowedCompanies || []);
+
+        if (data.requireCompanySelection) {
+          setStatus("authenticated");
+          return { success: true, requireCompanySelection: true, allowedCompanies: data.allowedCompanies };
+        }
+
         setStatus("authenticated");
+        return { success: true };
+      }
+      return { success: false };
+    } catch {
+      return { success: false };
+    }
+  };
+
+  const selectCompany = async (selectedCompanyId: number): Promise<boolean> => {
+    try {
+      const res = await fetch("/api/auth/select-company", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companyId: selectedCompanyId }),
+        credentials: "include",
+      });
+
+      if (res.ok) {
+        setCompanyId(selectedCompanyId);
+        queryClient.clear();
         return true;
       }
       return false;
@@ -150,7 +196,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, sessionKey, status, login, logout }}>
+    <AuthContext.Provider value={{ user, sessionKey, companyId, allowedCompanies, status, login, selectCompany, logout }}>
       {children}
     </AuthContext.Provider>
   );

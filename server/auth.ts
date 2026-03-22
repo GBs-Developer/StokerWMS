@@ -10,7 +10,6 @@ export async function hashPassword(password: string): Promise<string> {
 }
 
 export function generateBadgeCode(username: string, passwordPlain: string): string {
-  // Return full 32-char MD5 hash. QR Codes can easily handle this length.
   return createHash("md5").update(username + passwordPlain).digest("hex");
 }
 
@@ -26,12 +25,12 @@ export function generateSessionKey(userId: string): string {
   return `${userId}:${Date.now()}`;
 }
 
-export async function createAuthSession(userId: string): Promise<{ token: string; sessionKey: string }> {
+export async function createAuthSession(userId: string, companyId?: number): Promise<{ token: string; sessionKey: string }> {
   const token = generateToken();
   const sessionKey = generateSessionKey(userId);
   const expiresAt = new Date(Date.now() + TOKEN_EXPIRY_HOURS * 60 * 60 * 1000);
 
-  await storage.createSession(userId, token, sessionKey, expiresAt);
+  await storage.createSession(userId, token, sessionKey, expiresAt, companyId);
 
   return { token, sessionKey };
 }
@@ -43,7 +42,7 @@ export async function getUserFromToken(token: string) {
   const user = await storage.getUser(session.userId);
   if (!user) return null;
 
-  return { user, sessionKey: session.sessionKey };
+  return { user, sessionKey: session.sessionKey, companyId: session.companyId };
 }
 
 export function getTokenFromRequest(req: Request): string | null {
@@ -69,6 +68,7 @@ export async function isAuthenticated(req: Request, res: Response, next: NextFun
 
   (req as any).user = result.user;
   (req as any).sessionKey = result.sessionKey;
+  (req as any).companyId = result.companyId;
   next();
 }
 
@@ -86,4 +86,12 @@ export function requireRole(...roles: string[]) {
 
     next();
   };
+}
+
+export function requireCompany(req: Request, res: Response, next: NextFunction) {
+  const companyId = (req as any).companyId;
+  if (!companyId) {
+    return res.status(400).json({ error: "Empresa não selecionada. Faça login novamente." });
+  }
+  next();
 }

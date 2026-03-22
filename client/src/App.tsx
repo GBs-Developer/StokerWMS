@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/lib/auth";
 
 import LoginPage from "@/pages/login";
+import CompanySelectPage from "@/pages/company-select";
 import HomePage from "@/pages/home";
 import SupervisorDashboard from "@/pages/supervisor/index";
 import OrdersPage from "@/pages/supervisor/orders";
@@ -27,6 +28,11 @@ import ConferenciaPage from "@/pages/conferencia/index";
 import BalcaoPage from "@/pages/balcao/index";
 import PickingPage from "@/pages/handheld/picking";
 import FilaPedidosPage from "@/pages/fila-pedidos/index";
+import EnderecosPage from "@/pages/wms/enderecos";
+import RecebimentoPage from "@/pages/wms/recebimento";
+import CheckinPage from "@/pages/wms/checkin";
+import TransferenciaPage from "@/pages/wms/transferencia";
+import ContagemPage from "@/pages/wms/contagem";
 import NotFound from "@/pages/not-found";
 import { Loader2 } from "lucide-react";
 
@@ -42,7 +48,7 @@ function LoadingScreen() {
 }
 
 function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode; allowedRoles?: string[] }) {
-  const { user, status } = useAuth();
+  const { user, companyId, allowedCompanies, status } = useAuth();
 
   if (status === "loading") {
     return <LoadingScreen />;
@@ -50,6 +56,10 @@ function ProtectedRoute({ children, allowedRoles }: { children: React.ReactNode;
 
   if (status === "unauthenticated") {
     return <Redirect to="/login" />;
+  }
+
+  if (!companyId && allowedCompanies.length > 1) {
+    return <Redirect to="/select-company" />;
   }
 
   if (allowedRoles && user && !allowedRoles.includes(user.role)) {
@@ -80,6 +90,10 @@ function Router() {
         <PublicRoute>
           <LoginPage />
         </PublicRoute>
+      </Route>
+
+      <Route path="/select-company">
+        <CompanySelectPage />
       </Route>
 
       <Route path="/">
@@ -205,6 +219,36 @@ function Router() {
       <Route path="/fila-pedidos">
         <ProtectedRoute allowedRoles={["fila_pedidos", "supervisor", "administrador"]}>
           <FilaPedidosPage />
+        </ProtectedRoute>
+      </Route>
+
+      <Route path="/wms/enderecos">
+        <ProtectedRoute allowedRoles={["supervisor", "administrador"]}>
+          <EnderecosPage />
+        </ProtectedRoute>
+      </Route>
+
+      <Route path="/wms/recebimento">
+        <ProtectedRoute allowedRoles={["recebedor", "supervisor", "administrador"]}>
+          <RecebimentoPage />
+        </ProtectedRoute>
+      </Route>
+
+      <Route path="/wms/checkin">
+        <ProtectedRoute allowedRoles={["empilhador", "supervisor", "administrador"]}>
+          <CheckinPage />
+        </ProtectedRoute>
+      </Route>
+
+      <Route path="/wms/transferencia">
+        <ProtectedRoute allowedRoles={["empilhador", "supervisor", "administrador"]}>
+          <TransferenciaPage />
+        </ProtectedRoute>
+      </Route>
+
+      <Route path="/wms/contagem">
+        <ProtectedRoute allowedRoles={["conferente_wms", "supervisor", "administrador"]}>
+          <ContagemPage />
         </ProtectedRoute>
       </Route>
 

@@ -65,8 +65,12 @@ export default function LoginPage() {
   const onSubmit = async (data: LoginInput) => {
     setIsLoading(true);
     try {
-      const success = await login(data.username, data.password);
-      if (success) {
+      const result = await login(data.username, data.password);
+      if (result.success) {
+        if (result.requireCompanySelection) {
+          navigate("/select-company");
+          return;
+        }
         toast({
           title: "Login realizado",
           description: "Bem-vindo ao Stokar!",
@@ -183,7 +187,7 @@ export default function LoginPage() {
         )}
 
         <p className="text-center text-white/50 text-sm mt-6">
-          Stokar v1.0 — por Gusttavo Batista
+          Stokar v2.0 — por Gusttavo Batista
         </p>
       </div>
     </div>

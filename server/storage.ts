@@ -32,7 +32,7 @@ export interface IStorage {
   deleteSectionGroup(id: string): Promise<void>;
 
   // Sessions
-  createSession(userId: string, token: string, sessionKey: string, expiresAt: Date): Promise<Session>;
+  createSession(userId: string, token: string, sessionKey: string, expiresAt: Date, companyId?: number): Promise<Session>;
   getSessionByToken(token: string): Promise<Session | undefined>;
   deleteSession(token: string): Promise<void>;
 
@@ -196,13 +196,13 @@ export class DatabaseStorage implements IStorage {
 
 
   // Sessions
-  async createSession(userId: string, token: string, sessionKey: string, expiresAt: Date): Promise<Session> {
+  async createSession(userId: string, token: string, sessionKey: string, expiresAt: Date, companyId?: number): Promise<Session> {
     try {
-      // console.log(`[STORAGE] createSession: userId=${userId}, token=${token}`);
       const [session] = await db.insert(sessions).values({
         userId,
         token,
         sessionKey,
+        companyId: companyId ?? null,
         expiresAt: expiresAt.toISOString(),
       }).returning();
       return session;
@@ -211,6 +211,10 @@ export class DatabaseStorage implements IStorage {
       console.error("Message:", e.message);
       throw e;
     }
+  }
+
+  async updateSessionCompany(token: string, companyId: number): Promise<void> {
+    await db.update(sessions).set({ companyId }).where(eq(sessions.token, token));
   }
 
   async getSessionByToken(token: string): Promise<Session | undefined> {

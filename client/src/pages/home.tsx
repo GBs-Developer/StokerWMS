@@ -1,7 +1,8 @@
-import { useAuth } from "@/lib/auth";
+import { useAuth, getCompanyLabel } from "@/lib/auth";
 import { GradientHeader } from "@/components/ui/gradient-header";
 import { ActionTile } from "@/components/ui/action-tile";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   Package,
   ClipboardCheck,
@@ -9,10 +10,15 @@ import {
   Settings,
   LogOut,
   ClipboardList,
+  Warehouse,
+  PackagePlus,
+  ArrowRightLeft,
+  MapPin,
+  BarChart3,
 } from "lucide-react";
 
 export default function HomePage() {
-  const { user, logout } = useAuth();
+  const { user, companyId, logout } = useAuth();
 
   const roleLabels: Record<string, string> = {
     administrador: "Administrador",
@@ -21,62 +27,50 @@ export default function HomePage() {
     conferencia: "Conferente",
     balcao: "Balcão",
     fila_pedidos: "Fila de Pedidos",
+    recebedor: "Recebedor",
+    empilhador: "Empilhador",
+    conferente_wms: "Conferente WMS",
   };
 
   const roleModules: Record<string, { icon: any; title: string; description: string; href: string }[]> = {
     administrador: [
-      {
-        icon: Settings,
-        title: "Painel Supervisor",
-        description: "Gerenciar pedidos e operações",
-        href: "/supervisor",
-      },
-      {
-        icon: ClipboardList,
-        title: "Fila de Pedidos",
-        description: "Acompanhamento em tempo real",
-        href: "/fila-pedidos",
-      },
+      { icon: Settings, title: "Painel Supervisor", description: "Gerenciar pedidos e operações", href: "/supervisor" },
+      { icon: ClipboardList, title: "Fila de Pedidos", description: "Acompanhamento em tempo real", href: "/fila-pedidos" },
+      { icon: PackagePlus, title: "Recebimento", description: "Receber NFs e gerar pallets", href: "/wms/recebimento" },
+      { icon: MapPin, title: "Check-in", description: "Alocar pallets em endereços", href: "/wms/checkin" },
+      { icon: ArrowRightLeft, title: "Transferência", description: "Movimentar pallets", href: "/wms/transferencia" },
+      { icon: BarChart3, title: "Contagem", description: "Ciclos de contagem", href: "/wms/contagem" },
+      { icon: Warehouse, title: "Endereços", description: "Gerenciar endereços WMS", href: "/wms/enderecos" },
     ],
     supervisor: [
-      {
-        icon: Settings,
-        title: "Painel Supervisor",
-        description: "Gerenciar pedidos e operações",
-        href: "/supervisor",
-      },
+      { icon: Settings, title: "Painel Supervisor", description: "Gerenciar pedidos e operações", href: "/supervisor" },
+      { icon: Warehouse, title: "Endereços", description: "Gerenciar endereços WMS", href: "/wms/enderecos" },
+      { icon: PackagePlus, title: "Recebimento", description: "Receber NFs e gerar pallets", href: "/wms/recebimento" },
+      { icon: MapPin, title: "Check-in", description: "Alocar pallets", href: "/wms/checkin" },
+      { icon: ArrowRightLeft, title: "Transferência", description: "Movimentar pallets", href: "/wms/transferencia" },
+      { icon: BarChart3, title: "Contagem", description: "Ciclos de contagem", href: "/wms/contagem" },
     ],
     separacao: [
-      {
-        icon: Package,
-        title: "Separação",
-        description: "Separar pedidos de entrega",
-        href: "/separacao",
-      },
+      { icon: Package, title: "Separação", description: "Separar pedidos de entrega", href: "/separacao" },
     ],
     conferencia: [
-      {
-        icon: ClipboardCheck,
-        title: "Conferência",
-        description: "Conferir pedidos separados",
-        href: "/conferencia",
-      },
+      { icon: ClipboardCheck, title: "Conferência", description: "Conferir pedidos separados", href: "/conferencia" },
     ],
     balcao: [
-      {
-        icon: Store,
-        title: "Balcão",
-        description: "Atendimento ao cliente",
-        href: "/balcao",
-      },
+      { icon: Store, title: "Balcão", description: "Atendimento ao cliente", href: "/balcao" },
     ],
     fila_pedidos: [
-      {
-        icon: ClipboardList,
-        title: "Fila de Pedidos",
-        description: "Acompanhamento em tempo real",
-        href: "/fila-pedidos",
-      },
+      { icon: ClipboardList, title: "Fila de Pedidos", description: "Acompanhamento em tempo real", href: "/fila-pedidos" },
+    ],
+    recebedor: [
+      { icon: PackagePlus, title: "Recebimento", description: "Receber NFs e gerar pallets", href: "/wms/recebimento" },
+    ],
+    empilhador: [
+      { icon: MapPin, title: "Check-in", description: "Alocar pallets em endereços", href: "/wms/checkin" },
+      { icon: ArrowRightLeft, title: "Transferência", description: "Movimentar pallets", href: "/wms/transferencia" },
+    ],
+    conferente_wms: [
+      { icon: BarChart3, title: "Contagem", description: "Ciclos de contagem", href: "/wms/contagem" },
     ],
   };
 
@@ -89,16 +83,23 @@ export default function HomePage() {
         title="Stokar"
         subtitle={`${user?.name || "Operador"} — ${userRoleLabel}`}
       >
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={logout}
-          className="bg-white/10 border-white/20 text-white hover:bg-white/20"
-          data-testid="button-logout"
-        >
-          <LogOut className="h-4 w-4 mr-2" />
-          Sair
-        </Button>
+        <div className="flex items-center gap-2">
+          {companyId && (
+            <Badge variant="secondary" className="bg-white/20 text-white border-white/30 text-xs">
+              {getCompanyLabel(companyId)}
+            </Badge>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={logout}
+            className="bg-white/10 border-white/20 text-white hover:bg-white/20"
+            data-testid="button-logout"
+          >
+            <LogOut className="h-4 w-4 mr-2" />
+            Sair
+          </Button>
+        </div>
       </GradientHeader>
 
       <main className="max-w-4xl mx-auto px-4 py-8">

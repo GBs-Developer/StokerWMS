@@ -1,11 +1,11 @@
-import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
+import { sqliteTable, text, integer, real, uniqueIndex, index } from "drizzle-orm/sqlite-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 const boolean = (name: string) => integer(name, { mode: 'boolean' });
 const timestamp = (name: string) => text(name);
 
-export const userRoleEnum = ["administrador", "supervisor", "separacao", "conferencia", "balcao", "fila_pedidos"] as const;
+export const userRoleEnum = ["administrador", "supervisor", "separacao", "conferencia", "balcao", "fila_pedidos", "recebedor", "empilhador", "conferente_wms"] as const;
 export type UserRole = typeof userRoleEnum[number];
 
 export const orderStatusEnum = ["pendente", "em_separacao", "separado", "em_conferencia", "conferido", "finalizado", "cancelado"] as const;
@@ -23,6 +23,27 @@ export type ExceptionType = typeof exceptionTypeEnum[number];
 export const workUnitTypeEnum = ["separacao", "conferencia", "balcao"] as const;
 export type WorkUnitType = typeof workUnitTypeEnum[number];
 
+export const palletStatusEnum = ["sem_endereco", "alocado", "em_transferencia", "cancelado"] as const;
+export type PalletStatus = typeof palletStatusEnum[number];
+
+export const palletMovementTypeEnum = ["created", "allocated", "transferred", "split", "cancelled", "counted"] as const;
+export type PalletMovementType = typeof palletMovementTypeEnum[number];
+
+export const wmsAddressTypeEnum = ["standard", "picking", "recebimento", "expedicao"] as const;
+export type WmsAddressType = typeof wmsAddressTypeEnum[number];
+
+export const countingCycleTypeEnum = ["por_endereco", "por_produto"] as const;
+export type CountingCycleType = typeof countingCycleTypeEnum[number];
+
+export const countingCycleStatusEnum = ["pendente", "em_andamento", "concluido", "aprovado", "rejeitado"] as const;
+export type CountingCycleStatus = typeof countingCycleStatusEnum[number];
+
+export const countingCycleItemStatusEnum = ["pendente", "contado", "divergente", "aprovado"] as const;
+export type CountingCycleItemStatus = typeof countingCycleItemStatusEnum[number];
+
+export const nfStatusEnum = ["pendente", "em_recebimento", "recebida", "cancelada"] as const;
+export type NfStatus = typeof nfStatusEnum[number];
+
 export interface UserSettings {
   allowManualQty?: boolean;
   allowMultiplier?: boolean;
@@ -39,6 +60,8 @@ export const users = sqliteTable("users", {
   settings: text("settings", { mode: "json" }).$type<UserSettings>().default({}),
   active: boolean("active").notNull().default(true),
   badgeCode: text("badge_code"),
+  defaultCompanyId: integer("default_company_id"),
+  allowedCompanies: text("allowed_companies", { mode: "json" }).$type<number[]>().default([1, 3]),
   createdAt: timestamp("created_at").notNull().default(new Date().toISOString()),
 });
 
@@ -146,6 +169,7 @@ export const orders = sqliteTable("orders", {
   pickupPoints: text("pickup_points", { mode: "json" }),
   erpUpdatedAt: timestamp("erp_updated_at"),
   financialStatus: text("financial_status").notNull().default("pendente"),
+  companyId: integer("company_id"),
   createdAt: timestamp("created_at").notNull().default(new Date().toISOString()),
   updatedAt: timestamp("updated_at").notNull().default(new Date().toISOString()),
 });
@@ -190,6 +214,7 @@ export const workUnits = sqliteTable("work_units", {
   palletQrCode: text("pallet_qr_code"),
   startedAt: timestamp("started_at"),
   completedAt: timestamp("completed_at"),
+  companyId: integer("company_id"),
   createdAt: timestamp("created_at").notNull().default(new Date().toISOString()),
 });
 
@@ -218,6 +243,7 @@ export const auditLogs = sqliteTable("audit_logs", {
   newValue: text("new_value"),
   ipAddress: text("ip_address"),
   userAgent: text("user_agent"),
+  companyId: integer("company_id"),
   createdAt: timestamp("created_at").notNull().default(new Date().toISOString()),
 });
 
@@ -240,6 +266,7 @@ export const sessions = sqliteTable("sessions", {
   userId: text("user_id").notNull().references(() => users.id),
   token: text("token").notNull(),
   sessionKey: text("session_key").notNull(),
+  companyId: integer("company_id"),
   expiresAt: timestamp("expires_at").notNull(),
   createdAt: timestamp("created_at").notNull().default(new Date().toISOString()),
 });
@@ -267,6 +294,139 @@ export const db2Mappings = sqliteTable("db2_mappings", {
   createdBy: text("created_by").references(() => users.id),
   createdAt: timestamp("created_at").notNull().default(new Date().toISOString()),
   updatedAt: timestamp("updated_at").notNull().default(new Date().toISOString()),
+});
+
+export const productCompanyStock = sqliteTable("product_company_stock", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  productId: text("product_id").notNull().references(() => products.id),
+  companyId: integer("company_id").notNull(),
+  stockQty: real("stock_qty").notNull().default(0),
+  erpUpdatedAt: timestamp("erp_updated_at"),
+}, (table) => ({
+  productCompanyUnique: uniqueIndex("idx_product_company_stock_unique").on(table.productId, table.companyId),
+}));
+
+export const wmsAddresses = sqliteTable("wms_addresses", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: integer("company_id").notNull(),
+  bairro: text("bairro").notNull(),
+  rua: text("rua").notNull(),
+  bloco: text("bloco").notNull(),
+  nivel: text("nivel").notNull(),
+  code: text("code").notNull(),
+  type: text("type").notNull().default("standard").$type<WmsAddressType>(),
+  active: boolean("active").notNull().default(true),
+  createdBy: text("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").notNull().default(new Date().toISOString()),
+}, (table) => ({
+  companyCodeIdx: index("idx_wms_addresses_company_code").on(table.companyId, table.code),
+}));
+
+export const pallets = sqliteTable("pallets", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: integer("company_id").notNull(),
+  code: text("code").notNull(),
+  status: text("status").notNull().default("sem_endereco").$type<PalletStatus>(),
+  addressId: text("address_id").references(() => wmsAddresses.id),
+  createdBy: text("created_by").references(() => users.id),
+  createdAt: timestamp("created_at").notNull().default(new Date().toISOString()),
+  allocatedAt: timestamp("allocated_at"),
+  cancelledAt: timestamp("cancelled_at"),
+  cancelledBy: text("cancelled_by").references(() => users.id),
+  cancelReason: text("cancel_reason"),
+}, (table) => ({
+  companyStatusIdx: index("idx_pallets_company_status").on(table.companyId, table.status),
+}));
+
+export const palletItems = sqliteTable("pallet_items", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  palletId: text("pallet_id").notNull().references(() => pallets.id),
+  productId: text("product_id").notNull().references(() => products.id),
+  erpNfId: text("erp_nf_id"),
+  quantity: real("quantity").notNull(),
+  lot: text("lot"),
+  expiryDate: text("expiry_date"),
+  fefoEnabled: boolean("fefo_enabled").notNull().default(false),
+  companyId: integer("company_id").notNull(),
+  createdAt: timestamp("created_at").notNull().default(new Date().toISOString()),
+}, (table) => ({
+  palletIdx: index("idx_pallet_items_pallet").on(table.palletId),
+}));
+
+export const palletMovements = sqliteTable("pallet_movements", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  palletId: text("pallet_id").notNull().references(() => pallets.id),
+  companyId: integer("company_id").notNull(),
+  movementType: text("movement_type").notNull().$type<PalletMovementType>(),
+  fromAddressId: text("from_address_id").references(() => wmsAddresses.id),
+  toAddressId: text("to_address_id").references(() => wmsAddresses.id),
+  fromPalletId: text("from_pallet_id"),
+  userId: text("user_id").references(() => users.id),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().default(new Date().toISOString()),
+});
+
+export const nfCache = sqliteTable("nf_cache", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: integer("company_id").notNull(),
+  nfNumber: text("nf_number").notNull(),
+  nfSeries: text("nf_series"),
+  supplierName: text("supplier_name"),
+  supplierCnpj: text("supplier_cnpj"),
+  issueDate: text("issue_date"),
+  totalValue: real("total_value"),
+  status: text("status").notNull().default("pendente").$type<NfStatus>(),
+  syncedAt: timestamp("synced_at"),
+}, (table) => ({
+  companyNfIdx: index("idx_nf_cache_company_nf").on(table.companyId, table.nfNumber),
+}));
+
+export const nfItems = sqliteTable("nf_items", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  nfId: text("nf_id").notNull().references(() => nfCache.id),
+  productId: text("product_id"),
+  erpCode: text("erp_code"),
+  productName: text("product_name"),
+  quantity: real("quantity").notNull(),
+  unit: text("unit"),
+  lot: text("lot"),
+  expiryDate: text("expiry_date"),
+  companyId: integer("company_id").notNull(),
+});
+
+export const countingCycles = sqliteTable("counting_cycles", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: integer("company_id").notNull(),
+  type: text("type").notNull().$type<CountingCycleType>(),
+  status: text("status").notNull().default("pendente").$type<CountingCycleStatus>(),
+  createdBy: text("created_by").references(() => users.id),
+  approvedBy: text("approved_by").references(() => users.id),
+  approvedAt: timestamp("approved_at"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().default(new Date().toISOString()),
+  completedAt: timestamp("completed_at"),
+}, (table) => ({
+  companyStatusIdx: index("idx_counting_cycles_company_status").on(table.companyId, table.status),
+}));
+
+export const countingCycleItems = sqliteTable("counting_cycle_items", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  cycleId: text("cycle_id").notNull().references(() => countingCycles.id),
+  companyId: integer("company_id").notNull(),
+  addressId: text("address_id").references(() => wmsAddresses.id),
+  productId: text("product_id").references(() => products.id),
+  palletId: text("pallet_id").references(() => pallets.id),
+  expectedQty: real("expected_qty"),
+  countedQty: real("counted_qty"),
+  lot: text("lot"),
+  expiryDate: text("expiry_date"),
+  oldLot: text("old_lot"),
+  oldExpiryDate: text("old_expiry_date"),
+  status: text("status").notNull().default("pendente").$type<CountingCycleItemStatus>(),
+  countedBy: text("counted_by").references(() => users.id),
+  countedAt: timestamp("counted_at"),
+  divergencePct: real("divergence_pct"),
+  createdAt: timestamp("created_at").notNull().default(new Date().toISOString()),
 });
 
 export interface MappingField {
@@ -304,6 +464,15 @@ export const insertExceptionSchema = createInsertSchema(exceptions).omit({ id: t
 export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({ id: true, createdAt: true });
 export const insertManualQtyRuleSchema = createInsertSchema(manualQtyRules).omit({ id: true, createdAt: true });
 export const insertOrderVolumeSchema = createInsertSchema(orderVolumes).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertWmsAddressSchema = createInsertSchema(wmsAddresses).omit({ id: true, createdAt: true });
+export const insertPalletSchema = createInsertSchema(pallets).omit({ id: true, createdAt: true });
+export const insertPalletItemSchema = createInsertSchema(palletItems).omit({ id: true, createdAt: true });
+export const insertPalletMovementSchema = createInsertSchema(palletMovements).omit({ id: true, createdAt: true });
+export const insertNfCacheSchema = createInsertSchema(nfCache).omit({ id: true });
+export const insertNfItemSchema = createInsertSchema(nfItems).omit({ id: true });
+export const insertCountingCycleSchema = createInsertSchema(countingCycles).omit({ id: true, createdAt: true });
+export const insertCountingCycleItemSchema = createInsertSchema(countingCycleItems).omit({ id: true, createdAt: true });
+export const insertProductCompanyStockSchema = createInsertSchema(productCompanyStock).omit({ id: true });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -327,6 +496,24 @@ export type Session = typeof sessions.$inferSelect;
 export type SectionGroup = typeof sectionGroups.$inferSelect;
 export type OrderVolume = typeof orderVolumes.$inferSelect;
 export type InsertOrderVolume = z.infer<typeof insertOrderVolumeSchema>;
+export type WmsAddress = typeof wmsAddresses.$inferSelect;
+export type InsertWmsAddress = z.infer<typeof insertWmsAddressSchema>;
+export type Pallet = typeof pallets.$inferSelect;
+export type InsertPallet = z.infer<typeof insertPalletSchema>;
+export type PalletItem = typeof palletItems.$inferSelect;
+export type InsertPalletItem = z.infer<typeof insertPalletItemSchema>;
+export type PalletMovement = typeof palletMovements.$inferSelect;
+export type InsertPalletMovement = z.infer<typeof insertPalletMovementSchema>;
+export type NfCache = typeof nfCache.$inferSelect;
+export type InsertNfCache = z.infer<typeof insertNfCacheSchema>;
+export type NfItem = typeof nfItems.$inferSelect;
+export type InsertNfItem = z.infer<typeof insertNfItemSchema>;
+export type CountingCycle = typeof countingCycles.$inferSelect;
+export type InsertCountingCycle = z.infer<typeof insertCountingCycleSchema>;
+export type CountingCycleItem = typeof countingCycleItems.$inferSelect;
+export type InsertCountingCycleItem = z.infer<typeof insertCountingCycleItemSchema>;
+export type ProductCompanyStock = typeof productCompanyStock.$inferSelect;
+export type InsertProductCompanyStock = z.infer<typeof insertProductCompanyStockSchema>;
 
 export interface BatchSyncItem {
   orderItemId: string;
@@ -354,6 +541,7 @@ export type InsertManualQtyRule = z.infer<typeof insertManualQtyRuleSchema>;
 export const loginSchema = z.object({
   username: z.string().min(1, "Usuário é obrigatório"),
   password: z.string().min(1, "Senha é obrigatória"),
+  companyId: z.number().optional(),
 });
 
 export type LoginInput = z.infer<typeof loginSchema>;
@@ -369,6 +557,11 @@ export type WorkUnitWithDetails = WorkUnit & {
   items: (OrderItem & { product: Product })[];
   lockedByUser?: User | null;
   lockedByName?: string;
+};
+
+export type PalletWithItems = Pallet & {
+  items: PalletItem[];
+  address?: WmsAddress | null;
 };
 
 export type Section = typeof sections.$inferSelect;
