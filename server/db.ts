@@ -2,8 +2,10 @@ import { drizzle } from "drizzle-orm/libsql";
 import { createClient } from "@libsql/client";
 import * as schema from "@shared/schema";
 
+const dbUrl = process.env.SQLITE_URL || "file:wms.db";
+
 const client = createClient({
-    url: process.env.DATABASE_URL || "file:database.db",
+    url: dbUrl,
 });
 
 export const db = drizzle(client, { schema });
@@ -17,6 +19,20 @@ async function runMigrations() {
     const migrations = [
         "ALTER TABLE orders ADD COLUMN separated_at TEXT",
         "ALTER TABLE products ADD COLUMN box_barcodes TEXT",
+        "ALTER TABLE users ADD COLUMN badge_code TEXT",
+        `CREATE TABLE IF NOT EXISTS order_volumes (
+            id TEXT PRIMARY KEY,
+            order_id TEXT NOT NULL REFERENCES orders(id),
+            erp_order_id TEXT NOT NULL,
+            sacola INTEGER NOT NULL DEFAULT 0,
+            caixa INTEGER NOT NULL DEFAULT 0,
+            saco INTEGER NOT NULL DEFAULT 0,
+            avulso INTEGER NOT NULL DEFAULT 0,
+            total_volumes INTEGER NOT NULL DEFAULT 0,
+            created_by TEXT REFERENCES users(id),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )`,
     ];
 
     for (const sql of migrations) {

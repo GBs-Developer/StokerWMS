@@ -42,7 +42,7 @@ export async function registerRoutes(
   const runSync = (callback?: (error: any, success: boolean) => void) => {
     console.log("[Auto-Sync] Triggering DB sync...");
     const scriptPath = path.resolve(process.cwd(), "sync_db2.py");
-    exec(`python "${scriptPath}" --quiet`, { windowsHide: true }, (error, stdout, stderr) => {
+    exec(`python3 "${scriptPath}" --quiet`, { windowsHide: true }, (error, stdout, stderr) => {
       if (error) {
         console.error(`[Sync] Error: ${error.message}`);
         if (callback) callback(error, false);
