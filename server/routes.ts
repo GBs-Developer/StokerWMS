@@ -1,0 +1,2799 @@
+import type { Express, Request, Response } from "express";
+import { createServer, type Server } from "http";
+import cookieParser from "cookie-parser";
+import { storage } from "./storage";
+import { hashPassword, verifyPassword, createAuthSession, isAuthenticated, requireRole, getTokenFromRequest, getUserFromToken, generateBadgeCode } from "./auth";
+import { loginSchema, insertRouteSchema, orderItems, pickingSessions, pickupPoints, type MappingField, datasetEnum, type User, type OrderItem, type Product, type WorkUnit, type Exception, type PickingSession, type ExceptionType, type ManualQtyRule, type UserSettings, BatchSyncPayload } from "@shared/schema";
+import { z } from "zod";
+import { exec, spawn } from "child_process";
+import path from "path";
+import { fileURLToPath } from "url";
+import { setupSSE, broadcastSSE } from "./sse";
+import { db } from "./db";
+import { eq } from "drizzle-orm";
+import { getDataContract, getAvailableDatasets } from "./data-contracts";
+import { log } from "./log";
+
+const LOCK_TTL_MINUTES = 15;
+
+function getClientIp(req: Request): string | undefined {
+  const ip = req.ip;
+  if (Array.isArray(ip)) return ip[0];
+  return ip;
+}
+
+function getUserAgent(req: Request): string | undefined {
+  const ua = req.headers["user-agent"];
+  if (Array.isArray(ua)) return ua[0];
+  return ua;
+}
+
+export async function registerRoutes(
+  httpServer: Server,
+  app: Express
+): Promise<Server> {
+  console.log("[Routes] Registering routes...");
+  app.use(cookieParser());
+
+  // Setup SSE
+  setupSSE(app);
+
+  // Sync helper function
+  const runSync = (callback?: (error: any, success: boolean) => void) => {
+    console.log("[Auto-Sync] Triggering DB sync...");
+    const scriptPath = path.resolve(process.cwd(), "sync_db2.py");
+    exec(`python "${scriptPath}" --quiet`, { windowsHide: true }, (error, stdout, stderr) => {
+      if (error) {
+        console.error(`[Sync] Error: ${error.message}`);
+        if (callback) callback(error, false);
+        return;
+      }
+      if (stderr) {
+        // console.log(`[Sync] Log: ${stderr}`);
+      }
+      console.log("[Sync] Synchronization completed.");
+      if (callback) callback(null, true);
+    });
+  };
+
+  // Schedule auto-sync every 10 minutes (600,000 ms)
+  setInterval(() => {
+    runSync();
+  }, 10 * 60 * 1000);
+
+  // Initial sync on startup (optional, maybe delay a bit)
+  setTimeout(() => {
+    runSync();
+  }, 5000);
+
+  // System Sync Route
+  app.post("/api/sync", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      console.log("[API] Triggering manual DB sync...");
+      runSync((error, success) => {
+        if (error) {
+          return res.status(500).json({ error: "Falha na sincronização", details: error.message });
+        }
+        res.json({ success: true, message: "Sincronização concluída com sucesso" });
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Erro interno ao sincronizar" });
+    }
+  });
+
+  // Handheld: Picking Submit
+  app.post("/api/picking/submit", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { orderId, sectionId, items } = req.body;
+      const userId = (req as any).user.id;
+
+      // 1. Verify Lock
+      const lock = await storage.getPickingSession(orderId, sectionId);
+      if (!lock || lock.userId !== userId) {
+        return res.status(409).json({ error: "Sessão expirada ou inválida. Bloqueie novamente." });
+      }
+
+      // Refresh heartbeat
+      await storage.updatePickingSessionHeartbeat(lock.id);
+
+      // 2. Process Items
+      const updates = [];
+      for (const item of items) {
+        const orderItem = (await storage.getOrderItemsByOrderId(orderId)).find(i => i.id === item.id);
+        if (!orderItem) continue;
+
+        const newQty = Number(item.qtyPicked);
+        const targetQty = Number(orderItem.quantity);
+        const status = newQty >= targetQty ? "separado" : "pendente"; // Using 'pendente' for partial as schema default
+
+        await storage.updateOrderItem(item.id, {
+          qtyPicked: newQty,
+          status: status as any
+        });
+
+        updates.push({ id: item.id, qtyPicked: newQty, status });
+      }
+
+      // Broadcast update
+      broadcastSSE("picking_update", {
+        orderId,
+        sectionId,
+        userId,
+        items: updates
+      });
+
+      // Check if order is fully picked and update status
+      const conferenceUnit = await storage.checkAndUpdateOrderStatus(orderId);
+
+      if (conferenceUnit) {
+        broadcastSSE("work_unit_created", conferenceUnit);
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Picking submit error:", error);
+      res.status(500).json({ error: "Erro ao salvar separação" });
+    }
+  });
+
+  // Handheld: Locking Routes
+  app.post("/api/lock", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { orderId, sectionId } = req.body;
+      const userId = (req as any).user.id;
+
+      // 1. Check if locked by someone else
+      const existing = await storage.getPickingSession(orderId, sectionId);
+      if (existing) {
+        if (existing.userId !== userId) {
+          // Check if expired
+          const minutesSinceHeartbeat = (Date.now() - new Date(existing.lastHeartbeat).getTime()) / 1000 / 60;
+          if (minutesSinceHeartbeat < 2) { // 2 mins TTL for heartbeat
+            return res.status(409).json({
+              error: "Bloqueado",
+              lockedBy: existing.userId,
+              message: "Seção sendo separada por outro usuário"
+            });
+          } else {
+            // Expired, steal lock
+            await storage.deletePickingSession(orderId, sectionId);
+          }
+        } else {
+          // Self-lock, just refresh
+          await storage.updatePickingSessionHeartbeat(existing.id);
+          return res.json({ success: true, sessionId: existing.id });
+        }
+      }
+
+      // 2. Create lock
+      const session = await storage.createPickingSession({
+        userId,
+        orderId,
+        sectionId,
+      });
+
+      broadcastSSE("lock_acquired", { orderId, sectionId, userId });
+
+      res.json({ success: true, sessionId: session.id });
+    } catch (error) {
+      console.error("Lock error:", error);
+      res.status(500).json({ error: "Erro ao bloquear seção" });
+    }
+  });
+
+  app.post("/api/heartbeat", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { sessionId } = req.body;
+      await storage.updatePickingSessionHeartbeat(sessionId);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Erro no heartbeat" });
+    }
+  });
+
+  app.post("/api/unlock", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { orderId, sectionId } = req.body;
+      await storage.deletePickingSession(orderId, sectionId);
+
+      broadcastSSE("lock_released", { orderId, sectionId });
+
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Erro ao desbloquear" });
+    }
+  });
+
+  // Auth routes
+  app.post("/api/auth/login", async (req: Request, res: Response) => {
+    try {
+      const data = loginSchema.parse(req.body);
+      const user = await storage.getUserByUsername(data.username);
+
+      if (!user || !await verifyPassword(data.password, user.password)) {
+        return res.status(401).json({ error: "Credenciais inválidas" });
+      }
+
+      if (!user.active) {
+        return res.status(401).json({ error: "Usuário inativo" });
+      }
+
+      const { token, sessionKey } = await createAuthSession(user.id);
+
+      res.cookie("authToken", token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+      });
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "login",
+        entityType: "user",
+        entityId: user.id,
+        details: "Login realizado",
+        ipAddress: getClientIp(req),
+        userAgent: getUserAgent(req),
+      });
+
+      const { password: _, ...safeUser } = user;
+      res.json({ user: safeUser, sessionKey, token });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Dados inválidos" });
+      }
+      console.error("Login error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.post("/api/auth/logout", async (req: Request, res: Response) => {
+    const token = getTokenFromRequest(req);
+    if (token) {
+      try {
+        const result = await getUserFromToken(token);
+        if (result) {
+          await storage.createAuditLog({
+            userId: result.user.id,
+            action: "logout",
+            entityType: "user",
+            entityId: result.user.id,
+            details: "Logout realizado",
+            ipAddress: getClientIp(req),
+            userAgent: getUserAgent(req),
+          });
+          (req as any).user = result.user;
+        }
+        await storage.deleteSession(token);
+      } catch { }
+    }
+    res.clearCookie("authToken");
+    res.json({ success: true });
+  });
+
+  app.get("/api/auth/me", isAuthenticated, (req: Request, res: Response) => {
+    const user = (req as any).user;
+    const sessionKey = (req as any).sessionKey;
+    const { password: _, ...safeUser } = user;
+    res.json({ user: safeUser, sessionKey });
+  });
+
+  // Users routes
+  app.get("/api/users", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const users = await storage.getAllUsers();
+      const safeUsers = users.map(({ password: _, ...u }) => u);
+      res.json(safeUsers);
+    } catch (error) {
+      console.error("Get users error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.post("/api/users", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const { username, password, name, role, sections, settings, active } = req.body;
+
+      const existing = await storage.getUserByUsername(username);
+      if (existing) {
+        return res.status(400).json({ error: "Usuário já existe" });
+      }
+
+      const hashedPassword = await hashPassword(password);
+
+      let userSections = sections || [];
+      if (role === "conferencia" || role === "balcao") {
+        const allSections = await storage.getAllSections();
+        userSections = allSections.map((s: any) => String(s.id));
+      }
+
+      const badgeCode = generateBadgeCode(username, password);
+
+      const user = await storage.createUser({
+        username,
+        password: hashedPassword,
+        name,
+        role,
+        sections: userSections,
+        settings: settings || {},
+        active: active !== undefined ? active : true,
+        badgeCode,
+      });
+
+      await storage.createAuditLog({
+        userId: (req as any).user.id,
+        action: "create_user",
+        entityType: "user",
+        entityId: user.id,
+        details: `Usuário ${username} criado`,
+        ipAddress: getClientIp(req),
+        userAgent: getUserAgent(req),
+      });
+
+      const { password: _, ...safeUser } = user;
+      res.json(safeUser);
+    } catch (error) {
+      console.error("Create user error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.patch("/api/users/:id", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const id = req.params.id as string;
+      const { password, ...updates } = req.body;
+
+      const user = await storage.getUser(id);
+      if (!user) {
+        return res.status(404).json({ error: "Usuário não encontrado" });
+      }
+
+      const updateData: Partial<typeof user> = { ...updates };
+
+      if (password && password.trim() !== "") {
+        updateData.password = await hashPassword(password);
+        updateData.badgeCode = generateBadgeCode(user.username, password);
+      }
+
+      const targetRole = updateData.role || user.role;
+      if (targetRole === "conferencia" || targetRole === "balcao") {
+        const allSections = await storage.getAllSections();
+        updateData.sections = allSections.map((s: any) => String(s.id));
+      }
+
+      const updatedUser = await storage.updateUser(id, updateData);
+      // console.log(`[DEBUG] Update result:`, updatedUser ? "Success" : "Failed (undefined return)");
+
+      if (updatedUser) {
+        await storage.createAuditLog({
+          userId: (req as any).user.id,
+          action: "update_user",
+          entityType: "user",
+          entityId: updatedUser.id,
+          details: `Usuário ${updatedUser.username} atualizado`,
+          ipAddress: getClientIp(req),
+          userAgent: getUserAgent(req),
+        });
+
+        const { password: _, ...safeUser } = updatedUser;
+        res.json(safeUser);
+      } else {
+        res.status(500).json({ error: "Falha ao atualizar usuário - retorno vazio do banco" });
+      }
+    } catch (error) {
+      console.error("Update user error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.get("/api/queue/balcao", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const wus = await storage.getWorkUnits("balcao");
+      const activeOrders = new Map<string, {
+        orderId: string;
+        erpOrderId: string;
+        customerCode: string | null;
+        customerName: string;
+        vendedor: string | null;
+        totalProducts: number;
+        financialStatus: string;
+        status: string;
+        operatorName: string | null;
+        startedAt: string | null;
+        lockedAt: string | null;
+      }>();
+
+      for (const wu of wus) {
+        if (!wu.lockedBy || wu.status === "concluido") continue;
+        if (wu.order.status === "finalizado") continue;
+
+        const existing = activeOrders.get(wu.orderId);
+        if (!existing) {
+          activeOrders.set(wu.orderId, {
+            orderId: wu.orderId,
+            erpOrderId: wu.order.erpOrderId,
+            customerCode: wu.order.customerCode,
+            customerName: wu.order.customerName,
+            vendedor: wu.order.observation || null,
+            totalProducts: wu.items.length,
+            financialStatus: wu.order.financialStatus || "pendente",
+            status: wu.order.status,
+            operatorName: wu.lockedByName || null,
+            startedAt: wu.startedAt || wu.lockedAt || null,
+            lockedAt: wu.lockedAt || null,
+          });
+        } else {
+          existing.totalProducts += wu.items.length;
+        }
+      }
+
+      res.json(Array.from(activeOrders.values()));
+    } catch (error) {
+      console.error("Get balcao queue error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.get("/api/pickup-points", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const result = await db.select().from(pickupPoints).where(eq(pickupPoints.active, true)).orderBy(pickupPoints.id);
+      res.json(result);
+    } catch (error) {
+      console.error("Get pickup points error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.get("/api/sections", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const sections = await storage.getAllSections();
+      res.json(sections);
+    } catch (error) {
+      console.error("Get sections error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  // Section Groups endpoints
+  app.get("/api/sections/groups", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const groups = await storage.getAllSectionGroups();
+      res.json(groups);
+    } catch (error) {
+      console.error("Get section groups error:", error);
+      res.status(500).json({ error: "Erro ao buscar grupos de seções" });
+    }
+  });
+
+  app.post("/api/sections/groups", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+
+      const { name, sections } = req.body;
+
+      if (!name || !sections || !Array.isArray(sections)) {
+
+        return res.status(400).json({ error: "Nome e seções são obrigatórios" });
+      }
+
+      const newGroup = await storage.createSectionGroup({ name, sections });
+
+      res.json(newGroup);
+    } catch (error) {
+      console.error("Create section group error:", error);
+      res.status(500).json({ error: "Erro ao criar grupo de seções", details: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.put("/api/sections/groups/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const id = req.params.id as string;
+      const { name, sections } = req.body;
+
+      const updates: Partial<{ name: string; sections: string[] }> = {};
+      if (name) updates.name = name;
+      if (sections && Array.isArray(sections)) updates.sections = sections;
+
+      const updated = await storage.updateSectionGroup(id, updates);
+      if (!updated) {
+        return res.status(404).json({ error: "Grupo não encontrado" });
+      }
+      res.json(updated);
+    } catch (error) {
+      console.error("Update section group error:", error);
+      res.status(500).json({ error: "Erro ao atualizar grupo de seções" });
+    }
+  });
+
+  app.delete("/api/sections/groups/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const id = req.params.id as string;
+      await storage.deleteSectionGroup(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Delete section group error:", error);
+      res.status(500).json({ error: "Erro ao excluir grupo de seções" });
+    }
+  });
+
+
+  // Routes (delivery routes)
+  app.get("/api/routes", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const routes = await storage.getAllRoutes();
+      res.json(routes);
+    } catch (error) {
+      console.error("Get routes error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.post("/api/routes", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const data = insertRouteSchema.parse(req.body);
+      const route = await storage.createRoute(data);
+      res.json(route);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Dados inválidos", details: error.errors });
+      }
+      console.error("Create route error:", error);
+      res.status(500).json({ error: "Erro interno", details: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.patch("/api/routes/:id", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const id = req.params.id as string;
+
+      const data = insertRouteSchema.partial().parse(req.body);
+      const route = await storage.updateRoute(id, data);
+
+      if (!route) return res.status(404).json({ error: "Rota não encontrada" });
+      broadcastSSE("route_updated", { routeId: id, active: route.active });
+      res.json(route);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: "Dados inválidos", details: error.errors });
+      }
+      console.error("Update route error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.delete("/api/routes/:id", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const id = req.params.id as string;
+
+      const route = await storage.toggleRouteActive(id, false);
+      if (!route) return res.status(404).json({ error: "Rota não encontrada" });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Delete route error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  // Orders routes
+  app.get("/api/orders", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const orders = await storage.getAllOrders();
+      res.json(orders);
+    } catch (error) {
+      console.error("Get orders error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.get("/api/orders/by-erp/:erpOrderId", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { db: database } = await import("./db");
+      const { orders: ordersTable } = await import("@shared/schema");
+      const { eq: eqFn } = await import("drizzle-orm");
+      const [order] = await database.select().from(ordersTable)
+        .where(eqFn(ordersTable.erpOrderId, (req.params.erpOrderId as string).trim()));
+      if (!order) return res.status(404).json({ error: "Pedido não encontrado" });
+      res.json(order);
+    } catch (error) {
+      console.error("Order by ERP ID error:", error);
+      res.status(500).json({ error: "Erro ao buscar pedido" });
+    }
+  });
+
+  app.get("/api/orders/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const order = await storage.getOrderWithItems(req.params.id as string);
+      if (!order) {
+        return res.status(404).json({ error: "Pedido não encontrado" });
+      }
+      res.json(order);
+    } catch (error) {
+      console.error("Get order error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.post("/api/orders/assign-route", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const { orderIds, routeId } = req.body;
+
+      if (!orderIds || !Array.isArray(orderIds) || orderIds.length === 0) {
+        return res.status(400).json({ error: "Selecione pelo menos um pedido" });
+      }
+
+      // routeId is UUID string or null/undefined
+      const targetRouteId = routeId || null;
+
+      if (routeId && typeof routeId !== 'string') {
+        return res.status(400).json({ error: "ID da rota inválido" });
+      }
+
+      // Validate if route exists
+      if (targetRouteId) {
+        const routes = await storage.getAllRoutes();
+        const routeExists = routes.find(r => r.id === targetRouteId);
+        if (!routeExists) {
+          return res.status(400).json({ error: "Rota não encontrada", details: `Rota ID ${targetRouteId} não existe.` });
+        }
+      }
+
+      await storage.assignRouteToOrders(orderIds, targetRouteId);
+
+      await storage.createAuditLog({
+        userId: (req as any).user.id,
+        action: "assign_route",
+        entityType: "order",
+        details: `Rota ${routeId} atribuída a ${orderIds.length} pedidos`,
+        ipAddress: getClientIp(req),
+        userAgent: getUserAgent(req),
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Assign route error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.post("/api/orders/relaunch", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const { orderIds } = req.body;
+
+      if (!Array.isArray(orderIds)) {
+        return res.status(400).json({ error: "IDs inválidos" });
+      }
+
+      for (const id of orderIds) {
+        await storage.relaunchOrder(id);
+      }
+
+      await storage.createAuditLog({
+        userId: (req as any).user.id,
+        action: "relaunch_orders",
+        entityType: "order",
+        details: `Recontagem autorizada para ${orderIds.length} pedidos`,
+        ipAddress: getClientIp(req),
+        userAgent: getUserAgent(req),
+      });
+
+      broadcastSSE("orders_relaunched", { orderIds });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Relaunch order error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.post("/api/orders/set-priority", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const { orderIds, priority } = req.body;
+      await storage.setOrderPriority(orderIds, priority);
+
+      await storage.createAuditLog({
+        userId: (req as any).user.id,
+        action: "set_priority",
+        entityType: "order",
+        details: `Prioridade ${priority} definida para ${orderIds.length} pedidos`,
+        ipAddress: getClientIp(req),
+        userAgent: getUserAgent(req),
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Set priority error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.post("/api/orders/launch", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const { orderIds, loadCode: requestedLoadCode } = req.body;
+
+      // Auto-generate a 4-digit load code if not provided
+      const loadCode = requestedLoadCode || Math.floor(1000 + Math.random() * 9000).toString();
+
+      const toLaunch: string[] = [];
+      const toRelaunch: string[] = [];
+
+      // Verify orders
+      for (const orderId of orderIds) {
+        const order = await storage.getOrderById(orderId);
+        if (!order) continue;
+
+        if (!order.routeId) {
+          // Skip orders without routes
+          return res.status(400).json({
+            error: "Ação bloqueada",
+            details: `O pedido ${order.erpOrderId} não possui rota atribuída. Por favor, atribua uma rota antes de lançar.`
+          });
+        }
+
+        if (order.isLaunched) {
+          // Allow relaunch only if finished
+          const allowedStatuses = ["separado", "conferido", "finalizado", "cancelado"];
+
+          if (allowedStatuses.includes(order.status)) {
+            // Can relaunch - add to relaunch list
+            toRelaunch.push(orderId);
+          } else {
+            // Error if trying to launch an in-progress order
+            return res.status(400).json({
+              error: "Ação bloqueada",
+              details: `O pedido ${order.erpOrderId} já foi lançado e está em processo de separação.`
+            });
+          }
+        } else {
+          // Launch the order (force status update even if inconsistent)
+          console.log(`[Launch] Preparing to launch order ${orderId}, current status: ${order.status}`);
+          toLaunch.push(orderId);
+        }
+      }
+
+      if (toLaunch.length > 0) {
+        await storage.launchOrders(toLaunch, loadCode);
+        broadcastSSE("orders_launched", { orderIds: toLaunch });
+      }
+
+      for (const id of toRelaunch) {
+        await storage.relaunchOrder(id);
+      }
+      if (toRelaunch.length > 0) {
+        broadcastSSE("orders_relaunched", { orderIds: toRelaunch });
+      }
+
+      await storage.createAuditLog({
+        userId: (req as any).user.id,
+        action: "launch_orders",
+        entityType: "order",
+        details: `Lançados ${orderIds.length} pedidos sob Carga/Pacote ${loadCode}`,
+        ipAddress: getClientIp(req),
+        userAgent: getUserAgent(req),
+      });
+
+      res.json({ success: true, loadCode });
+    } catch (error) {
+      console.error("Launch orders error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.post("/api/orders/cancel-launch", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const { orderIds } = req.body;
+
+      if (!Array.isArray(orderIds) || orderIds.length === 0) {
+        return res.status(400).json({ error: "IDs de pedidos inválidos" });
+      }
+
+      // Process each order
+      for (const orderId of orderIds) {
+        const order = await storage.getOrderById(orderId);
+        if (!order) {
+          return res.status(404).json({
+            error: "Pedido não encontrado",
+            details: `Pedido ${orderId} não existe.`
+          });
+        }
+
+        // Check if order was launched
+        if (!order.isLaunched) {
+          return res.status(400).json({
+            error: "Ação bloqueada",
+            details: `O pedido ${order.erpOrderId} não foi lançado para separação.`
+          });
+        }
+
+        // Check order status - only allow cancellation for specific statuses
+        // "conferido" incluído: é a única ação permitida para pedidos já conferidos
+        const allowedStatuses = ["pendente", "em_separacao", "separado", "conferido"];
+
+        if (!allowedStatuses.includes(order.status)) {
+          return res.status(400).json({
+            error: "Ação bloqueada",
+            details: `O pedido ${order.erpOrderId} está com status '${order.status}' e não pode ter o lançamento cancelado. Apenas pedidos com status 'Pendente a Separar', 'Em Separação', 'Separado' ou 'Conferido' podem ser cancelados.`
+          });
+        }
+
+        // Check for active picking sessions
+        const activeSessions = await storage.getPickingSessionsByOrder(orderId);
+
+        if (activeSessions.length > 0) {
+          // Get operator name from first session
+          const session = activeSessions[0];
+          const operator = await storage.getUser(session.userId);
+          const operatorName = operator ? operator.name : "Operador desconhecido";
+
+          return res.status(400).json({
+            error: "Ação bloqueada",
+            details: `Pedido não pode ser cancelado pois o operador '${operatorName}' está com o pedido em aberto.`
+          });
+        }
+
+        // Cancel the launch
+        await storage.cancelOrderLaunch(orderId);
+
+        // Create audit log
+        await storage.createAuditLog({
+          userId: (req as any).user.id,
+          action: "cancel_launch",
+          entityType: "order",
+          entityId: orderId,
+          details: `Lançamento cancelado para pedido ${order.erpOrderId}`,
+          ipAddress: getClientIp(req),
+          userAgent: getUserAgent(req),
+        });
+      }
+
+      // Broadcast SSE notification
+      broadcastSSE("orders_launch_cancelled", { orderIds });
+
+      res.json({ success: true, message: "Lançamento cancelado com sucesso" });
+    } catch (error) {
+      console.error("Cancel launch error:", error);
+      res.status(500).json({ error: "Erro interno ao cancelar lançamento" });
+    }
+  });
+
+  // POST /api/orders/force-status — admin only: force order status (e.g. 'separado', 'conferido')
+  app.post("/api/orders/force-status", isAuthenticated, requireRole("administrador"), async (req: Request, res: Response) => {
+    try {
+      const { orderIds, status } = req.body;
+      const allowedStatuses = ["separado", "conferido"];
+      if (!Array.isArray(orderIds) || orderIds.length === 0) {
+        return res.status(400).json({ error: "IDs de pedidos inválidos" });
+      }
+      if (!allowedStatuses.includes(status)) {
+        return res.status(400).json({ error: `Status '${status}' não permitido. Use: ${allowedStatuses.join(", ")}` });
+      }
+
+      const skipped: string[] = [];
+      const updated: string[] = [];
+
+      for (const orderId of orderIds) {
+        const order = await storage.getOrderById(orderId);
+        if (!order) {
+          skipped.push(`${orderId} (não encontrado)`);
+          continue;
+        }
+        // Must be launched first
+        if (!order.isLaunched) {
+          skipped.push(`${order.erpOrderId} (não lançado)`);
+          continue;
+        }
+        // Already at target status
+        if (order.status === status) {
+          const label = status === "separado" ? "Separado" : "Conferido";
+          skipped.push(`${order.erpOrderId} (já está como ${label})`);
+          continue;
+        }
+        // Bug 3/6: Block invalid transitions to "separado"
+        // Cannot go back from "conferido" or "em_conferencia" to "separado"
+        if (status === "separado" && (order.status === "conferido" || order.status === "em_conferencia")) {
+          const label = order.status === "conferido" ? "Conferido" : "Em Conferência";
+          skipped.push(`${order.erpOrderId} (status '${label}' — não é possível retornar para Separado)`);
+          continue;
+        }
+
+        await storage.updateOrder(orderId, { status });
+
+        // Bug 1 (fix): When forcing to "separado", directly ensure a conferencia WU exists.
+        // checkAndUpdateOrderStatus cannot be used here because it requires all separation
+        // WUs to be "concluido" — which is not the case in a force-status flow.
+        if (status === "separado") {
+          const { db: database } = await import("./db");
+          const { workUnits: workUnitsTable } = await import("@shared/schema");
+          const { eq: eqFn, and: andFn } = await import("drizzle-orm");
+
+          const existingConf = await database
+            .select()
+            .from(workUnitsTable)
+            .where(andFn(
+              eqFn(workUnitsTable.orderId, orderId),
+              eqFn(workUnitsTable.type, "conferencia")
+            ))
+            .limit(1);
+
+          if (existingConf.length === 0) {
+            await database.insert(workUnitsTable).values({
+              orderId,
+              type: "conferencia",
+              status: "pendente",
+              pickupPoint: 0,
+            });
+          }
+        }
+
+        await storage.createAuditLog({
+          userId: (req as any).user.id,
+          action: "force_status",
+          entityType: "order",
+          entityId: orderId,
+          details: `Status forçado para '${status}' pelo administrador`,
+          ipAddress: getClientIp(req),
+          userAgent: getUserAgent(req),
+        });
+        updated.push(orderId);
+      }
+
+      if (updated.length > 0) {
+        broadcastSSE("orders_status_forced", { orderIds: updated, status });
+      }
+
+      if (skipped.length > 0 && updated.length === 0) {
+        return res.status(400).json({
+          error: "Nenhum pedido atualizado",
+          details: skipped.join("; "),
+        });
+      }
+
+      res.json({
+        success: true,
+        updated: updated.length,
+        skipped: skipped.length > 0 ? skipped : undefined,
+      });
+    } catch (error) {
+      console.error("Force status error:", error);
+      res.status(500).json({ error: "Erro interno ao alterar status" });
+    }
+  });
+
+  // Bug 7: Get order IDs that have at least one item matching the given pickup points
+  app.get("/api/orders/ids-by-pickup-points", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const ppParam = req.query.pp;
+      const ppList = Array.isArray(ppParam) ? ppParam : ppParam ? [ppParam] : [];
+      const ppInts = ppList.map(p => parseInt(p as string)).filter(p => !isNaN(p));
+
+      if (ppInts.length === 0) {
+        return res.json({ orderIds: [] });
+      }
+
+      const { db: database } = await import("./db");
+      const { orderItems: orderItemsTable } = await import("@shared/schema");
+      const { inArray: inArrayFn, sql: sqlFn } = await import("drizzle-orm");
+
+      const rows = await database
+        .select({
+          orderId: orderItemsTable.orderId,
+          itemCount: sqlFn<number>`count(distinct ${orderItemsTable.productId})`
+        })
+        .from(orderItemsTable)
+        .where(inArrayFn(orderItemsTable.pickupPoint, ppInts))
+        .groupBy(orderItemsTable.orderId);
+
+      res.json({ orderIds: rows.map(r => r.orderId), counts: rows });
+    } catch (error) {
+      console.error("ids-by-pickup-points error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  // Stats
+  app.get("/api/stats", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const stats = await storage.getOrderStats();
+      res.json(stats);
+    } catch (error) {
+      console.error("Get stats error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  // Reports
+  app.post("/api/reports/picking-list", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const { orderIds, pickupPoints, sections } = req.body;
+      const data = await storage.getPickingListReportData({ orderIds, pickupPoints, sections });
+      res.json(data);
+    } catch (error) {
+      console.error("Get picking list report error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.get("/api/reports/loading-map/:loadCode", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const loadCode = req.params.loadCode;
+      if (!loadCode) {
+        return res.status(400).json({ error: "Missing loadCode parameter" });
+      }
+      const data = await storage.getLoadingMapReportData(loadCode as string);
+      res.json(data);
+    } catch (error: any) {
+      console.error("Error generating loading map:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Work Units routes
+  app.get("/api/work-units", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const type = req.query.type as string | undefined;
+      const allWorkUnits = await storage.getWorkUnits(type);
+
+      // Filter: only return work units belonging to launched orders
+      const launched = allWorkUnits.filter(wu => wu.order?.isLaunched === true);
+
+      // Explicit stringify to catch circular/non-serializable objects early
+      const json = JSON.stringify(launched);
+      res.setHeader("Content-Type", "application/json");
+      res.send(json);
+    } catch (error) {
+      console.error("Get work units error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.post("/api/work-units/unlock", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { workUnitIds, reset } = req.body;
+      const userId = (req as any).user.id;
+
+      const affectedOrderIds = new Set<string>();
+      let isConferenciaUnlock = false;
+      
+      for (const wuId of workUnitIds) {
+        const wu = await storage.getWorkUnitById(wuId);
+        // BUGFIX SAFEGUARD: Do not allow resetting a concluded unit!
+        if (reset && wu?.status === "concluido") continue;
+        if (wu?.orderId) affectedOrderIds.add(wu.orderId);
+      }
+
+      // Desbloquear (seguro para todas, mesmo concluídas se caírem no array)
+      await storage.unlockWorkUnits(workUnitIds);
+
+      if (reset) {
+        for (const id of workUnitIds) {
+          const wu = await storage.getWorkUnitById(id);
+          if (wu?.status === "concluido") continue; // skip actually resetting progress
+          
+          if (wu?.type === "conferencia") {
+            isConferenciaUnlock = true;
+            await storage.resetConferenciaProgress(id);
+          } else if (wu) {
+            await storage.resetWorkUnitProgress(id);
+          }
+        }
+        for (const orderId of affectedOrderIds) {
+          // Apenas reverter pedido para separado se tivermos resetado uma conferência válida
+          if (isConferenciaUnlock) {
+            await storage.updateOrder(orderId, { status: "separado" });
+          } else {
+            await storage.updateOrder(orderId, { status: "pendente" });
+          }
+        }
+      }
+
+      if (!isConferenciaUnlock) {
+        for (const orderId of affectedOrderIds) {
+          await storage.recalculateOrderStatus(orderId);
+        }
+      }
+
+      await storage.createAuditLog({
+        userId,
+        action: "unlock_work_units",
+        entityType: "work_unit",
+        details: `${workUnitIds.length} unidades desbloqueadas${reset ? ' e resetadas' : ''}`,
+        ipAddress: getClientIp(req),
+        userAgent: getUserAgent(req),
+      });
+
+      broadcastSSE("work_units_unlocked", { workUnitIds, affectedOrderIds: [...affectedOrderIds] });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Unlock work units error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.post("/api/work-units/lock", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { workUnitIds } = req.body;
+      const userId = (req as any).user.id;
+      const expiresAt = new Date(Date.now() + LOCK_TTL_MINUTES * 60 * 1000);
+
+      await storage.lockWorkUnits(workUnitIds, userId, expiresAt);
+
+      await storage.createAuditLog({
+        userId,
+        action: "lock_work_units",
+        entityType: "work_unit",
+        details: `${workUnitIds.length} unidades bloqueadas`,
+        ipAddress: getClientIp(req),
+        userAgent: getUserAgent(req),
+      });
+
+      res.json({ success: true, expiresAt });
+    } catch (error) {
+      console.error("Lock work units error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.post("/api/work-units/batch/scan-cart", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { workUnitIds, qrCode } = req.body;
+
+      if (!Array.isArray(workUnitIds) || workUnitIds.length === 0) {
+        return res.status(400).json({ error: "IDs das unidades de trabalho são obrigatórios" });
+      }
+
+      const results = [];
+      const orderIdsToUpdate = new Set<string>();
+
+      // Processar atualizações em paralelo (limitado pelo banco, mas OK para SQLite neste volume)
+      for (const id of workUnitIds) {
+        const workUnit = await storage.getWorkUnitById(id);
+        if (!workUnit) continue;
+
+        await storage.updateWorkUnit(id, {
+          cartQrCode: qrCode,
+          status: "em_andamento",
+          startedAt: new Date().toISOString()
+        });
+
+        if (workUnit.orderId) {
+          orderIdsToUpdate.add(workUnit.orderId);
+        }
+
+        results.push(id);
+      }
+
+      // Atualizar status dos pedidos
+      for (const orderId of orderIdsToUpdate) {
+        const order = await storage.getOrderById(orderId);
+        if (order && order.status === "pendente") {
+          await storage.updateOrder(orderId, {
+            status: "em_separacao",
+            updatedAt: new Date().toISOString()
+          });
+        }
+        // Broadcast genérico por pedido para evitar spam de SSE
+        broadcastSSE("picking_started", { orderId, userId: (req as any).user.id });
+      }
+
+
+
+      res.json({ success: true, updatedCount: results.length });
+    } catch (error) {
+      console.error("Batch scan cart error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+
+  app.post("/api/orders/batch/start-conference", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { workUnitIds } = req.body;
+
+      if (!Array.isArray(workUnitIds) || workUnitIds.length === 0) {
+        return res.status(400).json({ error: "IDs das unidades de trabalho são obrigatórios" });
+      }
+
+      const results = [];
+      const orderIdsToUpdate = new Set<string>();
+
+      for (const id of workUnitIds) {
+        const workUnit = await storage.getWorkUnitById(id);
+        if (!workUnit) continue;
+
+        await storage.updateWorkUnit(id, {
+          status: "em_andamento",
+          startedAt: new Date().toISOString()
+        });
+
+        if (workUnit.orderId) {
+          orderIdsToUpdate.add(workUnit.orderId);
+        }
+
+        results.push(id);
+      }
+
+      // Atualizar status dos pedidos
+      for (const orderId of orderIdsToUpdate) {
+        const order = await storage.getOrderById(orderId);
+        // Only update if previously separated or pending? allowedStatuses for conference start:
+        // Usually from 'separado'. 
+        if (order && (order.status === "separado" || order.status === "pendente")) {
+          await storage.updateOrder(orderId, {
+            status: "em_conferencia",
+            updatedAt: new Date().toISOString()
+          });
+        }
+        // Broadcast generic event
+        broadcastSSE("conference_started", { orderId, userId: (req as any).user.id });
+      }
+
+      res.json({ success: true, updatedCount: results.length });
+    } catch (error) {
+      console.error("Batch start conference error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.post("/api/work-units/:id/scan-cart", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { qrCode } = req.body;
+      const workUnit = await storage.getWorkUnitById(req.params.id as string);
+
+      if (!workUnit) {
+        return res.status(404).json({ error: "Unidade não encontrada" });
+      }
+
+      await storage.updateWorkUnit(req.params.id as string, {
+        cartQrCode: qrCode,
+        status: "em_andamento",
+        startedAt: new Date().toISOString()
+      });
+
+      // Update Order Status to "em_separacao" if it's "pendente"
+      if (workUnit.orderId) {
+        const order = await storage.getOrderById(workUnit.orderId);
+        if (order && order.status === "pendente") {
+          await storage.updateOrder(workUnit.orderId, {
+            status: "em_separacao",
+            updatedAt: new Date().toISOString()
+          });
+        }
+      }
+
+      broadcastSSE("picking_started", { workUnitId: req.params.id, orderId: workUnit.orderId, userId: (req as any).user.id });
+
+      const updated = await storage.getWorkUnitById(req.params.id as string);
+
+      res.json({ workUnit: updated });
+    } catch (error) {
+      console.error("Scan cart error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.post("/api/work-units/:id/scan-pallet", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { qrCode } = req.body;
+      const workUnit = await storage.getWorkUnitById(req.params.id as string);
+
+      if (!workUnit) {
+        return res.status(404).json({ error: "Unidade não encontrada" });
+      }
+
+      await storage.updateWorkUnit(req.params.id as string, { palletQrCode: qrCode, status: "em_andamento", startedAt: new Date().toISOString() });
+
+      if (workUnit.orderId) {
+        const order = await storage.getOrderById(workUnit.orderId);
+        if (order && order.status === "separado") {
+          await storage.updateOrder(workUnit.orderId, { status: "em_conferencia", updatedAt: new Date().toISOString() });
+        }
+      }
+
+      broadcastSSE("conference_started", { workUnitId: req.params.id, orderId: workUnit.orderId, userId: (req as any).user.id });
+
+      const updated = await storage.getWorkUnitById(req.params.id as string);
+
+      res.json({ workUnit: updated });
+    } catch (error) {
+      console.error("Scan pallet error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.post("/api/work-units/:id/scan-item", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { barcode } = req.body;
+      const workUnit = await storage.getWorkUnitById(req.params.id as string);
+
+      if (!workUnit) {
+        return res.status(404).json({ error: "Unidade não encontrada" });
+      }
+
+      const product = await storage.getProductByBarcode(barcode);
+      if (!product) {
+        return res.json({ status: "not_found" });
+      }
+
+      const item = workUnit.items.find(i => i.productId === product.id);
+      if (!item) {
+        return res.json({ status: "not_found" });
+      }
+
+      const currentQty = Number(item.separatedQty);
+      const targetQty = Number(item.quantity);
+      const exceptionQty = Number(item.exceptionQty || 0);
+      const adjustedTarget = targetQty - exceptionQty;
+
+      // If trying to scan more than adjusted target (accounting for exceptions)
+      if (currentQty >= adjustedTarget) {
+        // If there are exceptions, reset and inform user
+        if (exceptionQty > 0) {
+          await storage.updateOrderItem(item.id, {
+            separatedQty: 0,
+            status: "recontagem",
+          });
+          // Also reset work unit status if it was completed
+          // Também resetar status do pedido se estava como separado
+          const order = await storage.getOrderById(workUnit.orderId);
+          if (order && order.status === "separado") {
+            await storage.updateOrder(workUnit.orderId, { status: "em_separacao" });
+          }
+          await storage.updateWorkUnit(req.params.id as string, { status: "em_andamento" });
+
+          const resetWorkUnit = await storage.getWorkUnitById(req.params.id as string);
+
+          return res.json({
+            status: "over_quantity_with_exception",
+            workUnit: resetWorkUnit,
+            product,
+            quantity: 1,
+            exceptionQty,
+            message: `Este item tem ${exceptionQty} unidade(s) com exceção. Quantidade disponível para separar: ${adjustedTarget}. Separação resetada, bipe novamente.`
+          });
+        }
+        // No exceptions, just over quantity - RESET behavior requested
+        await storage.updateOrderItem(item.id, {
+          separatedQty: 0,
+          status: "recontagem",
+        });
+        // Also reset work unit status if it was completed
+        await storage.updateWorkUnit(req.params.id as string, { status: "em_andamento" });
+
+        const resetWorkUnit = await storage.getWorkUnitById(req.params.id as string);
+
+        return res.json({
+          status: "over_quantity",
+          product,
+          quantity: 1,
+          workUnit: resetWorkUnit, // Return the reset work unit!
+          message: `Quantidade excedida! Separação resetada. Bipe os ${adjustedTarget} itens novamente.`
+        });
+      }
+
+      // Calculate multiplier from box barcodes
+      let multiplier = 1;
+      if (product.barcode !== barcode && product.boxBarcodes && Array.isArray(product.boxBarcodes)) {
+        const bx = product.boxBarcodes.find((b: any) => b.code === barcode);
+        if (bx && bx.qty) multiplier = bx.qty;
+      }
+
+      // Aceitar quantidade opcional do frontend (padrão = 1) e multiplicar caso seja código de caixa
+      const requestedQty = Number(req.body.quantity || 1) * multiplier;
+      const availableQty = adjustedTarget - currentQty;
+
+      // Se a quantidade solicitada exceder o disponível, aplicar regra de reset
+      if (requestedQty > availableQty) {
+        // Reset to zero as per user requirement
+        await storage.updateOrderItem(item.id, {
+          separatedQty: 0,
+          status: "recontagem",
+        });
+        // Também resetar status do pedido se estava como separado
+        const order = await storage.getOrderById(workUnit.orderId);
+        if (order && order.status === "separado") {
+          await storage.updateOrder(workUnit.orderId, { status: "em_separacao" });
+        }
+        await storage.updateWorkUnit(req.params.id as string, { status: "em_andamento" });
+
+        const resetWorkUnit = await storage.getWorkUnitById(req.params.id as string);
+
+        if (exceptionQty > 0) {
+          return res.json({
+            status: "over_quantity_with_exception",
+            workUnit: resetWorkUnit,
+            product,
+            quantity: requestedQty,
+            exceptionQty,
+            message: `Este item tem ${exceptionQty} unidade(s) com exceção. Quantidade disponível: ${availableQty}. Separação resetada.`
+          });
+        }
+
+        return res.json({
+          status: "over_quantity",
+          product,
+          quantity: requestedQty,
+          workUnit: resetWorkUnit,
+          message: `Quantidade excedida! Disponível: ${availableQty}. Separação resetada.`
+        });
+      }
+
+      const newQty = currentQty + requestedQty;
+      await storage.updateOrderItem(item.id, {
+        separatedQty: Number(newQty),
+        status: newQty >= adjustedTarget ? "separado" : "pendente",
+      });
+
+      const updated = await storage.getWorkUnitById(req.params.id as string);
+
+      broadcastSSE("item_picked", { workUnitId: req.params.id, orderId: workUnit.orderId, productId: product.id, userId: (req as any).user.id });
+
+      const unitComplete = await storage.checkAndCompleteWorkUnit(req.params.id as string, false);
+
+      // Desativado autocompletion para Separação - deve ser manual via /complete
+      /*
+      if (unitComplete) {
+        broadcastSSE("picking_finished", { workUnitId: req.params.id, orderId: workUnit.orderId });
+
+        const conferenceUnit = await storage.checkAndUpdateOrderStatus(workUnit.orderId);
+        if (conferenceUnit) {
+          broadcastSSE("work_unit_created", conferenceUnit);
+        }
+      }
+      */
+
+      const finalWorkUnit = await storage.getWorkUnitById(req.params.id as string);
+
+      res.json({
+        status: "success",
+        product,
+        quantity: requestedQty,
+        workUnit: finalWorkUnit,
+      });
+    } catch (error) {
+      console.error("Scan item error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.post("/api/work-units/:id/check-item", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { barcode } = req.body;
+      const workUnit = await storage.getWorkUnitById(req.params.id as string);
+
+      if (!workUnit) {
+        return res.status(404).json({ error: "Unidade não encontrada" });
+      }
+
+      const product = await storage.getProductByBarcode(barcode);
+      if (!product) {
+        return res.json({ status: "not_found" });
+      }
+
+      const item = workUnit.items.find(i => i.productId === product.id);
+      if (!item) {
+        return res.json({ status: "not_found" });
+      }
+
+      const currentQty = Number(item.checkedQty);
+      const separatedQty = Number(item.separatedQty);
+      const itemExcQty = Number(item.exceptionQty || 0);
+
+      // targetQty should always be what was fundamentally requested minus what was marked as an exception.
+      // This correctly handles both normal separation (where separatedQty equals quantity - exceptionQty)
+      // and "Separar Total" (where separatedQty might be bypassed and left as 0 or partial).
+      const targetQty = Number(item.quantity) - itemExcQty;
+
+      if (targetQty <= 0) {
+        // Item is fully excepted or genuinely empty — skip
+        return res.json({ status: "not_found" });
+      }
+
+      let multiplier = 1;
+      if (product.barcode !== barcode && product.boxBarcodes && Array.isArray(product.boxBarcodes)) {
+        const bx = product.boxBarcodes.find((b: any) => b.code === barcode);
+        if (bx && bx.qty) multiplier = bx.qty;
+      }
+
+      const requestedQty = Number(req.body.quantity || 1) * multiplier;
+
+      if (currentQty >= targetQty) {
+        return res.json({ 
+          status: "over_quantity", 
+          product, 
+          quantity: requestedQty,
+          workUnit,
+          message: `O item já está totalmente conferido (${targetQty} de ${targetQty}). O item extra foi recusado para preservar o status.`
+        });
+      }
+
+      const availableQty = targetQty - currentQty;
+
+      if (requestedQty > availableQty) {
+        if (itemExcQty > 0) {
+          return res.json({
+            status: "over_quantity_with_exception",
+            workUnit,
+            product,
+            quantity: requestedQty,
+            exceptionQty: itemExcQty,
+            message: `Tentativa excede o disponível (${availableQty}). O item tem ${itemExcQty} exceções informadas. Total conferido até aqui (${currentQty}) foi mantido.`
+          });
+        }
+
+        return res.json({
+          status: "over_quantity",
+          product,
+          quantity: requestedQty,
+          workUnit,
+          message: `Tentativa de conferir excede o disponível (${availableQty}). Última quantidade válida (${currentQty}) mantida com segurança.`
+        });
+      }
+
+      const newQty = currentQty + requestedQty;
+      await storage.updateOrderItem(item.id, {
+        checkedQty: Number(newQty),
+        status: newQty >= targetQty ? "conferido" : "separado",
+      });
+
+      const updated = await storage.getWorkUnitById(req.params.id as string);
+
+      // BUGFIX: Automatic completion removed.
+      // The conference unit will only be marked as "concluido" when the user
+      // explicitly clicks the "Concluir" button on the UI, which calls /complete-conference.
+
+      const finalWorkUnit = await storage.getWorkUnitById(req.params.id as string);
+
+      res.json({
+        status: "success",
+        product,
+        quantity: 1,
+        workUnit: finalWorkUnit,
+      });
+    } catch (error) {
+      console.error("Check item error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.post("/api/work-units/:id/reset-item-check", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { itemIds } = req.body;
+      const workUnit = await storage.getWorkUnitById(req.params.id as string);
+
+      if (!workUnit) {
+        return res.status(404).json({ error: "Unidade não encontrada" });
+      }
+
+      if (workUnit.lockedBy !== (req as any).user?.id) {
+        return res.status(403).json({ error: "Você não tem permissão para resetar itens desta unidade." });
+      }
+
+      if (!Array.isArray(itemIds) || itemIds.length === 0) {
+        return res.status(400).json({ error: "Nenhum item informado para reset" });
+      }
+
+      await db.transaction(async (tx) => {
+        for (const id of itemIds) {
+          const itemBelongsToWu = workUnit.items.some(i => i.id === id);
+          if (itemBelongsToWu) {
+            await tx.update(orderItems)
+              .set({
+                checkedQty: 0,
+                status: "pendente"
+              })
+              .where(eq(orderItems.id, id));
+          }
+        }
+      });
+
+      const resetWorkUnit = await storage.getWorkUnitById(req.params.id as string);
+      res.json({
+        status: "success",
+        workUnit: resetWorkUnit,
+      });
+    } catch (error) {
+      console.error("Reset item check error:", error);
+      res.status(500).json({ error: "Erro interno no reset" });
+    }
+  });
+
+  app.post("/api/work-units/:id/balcao-item", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { barcode } = req.body;
+      const workUnit = await storage.getWorkUnitById(req.params.id as string);
+
+      if (!workUnit) {
+        return res.status(404).json({ error: "Unidade não encontrada" });
+      }
+
+      const product = await storage.getProductByBarcode(barcode);
+      if (!product) {
+        return res.json({ status: "not_found" });
+      }
+
+      const item = workUnit.items.find(i => i.productId === product.id);
+      if (!item) {
+        return res.json({ status: "not_found" });
+      }
+
+      const currentQty = Number(item.separatedQty);
+      const itemExcQty = Number(item.exceptionQty || 0);
+
+      const targetQty = Number(item.quantity) - itemExcQty;
+
+      if (targetQty <= 0) {
+        return res.json({ status: "not_found" });
+      }
+
+      let multiplier = 1;
+      if (product.barcode !== barcode && product.boxBarcodes && Array.isArray(product.boxBarcodes)) {
+        const bx = product.boxBarcodes.find((b: any) => b.code === barcode);
+        if (bx && bx.qty) multiplier = bx.qty;
+      }
+
+      const requestedQty = Number(req.body.quantity || 1) * multiplier;
+
+      if (currentQty >= targetQty) {
+        await storage.updateOrderItem(item.id, {
+          separatedQty: 0,
+          status: "pendente",
+        });
+        await storage.updateWorkUnit(req.params.id as string, { status: "em_andamento" });
+        const resetWorkUnit = await storage.getWorkUnitById(req.params.id as string);
+        return res.json({ 
+          status: "over_quantity", 
+          product, 
+          quantity: requestedQty,
+          workUnit: resetWorkUnit,
+          message: `Quantidade excedida! Separação Balcão resetada. Bipe os ${targetQty} itens novamente.`
+        });
+      }
+
+      const availableQty = targetQty - currentQty;
+
+      if (requestedQty > availableQty) {
+        await storage.updateOrderItem(item.id, {
+          separatedQty: 0,
+          status: "pendente",
+        });
+        await storage.updateWorkUnit(req.params.id as string, { status: "em_andamento" });
+        
+        const resetWorkUnit = await storage.getWorkUnitById(req.params.id as string);
+
+        if (itemExcQty > 0) {
+          return res.json({
+            status: "over_quantity_with_exception",
+            workUnit: resetWorkUnit,
+            product,
+            quantity: requestedQty,
+            exceptionQty: itemExcQty,
+            message: `Este item tem ${itemExcQty} unidade(s) com exceção. Quantidade disponível: ${availableQty}. Separação Balcão resetada.`
+          });
+        }
+
+        return res.json({
+          status: "over_quantity",
+          product,
+          quantity: requestedQty,
+          workUnit: resetWorkUnit,
+          message: `Quantidade excedida! Disponível: ${availableQty}. Separação Balcão resetada.`
+        });
+      }
+
+      const newQty = currentQty + requestedQty;
+      await storage.updateOrderItem(item.id, {
+        separatedQty: Number(newQty),
+        status: newQty >= targetQty ? "conferido" : "pendente",
+      });
+
+      const updated = await storage.getWorkUnitById(req.params.id as string);
+
+      res.json({
+        status: "success",
+        product,
+        quantity: 1,
+        workUnit: updated,
+      });
+    } catch (error) {
+      console.error("Balcao item error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.post("/api/work-units/:id/complete-balcao", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { elapsedTime } = req.body;
+
+      const isComplete = await storage.checkAndCompleteWorkUnit(req.params.id as string);
+
+      if (!isComplete) {
+        return res.status(400).json({ error: "Existem itens pendentes" });
+      }
+
+      const workUnit = await storage.getWorkUnitById(req.params.id as string);
+      if (workUnit) {
+        await storage.updateOrder(workUnit.orderId, { status: "finalizado" });
+      }
+
+      await storage.createAuditLog({
+        userId: (req as any).user.id,
+        action: "complete_balcao",
+        entityType: "work_unit",
+        entityId: req.params.id as string,
+        details: `Atendimento balcão concluído em ${elapsedTime}s`,
+        ipAddress: getClientIp(req),
+        userAgent: getUserAgent(req),
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Complete balcao error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.post("/api/work-units/:id/batch-sync", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const id = req.params.id as string;
+      const { items, exceptions } = req.body;
+      const userId = (req as any).user.id;
+
+      console.log(`[API] Received Batch Sync for WU ${id} - Items: ${items?.length}, Excs: ${exceptions?.length}`);
+
+      if (!items || !exceptions) {
+        return res.status(400).json({ error: "Payload inválido. 'items' e 'exceptions' são necessários." });
+      }
+
+      // Process the batch transation
+      await storage.processBatchSync(id, { items, exceptions }, userId);
+
+      // We do NOT complete the unit here. Completing is a separate step usually.
+      // But we can return success so the app knows it safely reached the server DB.
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Batch sync error:", error);
+      res.status(500).json({ error: error.message || "Erro interno ao processar lote" });
+    }
+  });
+
+  app.post("/api/work-units/:id/heartbeat", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const id = req.params.id as string;
+      const { items } = req.body;
+
+      // We don't save to database here! This is just to broadcast SSE to the web dashboard
+      // so the manager sees the progress bar moving while the operator works offline.
+      if (items && Array.isArray(items)) {
+        broadcastSSE("work_unit_heartbeat", { workUnitId: id, items });
+      }
+
+      res.json({ success: true });
+    } catch (error) {
+      // Heartbeats shouldn't crash the app, just silent fail
+      res.status(200).json({ success: false });
+    }
+  });
+
+  app.post("/api/work-units/:id/complete", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const id = req.params.id as string;
+      const isComplete = await storage.checkAndCompleteWorkUnit(id);
+
+      if (isComplete) {
+        const wu = await storage.getWorkUnitById(id);
+        if (wu) {
+          broadcastSSE("picking_finished", { workUnitId: id, orderId: wu.orderId });
+
+          // Verificar se agora TODAS as unidades do pedido est\u00e3o prontas
+          // E criar unidade de confer\u00eancia se necess\u00e1rio
+          const conferenceUnit = await storage.checkAndUpdateOrderStatus(wu.orderId);
+          if (conferenceUnit) {
+            broadcastSSE("work_unit_created", conferenceUnit);
+          }
+        }
+        res.json({ success: true });
+      } else {
+        res.status(400).json({ error: "Existem itens pendentes" });
+      }
+    } catch (error) {
+      console.error("Manual complete error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.post("/api/work-units/:id/complete-conference", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const id = req.params.id as string;
+      const isComplete = await storage.checkAndCompleteConference(id);
+
+      if (isComplete) {
+        const wu = await storage.getWorkUnitById(id);
+        if (wu) {
+          await storage.updateOrder(wu.orderId, { status: "conferido" });
+          broadcastSSE("conference_finished", { workUnitId: id, orderId: wu.orderId });
+        }
+        res.json({ success: true });
+      } else {
+        res.status(400).json({ error: "Existem itens pendentes" });
+      }
+    } catch (error) {
+      console.error("Conference complete error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  // Audit Logs
+  app.get("/api/audit-logs", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const logs = await storage.getAllAuditLogs();
+      res.json(logs);
+    } catch (error) {
+      console.error("Get audit logs error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.post("/api/audit-logs", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { action, entityType, entityId, details, previousValue, newValue } = req.body;
+
+      if (!action || !entityType) {
+        return res.status(400).json({ error: "Ação e Tipo de Entidade são obrigatórios" });
+      }
+
+      const log = await storage.createAuditLog({
+        userId: (req as any).user.id,
+        action,
+        entityType,
+        entityId: entityId || null,
+        details: details || null,
+        previousValue: previousValue || null,
+        newValue: newValue || null,
+        ipAddress: getClientIp(req),
+        userAgent: getUserAgent(req),
+      });
+
+      res.json(log);
+    } catch (error) {
+      console.error("Create audit log error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  // Exceptions
+  app.get("/api/exceptions", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const exceptions = await storage.getAllExceptions();
+      res.json(exceptions);
+    } catch (error) {
+      console.error("Get exceptions error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.post("/api/exceptions", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { workUnitId, orderItemId, type, quantity, observation } = req.body;
+
+      const canCreate = await storage.canCreateException(orderItemId, quantity);
+      if (!canCreate) {
+        return res.status(400).json({ error: "Quantidade da exceção excede o total do item." });
+      }
+
+      const exception = await storage.createException({
+        workUnitId,
+        orderItemId,
+        type,
+        quantity,
+        observation,
+        reportedBy: (req as any).user.id,
+      });
+
+      // Decrease separated quantity if needed (if converting separated to exception)
+      await storage.adjustItemQuantityForException(orderItemId);
+
+      await storage.updateOrderItem(orderItemId, { status: "excecao" });
+
+      // Check if work unit is now complete, but do NOT auto-complete here.
+      // Auto-complete must be false so the frontend handles authorization before manual completion.
+      await storage.checkAndCompleteWorkUnit(workUnitId, false);
+
+      broadcastSSE("exception_created", { workUnitId, orderItemId, type, quantity, exceptionId: exception.id });
+
+      await storage.createAuditLog({
+        userId: (req as any).user.id,
+        action: "create_exception",
+        entityType: "exception",
+        entityId: exception.id,
+        details: `Exceção ${type} registrada`,
+        ipAddress: getClientIp(req),
+        userAgent: getUserAgent(req),
+      });
+
+      res.json(exception);
+    } catch (error) {
+      console.error("Create exception error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  // DELETE /api/exceptions/:id — admin deletes a pending exception and resets item status
+  app.delete("/api/exceptions/:id", isAuthenticated, requireRole("administrador"), async (req: Request, res: Response) => {
+    try {
+      const exceptionId = req.params.id as string;
+      // Get exception details before deleting to know the orderItemId
+      const allExceptions = await storage.getAllExceptions();
+      const exc = allExceptions.find((e: any) => e.id === exceptionId);
+      if (!exc) {
+        return res.status(404).json({ error: "Exceção não encontrada" });
+      }
+      await storage.deleteException(exceptionId);
+      
+      // Reset item status back to pendente so it re-enters the picking flow
+      if (exc.orderItemId) {
+        const wuType = exc.workUnit?.type;
+        const isSeparacao = wuType === "separacao";
+
+        // Reset item quantities based on where the exception happened
+        if (isSeparacao) {
+          await storage.updateOrderItem(exc.orderItemId, { status: "pendente", separatedQty: 0, checkedQty: 0 });
+        } else {
+          // Defaults to assuming conference layer for backward compatibility
+          await storage.updateOrderItem(exc.orderItemId, { status: "pendente", checkedQty: 0 });
+        }
+
+        // Reset the work unit status to make it show up in the flow again
+        if (exc.workUnit) {
+          await storage.updateWorkUnit(exc.workUnit.id, { 
+            status: "pendente", 
+            completedAt: null as any,
+            lockedBy: null as any, 
+            lockedAt: null as any 
+          });
+        }
+
+        // Downgrade the Order status so it goes back to the correct module
+        if (exc.orderItem?.orderId) {
+            const order = await storage.getOrderById(exc.orderItem.orderId);
+            if (order) {
+                let newStatus = order.status;
+                if (isSeparacao && ["separado", "em_conferencia", "conferido"].includes(order.status)) {
+                    newStatus = "em_separacao";
+                } else if (!isSeparacao && ["conferido"].includes(order.status)) {
+                    newStatus = "separado";
+                }
+                
+                if (order.status !== newStatus) {
+                    await storage.updateOrder(order.id, { status: newStatus as any });
+                }
+            }
+        }
+      }
+      await storage.createAuditLog({
+        userId: (req as any).user.id,
+        action: "delete_exception",
+        entityType: "exception",
+        entityId: exceptionId,
+        details: `Exceção removida pelo administrador`,
+        ipAddress: getClientIp(req),
+        userAgent: getUserAgent(req),
+      });
+      broadcastSSE("exception_deleted", { exceptionId });
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("Delete exception error:", error);
+      res.status(500).json({ error: "Erro ao remover exceção" });
+    }
+  });
+
+  // Manual Quantity Rules
+  app.get("/api/manual-qty-rules", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const rules = await storage.getAllManualQtyRules();
+      res.json(rules);
+    } catch (error) {
+      console.error("Get manual qty rules error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.post("/api/manual-qty-rules", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const { ruleType, value, description } = req.body;
+      if (!ruleType || !value) {
+        return res.status(400).json({ error: "Tipo e valor são obrigatórios" });
+      }
+      const rule = await storage.createManualQtyRule({
+        ruleType,
+        value: value.trim(),
+        description: description || null,
+        createdBy: (req as any).user.id,
+      });
+
+      await storage.createAuditLog({
+        userId: (req as any).user.id,
+        action: "create_manual_qty_rule",
+        entityType: "manual_qty_rule",
+        entityId: rule.id,
+        details: `Regra ${ruleType}: "${value}" criada`,
+        ipAddress: getClientIp(req),
+        userAgent: getUserAgent(req),
+      });
+
+      res.json(rule);
+    } catch (error) {
+      console.error("Create manual qty rule error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.patch("/api/manual-qty-rules/:id", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const id = req.params.id as string;
+      const { ruleType, value, description, active } = req.body;
+      const updates: any = {};
+      if (ruleType !== undefined) updates.ruleType = ruleType;
+      if (value !== undefined) updates.value = value.trim();
+      if (description !== undefined) updates.description = description;
+      if (active !== undefined) updates.active = active;
+
+      const updated = await storage.updateManualQtyRule(id, updates);
+      if (!updated) return res.status(404).json({ error: "Regra não encontrada" });
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Update manual qty rule error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.delete("/api/manual-qty-rules/:id", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const id = req.params.id as string;
+      await storage.deleteManualQtyRule(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Delete manual qty rule error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.post("/api/manual-qty-rules/check", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { productIds } = req.body;
+      if (!Array.isArray(productIds)) {
+        return res.status(400).json({ error: "productIds deve ser um array" });
+      }
+
+      const allProducts = await storage.getAllProducts();
+      const results: Record<string, boolean> = {};
+
+      for (const productId of productIds) {
+        const product = allProducts.find(p => p.id === productId);
+        if (product) {
+          results[productId] = await storage.checkProductManualQty(product);
+        } else {
+          results[productId] = false;
+        }
+      }
+
+      res.json(results);
+    } catch (error) {
+      console.error("Check manual qty rules error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.post("/api/reports/route-orders-print", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { orderIds } = req.body;
+      if (!Array.isArray(orderIds) || orderIds.length === 0) {
+        return res.json([]);
+      }
+
+      const results = await storage.getRouteOrdersPrintData(orderIds);
+      res.json(results);
+    } catch (error) {
+      console.error("Route print fetch error:", error);
+      res.status(500).json({ error: "Erro ao buscar dados de impressão" });
+    }
+  });
+
+  // Report PDF generation endpoint
+  app.get("/api/reports/loading-map-by-product/:loadCode", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const loadCode = Array.isArray(req.params.loadCode) ? req.params.loadCode[0] : String(req.params.loadCode);
+      const results = await storage.getLoadingMapProductCentricReportData(loadCode);
+      res.json(results);
+    } catch (error) {
+      console.error("Loading map product fetch error:", error);
+      res.status(500).json({ error: "Erro ao buscar dados do mapa de carregamento por produto" });
+    }
+  });
+
+  app.post("/api/reports/picking-list/generate", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { orderIds, pickupPoints, mode, sections: filterSections, groupId } = req.body;
+
+      if (!orderIds || !Array.isArray(orderIds) || orderIds.length === 0) {
+        return res.status(400).json({ error: "Selecione pelo menos um pedido" });
+      }
+
+      const reportData = await storage.getPickingListReportData({
+        orderIds,
+        pickupPoints: pickupPoints?.map(String),
+        sections: filterSections,
+      });
+
+      const selectedOrders: any[] = [];
+      for (const oid of orderIds) {
+        const order = await storage.getOrderWithItems(oid);
+        if (order) selectedOrders.push(order);
+      }
+
+      res.json({
+        reportData,
+        orders: selectedOrders,
+        filters: { orderIds, pickupPoints, mode, sections: filterSections, groupId },
+        generatedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error("Generate picking list error:", error);
+      res.status(500).json({ error: "Erro ao gerar relatório" });
+    }
+  });
+
+  app.delete("/api/exceptions/item/:orderItemId", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const orderItemId = req.params.orderItemId as string;
+
+      // Delete all exceptions for this order item via storage
+      await storage.deleteExceptionsForItem(orderItemId);
+
+      // Reset item status if it was in exception status
+      await storage.updateOrderItem(orderItemId, { status: "pendente" });
+
+      await storage.createAuditLog({
+        userId: (req as any).user.id,
+        action: "clear_exceptions",
+        entityType: "order_item",
+        entityId: orderItemId,
+        details: `Exceções limpas para o item`,
+        ipAddress: getClientIp(req),
+        userAgent: getUserAgent(req),
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Clear exceptions error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  // Authorize exceptions (supervisor/admin only)
+  app.post("/api/exceptions/authorize", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { username, password, exceptionIds } = req.body;
+
+      if (!username || !password || !exceptionIds || !Array.isArray(exceptionIds)) {
+        return res.status(400).json({ error: "Dados inválidos" });
+      }
+
+      // Find user by username
+      const authUser = await storage.getUserByUsername(username);
+      if (!authUser) {
+        return res.status(401).json({ error: "Credenciais inválidas" });
+      }
+
+      // Verify password
+      const bcrypt = await import("bcrypt");
+      const passwordMatch = await bcrypt.compare(password, authUser.password);
+      if (!passwordMatch) {
+        return res.status(401).json({ error: "Credenciais inválidas" });
+      }
+
+      // Check role (only supervisor or admin)
+      if (authUser.role !== "supervisor" && authUser.role !== "administrador") {
+        return res.status(403).json({ error: "Apenas supervisores ou administradores podem autorizar exceções" });
+      }
+
+      // Authorize exceptions
+      const now = new Date().toISOString();
+      await storage.authorizeExceptions(exceptionIds, {
+        authorizedBy: authUser.id,
+        authorizedByName: authUser.name,
+        authorizedAt: now,
+      });
+
+      await storage.createAuditLog({
+        userId: authUser.id,
+        action: "authorize_exceptions",
+        entityType: "exceptions",
+        entityId: exceptionIds.join(","),
+        details: `Autorizou ${exceptionIds.length} exceção(ões)`,
+        ipAddress: getClientIp(req),
+        userAgent: getUserAgent(req),
+      });
+
+      return res.json({
+        success: true,
+        authorizedBy: authUser.id,
+        authorizedByName: authUser.name,
+        authorizedAt: now,
+      });
+    } catch (error) {
+      console.error("Exception authorization error:", error);
+      return res.status(500).json({ error: "Erro ao autorizar exceções" });
+    }
+  });
+
+  app.post("/api/exceptions/authorize-by-badge", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { badge, exceptionIds } = req.body;
+
+      if (!badge || !exceptionIds || !Array.isArray(exceptionIds)) {
+        return res.status(400).json({ error: "Dados inválidos" });
+      }
+
+      // Badge is now the MD5 hash
+      const authUser = await storage.getUserByBadgeCode(badge);
+
+      if (!authUser) {
+        return res.status(401).json({ error: "Crachá inválido ou não encontrado" });
+      }
+
+      if (!authUser.active) {
+        return res.status(401).json({ error: "Usuário inativo" });
+      }
+
+      if (authUser.role !== "supervisor" && authUser.role !== "administrador") {
+        return res.status(403).json({ error: "Apenas supervisores ou administradores podem autorizar exceções" });
+      }
+
+      const now = new Date().toISOString();
+      await storage.authorizeExceptions(exceptionIds, {
+        authorizedBy: authUser.id,
+        authorizedByName: authUser.name,
+        authorizedAt: now,
+      });
+
+      await storage.createAuditLog({
+        userId: authUser.id,
+        action: "authorize_exceptions_badge",
+        entityType: "exceptions",
+        entityId: exceptionIds.join(","),
+        details: `Autorizou ${exceptionIds.length} exce\u00e7\u00e3o(\u00f5es) via crach\u00e1`,
+        ipAddress: getClientIp(req),
+        userAgent: getUserAgent(req),
+      });
+
+      return res.json({
+        success: true,
+        authorizedBy: authUser.id,
+        authorizedByName: authUser.name,
+        authorizedAt: now,
+      });
+    } catch (error) {
+      console.error("Badge authorization error:", error);
+      return res.status(500).json({ error: "Erro ao autorizar exce\u00e7\u00f5es" });
+    }
+  });
+
+  // Auto-authorize exceptions (for users with permission)
+  app.post("/api/exceptions/auto-authorize", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const { exceptionIds } = req.body;
+      const user = (req as any).user;
+
+      if (!exceptionIds || !Array.isArray(exceptionIds)) {
+        return res.status(400).json({ error: "IDs das exceções são obrigatórios" });
+      }
+
+      // Check permission
+      const userSettings = user.settings as UserSettings;
+      if (!userSettings?.canAuthorizeOwnExceptions) {
+        return res.status(403).json({ error: "Usuário não tem permissão para auto-autorizar exceções" });
+      }
+
+      const now = new Date().toISOString();
+      await storage.authorizeExceptions(exceptionIds, {
+        authorizedBy: user.id,
+        authorizedByName: user.name,
+        authorizedAt: now,
+      });
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "auto_authorize_exceptions",
+        entityType: "exceptions",
+        entityId: exceptionIds.join(","),
+        details: `Auto-autorizou ${exceptionIds.length} exceção(ões)`,
+        ipAddress: getClientIp(req),
+        userAgent: getUserAgent(req),
+      });
+
+      return res.json({
+        success: true,
+        authorizedBy: user.id,
+        authorizedByName: user.name,
+        authorizedAt: now,
+      });
+    } catch (error) {
+      console.error("Auto-authorization error:", error);
+      return res.status(500).json({ error: "Erro ao auto-autorizar exceções" });
+    }
+  });
+
+  // Dev helper: Backfill badges for known users
+  app.post("/api/admin/backfill-badges-dev", isAuthenticated, requireRole("administrador"), async (req: Request, res: Response) => {
+    try {
+      const allUsers = await storage.getAllUsers();
+      let updatedCount = 0;
+
+      for (const user of allUsers) {
+        if (!user.badgeCode || user.badgeCode === "") {
+          let password = "";
+          // Known default passwords for dev environment
+          if (user.username === "admin") password = "admin123";
+          else if (user.username === "teste") password = "123";
+          else if (user.username === "teste1") password = "123";
+          else if (user.username === "joao") password = "1234";
+
+          if (password) {
+            const newBadge = generateBadgeCode(user.username, password);
+            await storage.updateUser(user.id, { badgeCode: newBadge });
+            updatedCount++;
+          }
+        }
+      }
+
+      res.json({ success: true, updated: updatedCount, message: `Updated ${updatedCount} users` });
+    } catch (error) {
+      console.error("Backfill badges error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  // ==================== Mapping Studio ====================
+
+  app.get("/api/datasets", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      res.json(getAvailableDatasets());
+    } catch (error) {
+      console.error("Get datasets error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.get("/api/schema/:dataset", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const dataset = req.params.dataset as string;
+      const contract = getDataContract(dataset);
+      if (!contract) {
+        return res.status(404).json({ error: "Dataset não encontrado" });
+      }
+      res.json({ dataset, fields: contract });
+    } catch (error) {
+      console.error("Get schema error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.get("/api/mapping/:dataset", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const dataset = req.params.dataset as string;
+      const mapping = await storage.getMappingByDataset(dataset);
+      res.json(mapping || null);
+    } catch (error) {
+      console.error("Get mapping error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.get("/api/mappings", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const mappings = await storage.getAllMappings();
+      res.json(mappings);
+    } catch (error) {
+      console.error("Get all mappings error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.post("/api/mapping/:dataset", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const dataset = req.params.dataset as string;
+      const contract = getDataContract(dataset);
+      if (!contract) {
+        return res.status(404).json({ error: "Dataset não encontrado" });
+      }
+
+      const { mappingJson, description } = req.body;
+      if (!mappingJson || !Array.isArray(mappingJson)) {
+        return res.status(400).json({ error: "mappingJson é obrigatório e deve ser um array" });
+      }
+
+      const errors: string[] = [];
+      for (const field of contract) {
+        if (field.required) {
+          const mapped = mappingJson.find((m: MappingField) => m.appField === field.appField);
+          if (!mapped || (!mapped.dbExpression && !mapped.defaultValue)) {
+            errors.push(`Campo obrigatório '${field.appField}' precisa de uma expressão DB2 ou valor padrão`);
+          }
+        }
+      }
+
+      if (errors.length > 0) {
+        return res.status(400).json({ error: "Validação falhou", details: errors });
+      }
+
+      const userId = (req as any).user.id;
+      const mapping = await storage.saveMapping(dataset, mappingJson, description || null, userId);
+
+      await storage.createAuditLog({
+        userId,
+        action: "save_mapping",
+        entityType: "db2_mapping",
+        entityId: mapping.id,
+        details: `Mapping v${mapping.version} salvo para dataset '${dataset}'`,
+        ipAddress: getClientIp(req),
+        userAgent: getUserAgent(req),
+      });
+
+      res.json(mapping);
+    } catch (error) {
+      console.error("Save mapping error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.post("/api/mapping/:id/activate", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const id = req.params.id as string;
+      const mapping = await storage.activateMapping(id);
+      if (!mapping) {
+        return res.status(404).json({ error: "Mapping não encontrado" });
+      }
+
+      const userId = (req as any).user.id;
+      await storage.createAuditLog({
+        userId,
+        action: "activate_mapping",
+        entityType: "db2_mapping",
+        entityId: id as string,
+        details: `Mapping v${mapping.version} ativado para dataset '${mapping.dataset}'`,
+        ipAddress: getClientIp(req),
+        userAgent: getUserAgent(req),
+      });
+
+      res.json(mapping);
+    } catch (error) {
+      console.error("Activate mapping error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.post("/api/preview/:dataset", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const dataset = req.params.dataset as string;
+      const contract = getDataContract(dataset);
+      if (!contract) {
+        return res.status(404).json({ error: "Dataset não encontrado" });
+      }
+
+      const { mappingJson } = req.body;
+      if (!mappingJson || !Array.isArray(mappingJson)) {
+        return res.status(400).json({ error: "mappingJson é obrigatório" });
+      }
+
+      const cachedRows = await storage.getCacheOrcamentosPreview(20);
+
+      if (cachedRows.length === 0) {
+        return res.json({
+          preview: [],
+          warnings: ["Nenhum dado no cache. Execute a sincronização DB2 primeiro."],
+          errors: [],
+        });
+      }
+
+      const preview: any[] = [];
+      const errors: string[] = [];
+      const warnings: string[] = [];
+
+      const requiredFields = contract.filter(f => f.required).map(f => f.appField);
+      const mappedRequiredFields = mappingJson
+        .filter((m: MappingField) => requiredFields.includes(m.appField) && (m.dbExpression || m.defaultValue))
+        .map((m: MappingField) => m.appField);
+
+      for (const reqField of requiredFields) {
+        if (!mappedRequiredFields.includes(reqField)) {
+          errors.push(`Campo obrigatório '${reqField}' não mapeado`);
+        }
+      }
+
+      for (const row of cachedRows) {
+        const transformed: Record<string, any> = {};
+        const rowObj = row as Record<string, any>;
+
+        for (const mapping of mappingJson as MappingField[]) {
+          const { appField, dbExpression, cast, defaultValue, type } = mapping;
+
+          let value: any = null;
+
+          if (dbExpression) {
+            const colName = dbExpression.trim();
+            const upperCol = colName.toUpperCase();
+            const matchingKey = Object.keys(rowObj).find(k => k.toUpperCase() === upperCol);
+            if (matchingKey) {
+              value = rowObj[matchingKey];
+            } else {
+              const camelKey = Object.keys(rowObj).find(k => {
+                const snake = k.replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
+                return snake.toUpperCase() === upperCol || k.toUpperCase() === upperCol;
+              });
+              if (camelKey) {
+                value = rowObj[camelKey];
+              }
+            }
+          }
+
+          if (value === null || value === undefined || value === '') {
+            value = defaultValue || null;
+          }
+
+          if (value !== null && cast) {
+            switch (cast) {
+              case "number":
+                value = Number(value);
+                break;
+              case "string":
+                value = String(value);
+                break;
+              case "divide_100":
+                value = Number(value) / 100;
+                break;
+              case "divide_1000":
+                value = Number(value) / 1000;
+                break;
+              case "boolean_T_F":
+                value = value === "T" || value === "t";
+                break;
+            }
+          }
+
+          transformed[appField] = value;
+        }
+
+        preview.push(transformed);
+      }
+
+      res.json({ preview, errors, warnings });
+    } catch (error) {
+      console.error("Preview error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.get("/api/cache-columns", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const cachedRows = await storage.getCacheOrcamentosPreview(1);
+      if (cachedRows.length === 0) {
+        return res.json({ columns: [], message: "Nenhum dado no cache. Execute a sincronização DB2 primeiro." });
+      }
+      const row = cachedRows[0] as Record<string, any>;
+      const columns = Object.keys(row).map(key => ({
+        name: key,
+        sampleValue: row[key],
+      }));
+      res.json({ columns });
+    } catch (error) {
+      console.error("Get cache columns error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.post("/api/sql-query", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const { query } = req.body;
+      if (!query || typeof query !== "string") {
+        return res.status(400).json({ error: "Query SQL é obrigatória" });
+      }
+
+      const trimmed = query.trim().replace(/;+$/, "").trim();
+
+      if (trimmed.includes(";")) {
+        return res.status(400).json({ error: "Apenas uma consulta por vez é permitida." });
+      }
+
+      const upper = trimmed.toUpperCase().replace(/\s+/g, " ");
+      const firstWord = upper.split(/\s/)[0];
+      if (firstWord !== "SELECT" && firstWord !== "WITH" && firstWord !== "EXPLAIN") {
+        return res.status(400).json({ error: `Comando "${firstWord}" não permitido. Apenas consultas SELECT, WITH e EXPLAIN são aceitas.` });
+      }
+
+      if (firstWord === "WITH") {
+        let depth = 0;
+        let mainKeyword = "";
+        const tokens = upper.match(/\(|\)|\b\w+\b/g) || [];
+        for (const token of tokens) {
+          if (token === "(") depth++;
+          else if (token === ")") depth--;
+          else if (depth === 0 && ["SELECT", "INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "MERGE", "TRUNCATE"].includes(token)) {
+            mainKeyword = token;
+            break;
+          }
+        }
+        if (mainKeyword && mainKeyword !== "SELECT") {
+          return res.status(400).json({ error: `Comando WITH...${mainKeyword} não permitido. Apenas WITH...SELECT é aceito.` });
+        }
+      }
+
+      const startTime = Date.now();
+      const result = await db.$client.execute(trimmed);
+      const elapsed = Date.now() - startTime;
+
+      const columns = result.columns || [];
+      const rows = result.rows?.map(row => {
+        const obj: Record<string, any> = {};
+        columns.forEach((col, i) => {
+          obj[col] = row[i];
+        });
+        return obj;
+      }) || [];
+
+      res.json({
+        columns,
+        rows,
+        rowCount: rows.length,
+        elapsed,
+      });
+    } catch (error: any) {
+      console.error("SQL query error:", error);
+      res.status(400).json({ error: error.message || "Erro ao executar consulta SQL" });
+    }
+  });
+
+  app.post("/api/db2-query", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const { query } = req.body;
+      if (!query || typeof query !== "string") {
+        return res.status(400).json({ error: "Query SQL é obrigatória" });
+      }
+
+      // Use process.cwd() instead of fileURLToPath(import.meta.url) — CJS compat
+      const scriptPath = path.resolve(process.cwd(), "db2_query.py");
+      const QUERY_TIMEOUT = 120000;
+
+      const result = await new Promise<string>((resolve, reject) => {
+        const proc = spawn("python3", [scriptPath], {
+          cwd: process.cwd(),
+        });
+
+        let stdout = "";
+        let stderr = "";
+        let killed = false;
+
+        const timer = setTimeout(() => {
+          killed = true;
+          proc.kill("SIGKILL");
+          reject(new Error("Consulta excedeu o tempo limite de 2 minutos."));
+        }, QUERY_TIMEOUT);
+
+        proc.stdin.write(query);
+        proc.stdin.end();
+
+        proc.stdout.on("data", (data: Buffer) => { stdout += data.toString(); });
+        proc.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
+
+        proc.on("close", (code) => {
+          clearTimeout(timer);
+          if (killed) return;
+          if (code !== 0 && !stdout.trim()) {
+            reject(new Error(stderr || `Processo encerrado com código ${code}`));
+          } else {
+            resolve(stdout);
+          }
+        });
+
+        proc.on("error", (err) => {
+          clearTimeout(timer);
+          reject(new Error(`Falha ao iniciar processo: ${err.message}`));
+        });
+      });
+
+      const parsed = JSON.parse(result);
+      if (parsed.error) {
+        return res.status(400).json({ error: parsed.error });
+      }
+
+      res.json(parsed);
+    } catch (error: any) {
+      console.error("DB2 query error:", error);
+      res.status(400).json({ error: error.message || "Erro ao executar consulta no DB2" });
+    }
+  });
+
+  // ── Order Volumes ─────────────────────────────────────────────────────
+  // GET /api/order-volumes — lista todos (supervisor/admin)
+  app.get("/api/order-volumes", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const volumes = await storage.getAllOrderVolumes();
+      res.json(volumes);
+    } catch (error) {
+      console.error("Get all volumes error:", error);
+      res.status(500).json({ error: "Erro ao buscar volumes" });
+    }
+  });
+
+  // GET /api/order-volumes/:orderId — busca volume de um pedido específico
+  app.get("/api/order-volumes/:orderId", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const volume = await storage.getOrderVolume(req.params.orderId as string);
+      res.json(volume || null);
+    } catch (error) {
+      console.error("Get order volume error:", error);
+      res.status(500).json({ error: "Erro ao buscar volume do pedido" });
+    }
+  });
+
+  // POST /api/order-volumes — cria ou atualiza volumes de um pedido
+  app.post("/api/order-volumes", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const user = (req as any).user;
+      const { orderId, erpOrderId, sacola, caixa, saco, avulso } = req.body;
+
+      if (!orderId || !erpOrderId) {
+        return res.status(400).json({ error: "orderId e erpOrderId são obrigatórios" });
+      }
+
+      // Verificar se o pedido está em conferência
+      const { db: database } = await import("./db");
+      const { orders: ordersTable } = await import("@shared/schema");
+      const { eq: eqFn } = await import("drizzle-orm");
+      const [order] = await database.select().from(ordersTable).where(eqFn(ordersTable.id, orderId));
+      if (!order) return res.status(404).json({ error: "Pedido não encontrado" });
+      // Permite geração de volumes para qualquer pedido já lançado
+      const blockedStatuses = ["pendente", "cancelado"];
+      if (blockedStatuses.includes(order.status)) {
+        return res.status(400).json({ error: "Não é possível gerar volumes para pedidos pendentes ou cancelados" });
+      }
+
+
+      const volume = await storage.upsertOrderVolume({
+        orderId,
+        erpOrderId,
+        sacola: Number(sacola) || 0,
+        caixa: Number(caixa) || 0,
+        saco: Number(saco) || 0,
+        avulso: Number(avulso) || 0,
+        userId: user.id,
+      });
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "upsert_order_volume",
+        entityType: "order",
+        entityId: orderId,
+        details: `Volumes gerados: sacola=${sacola}, caixa=${caixa}, saco=${saco}, avulso=${avulso}`,
+      });
+
+      res.json(volume);
+    } catch (error) {
+      console.error("Upsert order volume error:", error);
+      res.status(500).json({ error: "Erro ao salvar volumes" });
+    }
+  });
+
+  // DELETE /api/order-volumes/:orderId — remove volumes de um pedido
+  app.delete("/api/order-volumes/:orderId", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      await storage.deleteOrderVolume(req.params.orderId as string);
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("Delete order volume error:", error);
+      res.status(500).json({ error: "Erro ao remover volumes" });
+    }
+  });
+
+  return httpServer;
+}

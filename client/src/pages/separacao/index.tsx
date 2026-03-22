@@ -1,0 +1,1516 @@
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useAuth, useSessionQueryKey } from "@/lib/auth";
+import { DatePickerWithRange } from "@/components/ui/date-range-picker";
+import { DateRange } from "react-day-picker";
+import { ScanInput } from "@/components/ui/scan-input";
+import { ResultDialog } from "@/components/ui/result-dialog";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
+import { useSSE } from "@/hooks/use-sse";
+import { useBarcodeScanner } from "@/hooks/use-barcode-scanner";
+import {
+  Package,
+  List,
+  LogOut,
+  Check,
+  AlertTriangle,
+  Search,
+  Plus,
+  ArrowRight,
+  Calendar,
+  Truck,
+} from "lucide-react";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import type { WorkUnitWithDetails, OrderItem, Product, ExceptionType, UserSettings, Exception } from "@shared/schema";
+import { ExceptionDialog } from "@/components/orders/exception-dialog";
+import { ExceptionAuthorizationModal } from "@/components/orders/exception-authorization-modal";
+import { getCurrentWeekRange, isDateInRange } from "@/lib/date-utils";
+import { format } from "date-fns";
+import { usePendingDeltaStore } from "@/lib/pendingDeltaStore";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogDescription,
+} from "@/components/ui/alert-dialog";
+
+type SeparacaoStep = "select" | "picking";
+type PickingTab = "product" | "list";
+
+const STORAGE_KEY = "wms:separacao-session";
+
+interface SessionData {
+  tab: PickingTab;
+  productIndex: number;
+  workUnitIds: string[];
+}
+
+interface ItemWithProduct extends OrderItem {
+  product: Product;
+  exceptionQty?: number;
+  exceptions?: Exception[];
+}
+
+interface AggregatedProduct {
+  product: Product;
+  totalQty: number;
+  separatedQty: number;
+  exceptionQty: number;
+  items: ItemWithProduct[];
+  orderCodes: string[];
+  sections: string[];
+}
+
+function saveSession(data: SessionData) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch { }
+}
+
+function loadSession(): SessionData | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch { }
+  return null;
+}
+
+function clearSession() {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch { }
+}
+
+export default function SeparacaoPage() {
+  const { user, logout } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const [step, setStep] = useState<SeparacaoStep>("select");
+  const [selectedWorkUnits, setSelectedWorkUnits] = useState<string[]>([]);
+  const [pickingTab, setPickingTab] = useState<PickingTab>("list");
+  const [currentProductIndex, setCurrentProductIndex] = useState(0);
+
+  const [scanStatus, setScanStatus] = useState<"idle" | "success" | "error" | "warning">("idle");
+  const [scanMessage, setScanMessage] = useState("");
+  const [showResultDialog, setShowResultDialog] = useState(false);
+  const [resultDialogConfig, setResultDialogConfig] = useState({
+    type: "success" as "success" | "error" | "warning",
+    title: "",
+    message: "",
+  });
+
+  useEffect(() => {
+    if (scanStatus !== "idle") {
+      const timer = setTimeout(() => {
+        setScanStatus("idle");
+        setScanMessage("");
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [scanStatus]);
+
+  const [showExceptionDialog, setShowExceptionDialog] = useState(false);
+  const [exceptionItem, setExceptionItem] = useState<ItemWithProduct | null>(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [pendingExceptions, setPendingExceptions] = useState<any[]>([]);
+
+  const [filterOrderId, setFilterOrderId] = useState("");
+  const [filterRoute, setFilterRoute] = useState<string>("");
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(getCurrentWeekRange());
+  const [tempDateRange, setTempDateRange] = useState<DateRange | undefined>(getCurrentWeekRange());
+  const [sectionFilter, setSectionFilter] = useState<string>("all");
+
+  const [sessionRestored, setSessionRestored] = useState(false);
+  const [multiplierValue, setMultiplierValue] = useState(1);
+  const [overQtyModalOpen, setOverQtyModalOpen] = useState(false);
+  const overQtyModalOpenRef = useRef(false);
+  const [overQtyContext, setOverQtyContext] = useState<{
+    productName: string;
+    itemIds: string[];
+    workUnitId: string;
+    barcode: string;
+    targetQty: number;
+    message: string;
+    serverAlreadyReset: boolean;
+  } | null>(null);
+
+  const userSettings = (user?.settings as UserSettings) || {};
+  const hasManualQtyPermission = !!userSettings.allowManualQty;
+  // const hasMultiplierPermission = !!userSettings.allowMultiplier;
+
+  const scanQueueRef = useRef<string[]>([]);
+  const scanWorkerRunningRef = useRef(false);
+  const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const workUnitsQueryKey = useSessionQueryKey(["/api/work-units?type=separacao"]);
+  const routesQueryKey = useSessionQueryKey(["/api/routes"]);
+
+  const { data: workUnits, isLoading } = useQuery<WorkUnitWithDetails[]>({
+    queryKey: workUnitsQueryKey,
+    refetchInterval: () =>
+      scanWorkerRunningRef.current || scanQueueRef.current.length > 0 ? false : 1000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  });
+
+  useEffect(() => {
+    if (!workUnits || !user) return;
+    const myUnits = workUnits.filter(wu => wu.lockedBy === user.id);
+    const serverValues: Record<string, number> = {};
+    for (const wu of myUnits) {
+      for (const item of (wu.items as ItemWithProduct[])) {
+        if (!serverValues[item.id]) {
+          serverValues[item.id] = Number(item.separatedQty);
+        }
+      }
+    }
+    usePendingDeltaStore.getState().reconcile("separacao", serverValues);
+  }, [workUnits, user]);
+
+
+  const { data: routes } = useQuery<{ id: string; code: string; name: string }[]>({
+    queryKey: routesQueryKey,
+  });
+
+  const { data: sections } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ["/api/sections"],
+  });
+
+
+
+  const pendingInvalidateRef = useRef(false);
+
+  useEffect(() => {
+    const handleOnline = () => {
+      queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+    };
+    window.addEventListener("online", handleOnline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      scanWorkerRunningRef.current = false;
+      overQtyModalOpenRef.current = false;
+      scanQueueRef.current = [];
+      if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+    };
+  }, [queryClient, workUnitsQueryKey]);
+
+  const handleSSEMessage = useCallback((type: string, _data: any) => {
+    if (scanWorkerRunningRef.current || scanQueueRef.current.length > 0) {
+      pendingInvalidateRef.current = true;
+      return;
+    }
+    queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+    if (type === "exception_created") {
+      toast({
+        title: "Nova Exceção",
+        description: "Uma exceção foi registrada",
+        variant: "destructive",
+      });
+    }
+  }, [queryClient, workUnitsQueryKey, toast]);
+
+  useSSE("/api/sse", [
+    "picking_update", "lock_acquired", "lock_released", "picking_started",
+    "item_picked", "exception_created", "picking_finished",
+    "orders_launched", "orders_relaunched", "work_units_unlocked",
+    "orders_launch_cancelled", "work_unit_created",
+  ], handleSSEMessage);
+
+  const myLockedUnits = useMemo(() => {
+    if (!workUnits || !user) return [];
+    return workUnits.filter(wu => wu.lockedBy === user.id && wu.status !== "concluido");
+  }, [workUnits, user]);
+
+  const allMyUnits = useMemo(() => {
+    if (!workUnits || !user) return [];
+    return workUnits.filter(wu => wu.lockedBy === user.id && wu.status !== "concluido");
+  }, [workUnits, user]);
+
+  // Safety: se não houver unidades travadas, voltar para seleção (previne ficar preso em tela vazia)
+  useEffect(() => {
+    if (step === "picking" && allMyUnits.length === 0 && !isLoading) {
+      setStep("select");
+      setSelectedWorkUnits([]);
+    }
+  }, [step, allMyUnits.length, isLoading]);
+
+  const pendingSeparacao = usePendingDeltaStore((s) => s.separacao);
+
+  const aggregatedProducts = useMemo((): AggregatedProduct[] => {
+    const units = allMyUnits.length > 0 ? allMyUnits : [];
+    const allItems: ItemWithProduct[] = units.flatMap(wu => (wu.items as ItemWithProduct[]) || []);
+    const userSections = (user?.sections as string[]) || [];
+    const filteredItems = allItems.filter(item =>
+      userSections.length === 0 || userSections.includes(item.section)
+    );
+
+    const seenItemIds = new Set<string>();
+    const map: Record<string, AggregatedProduct> = {};
+    filteredItems.forEach(item => {
+      if (seenItemIds.has(item.id)) return;
+      seenItemIds.add(item.id);
+      const pid = item.productId;
+      if (!map[pid]) {
+        map[pid] = {
+          product: item.product,
+          totalQty: 0,
+          separatedQty: 0,
+          exceptionQty: 0,
+          items: [],
+          orderCodes: [],
+          sections: [],
+        };
+      }
+      map[pid].totalQty += Number(item.quantity);
+      map[pid].separatedQty += Number(item.separatedQty) + (pendingSeparacao[item.id] || 0);
+      map[pid].exceptionQty += Number(item.exceptionQty || 0);
+      map[pid].items.push(item);
+
+      const wu = units.find(w => w.items.some(i => i.id === item.id));
+      if (wu && !map[pid].orderCodes.includes(wu.order.erpOrderId)) {
+        map[pid].orderCodes.push(wu.order.erpOrderId);
+      }
+      if (item.section && !map[pid].sections.includes(item.section)) {
+        map[pid].sections.push(item.section);
+      }
+    });
+
+    return Object.values(map).sort((a, b) =>
+      a.product.name.localeCompare(b.product.name, "pt-BR", { sensitivity: "base" })
+    );
+  }, [allMyUnits, user, pendingSeparacao]);
+
+  const filteredAggregatedProducts = useMemo(() => {
+    if (sectionFilter === "all") return aggregatedProducts;
+    return aggregatedProducts.filter(ap => ap.sections.includes(sectionFilter));
+  }, [aggregatedProducts, sectionFilter]);
+
+  const availableSections = useMemo(() => {
+    const secs = new Set<string>();
+    aggregatedProducts.forEach(ap => ap.sections.forEach(s => secs.add(s)));
+    return Array.from(secs).sort();
+  }, [aggregatedProducts]);
+
+  // Buscar regras de quantidade manual para os produtos atuais
+  const productIds = useMemo(() => aggregatedProducts.map(ap => ap.product.id), [aggregatedProducts]);
+  const { data: manualQtyRulesMap } = useQuery<Record<string, boolean>>({
+    queryKey: ["manual-qty-rules", productIds],
+    queryFn: async () => {
+      if (productIds.length === 0) return {};
+      const res = await apiRequest("POST", "/api/manual-qty-rules/check", { productIds });
+      return res.json();
+    },
+    enabled: productIds.length > 0,
+  });
+
+  const currentProduct = filteredAggregatedProducts[currentProductIndex] || filteredAggregatedProducts[0] || null;
+
+  // Permissão efetiva: Global do usuário OU Regra específica do produto
+  const canUseManualQty = useMemo(() => {
+    if (hasManualQtyPermission) return true;
+    if (currentProduct && manualQtyRulesMap) {
+      return !!manualQtyRulesMap[currentProduct.product.id];
+    }
+    return false;
+  }, [hasManualQtyPermission, currentProduct, manualQtyRulesMap]);
+
+  // Avanço automático quando produto atual é completado por COLETA (não por exceção)
+  useEffect(() => {
+    if (currentProduct && step === "picking") {
+      const remaining = currentProduct.totalQty - currentProduct.separatedQty - currentProduct.exceptionQty;
+      const isComplete = remaining <= 0;
+      // Só avança automaticamente se completou por coleta (separatedQty mudou)
+      // Não avança se apenas a exceptionQty mudou para evitar skip indesejado
+      if (isComplete && currentProduct.separatedQty > 0) {
+        const nextIdx = filteredAggregatedProducts.findIndex((ap, idx) => {
+          if (idx <= currentProductIndex) return false;
+          const r = ap.totalQty - ap.separatedQty - ap.exceptionQty;
+          return r > 0;
+        });
+
+        if (nextIdx >= 0 && nextIdx !== currentProductIndex) {
+          const timer = setTimeout(() => {
+            setCurrentProductIndex(nextIdx);
+          }, 500);
+          return () => clearTimeout(timer);
+        } else {
+          const wrapIdx = filteredAggregatedProducts.findIndex((ap) => {
+            const r = ap.totalQty - ap.separatedQty - ap.exceptionQty;
+            return r > 0;
+          });
+          if (wrapIdx >= 0 && wrapIdx !== currentProductIndex) {
+            const timer = setTimeout(() => {
+              setCurrentProductIndex(wrapIdx);
+            }, 500);
+            return () => clearTimeout(timer);
+          }
+        }
+      }
+    }
+  }, [currentProduct?.separatedQty, currentProduct?.totalQty, step, filteredAggregatedProducts, currentProductIndex]);
+
+  useEffect(() => {
+    if (filteredAggregatedProducts.length > 0 && currentProductIndex >= filteredAggregatedProducts.length) {
+      setCurrentProductIndex(0);
+    }
+  }, [filteredAggregatedProducts.length, currentProductIndex]);
+
+  // Sync ref with state to prevent scanner freeze
+  useEffect(() => {
+    overQtyModalOpenRef.current = overQtyModalOpen;
+  }, [overQtyModalOpen]);
+
+
+  useEffect(() => {
+    if (workUnits && user && !sessionRestored) {
+      setSessionRestored(true);
+      const saved = loadSession();
+      if (saved && saved.workUnitIds.length > 0) {
+        const stillLockedIds = saved.workUnitIds.filter(id =>
+          workUnits.some(wu => wu.id === id && wu.lockedBy === user.id)
+        );
+        if (stillLockedIds.length > 0) {
+          setStep("picking");
+          setPickingTab(saved.tab);
+          setCurrentProductIndex(0);
+          setSelectedWorkUnits(stillLockedIds);
+          toast({ title: "Sessão Restaurada", description: "Retomando separação anterior" });
+          return;
+        } else {
+          clearSession();
+        }
+      }
+
+      const myUnit = workUnits.find(wu => wu.lockedBy === user.id && wu.status !== "concluido");
+      if (myUnit) {
+        const myIds = workUnits.filter(wu => wu.lockedBy === user.id).map(wu => wu.id);
+        setStep("picking");
+        setSelectedWorkUnits(myIds);
+        toast({ title: "Sessão Restaurada", description: `Retomando pedido ${myUnit.order.erpOrderId}` });
+      }
+    }
+  }, [workUnits, user, sessionRestored, toast]);
+
+  useEffect(() => {
+    if (step === "picking" && allMyUnits.length > 0) {
+      saveSession({
+        tab: pickingTab,
+        productIndex: currentProductIndex,
+        workUnitIds: allMyUnits.map(wu => wu.id),
+      });
+    }
+  }, [step, pickingTab, currentProductIndex, allMyUnits]);
+
+  const lockMutation = useMutation({
+    mutationFn: async (workUnitIds: string[]) => {
+      const res = await apiRequest("POST", "/api/work-units/lock", { workUnitIds });
+      return res.json();
+    },
+  });
+
+
+  const unlockMutation = useMutation({
+    mutationFn: async (data: string[] | { ids: string[], reset: boolean }) => {
+      const body = Array.isArray(data)
+        ? { workUnitIds: data }
+        : { workUnitIds: data.ids, reset: data.reset };
+      const res = await apiRequest("POST", "/api/work-units/unlock", body);
+      if (!res.ok) throw new Error("Erro ao desbloquear unidades");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+      clearSession();
+      setSelectedWorkUnits([]);
+      setStep("select");
+      setCurrentProductIndex(0);
+      setPickingTab("product");
+    },
+  });
+
+  const scanItemMutation = useMutation({
+    mutationFn: async ({ workUnitId, barcode, quantity }: { workUnitId: string; barcode: string; quantity?: number }) => {
+      const body = quantity ? { barcode, quantity } : { barcode };
+      const res = await apiRequest("POST", `/api/work-units/${workUnitId}/scan-item`, body);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+    },
+  });
+
+  const createExceptionMutation = useMutation({
+    mutationFn: async (data: {
+      workUnitId: string;
+      orderItemId: string;
+      type: ExceptionType;
+      quantity: number;
+      observation: string;
+    }) => {
+      const res = await apiRequest("POST", "/api/exceptions", data);
+      return { ...(await res.json()), _orderItemId: data.orderItemId };
+    },
+    onSuccess: async (data) => {
+      usePendingDeltaStore.getState().clearItem("separacao", data._orderItemId);
+      usePendingDeltaStore.getState().resetBaseline("separacao", data._orderItemId);
+      await queryClient.refetchQueries({ queryKey: workUnitsQueryKey });
+      toast({ title: "Exceção Registrada", description: "A exceção foi reportada com sucesso" });
+      setShowExceptionDialog(false);
+      setExceptionItem(null);
+    },
+    onError: (error: Error) => {
+      let message = "Falha ao registrar exceção";
+      try {
+        const errorData = JSON.parse(error.message);
+        if (errorData.error) message = errorData.error;
+      } catch { }
+      toast({ title: "Erro", description: message, variant: "destructive" });
+    },
+  });
+
+  const completeWorkUnitMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("POST", `/api/work-units/${id}/complete`);
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Erro ao concluir unidade");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+    },
+  });
+
+  const clearExceptionsMutation = useMutation({
+    mutationFn: async (orderItemId: string) => {
+      const res = await apiRequest("DELETE", `/api/exceptions/item/${orderItemId}`);
+      return { ...(await res.json()), _orderItemId: orderItemId };
+    },
+    onSuccess: async (data) => {
+      usePendingDeltaStore.getState().clearItem("separacao", data._orderItemId);
+      usePendingDeltaStore.getState().resetBaseline("separacao", data._orderItemId);
+      await queryClient.refetchQueries({ queryKey: workUnitsQueryKey });
+      toast({ title: "Exceções Limpas", description: "As exceções foram removidas com sucesso" });
+    },
+    onError: () => {
+      toast({ title: "Erro", description: "Falha ao limpar exceções", variant: "destructive" });
+    },
+  });
+
+  // Helper para busca múltipla por vírgula
+  const processMultipleOrderSearch = (searchValue: string, orderCode: string): boolean => {
+    if (!searchValue.trim()) return true;
+    if (searchValue.includes(',')) {
+      const terms = searchValue.split(',').map(t => t.trim().toLowerCase()).filter(t => t);
+      return terms.some(term => orderCode.toLowerCase().includes(term));
+    }
+    return orderCode.toLowerCase().includes(searchValue.toLowerCase());
+  };
+
+  const availableWorkUnits = useMemo(() => {
+    return workUnits?.filter((wu) => {
+      if (wu.status !== "pendente" || (wu.lockedBy && wu.lockedBy !== user?.id)) return false;
+      if (!wu.order.isLaunched) return false;
+
+      const userSections = (user?.sections as string[]) || [];
+      if (userSections.length > 0) {
+        if (wu.section && !userSections.includes(wu.section)) return false;
+        const hasRelevantItems = wu.items.some(item => userSections.includes(item.section));
+        if (!wu.section && !hasRelevantItems) return false;
+      }
+
+      if (filterOrderId && !processMultipleOrderSearch(filterOrderId, wu.order.erpOrderId)) return false;
+
+      if (filterRoute && wu.order.routeId !== filterRoute) return false;
+
+      if (wu.order.status === "separado" || wu.order.status === "conferido") return false;
+
+      if (!isDateInRange(wu.order.launchedAt || wu.order.createdAt, dateRange)) return false;
+
+      return true;
+    }) || [];
+  }, [workUnits, user, filterOrderId, filterRoute, dateRange]);
+
+  const groupedWorkUnits = useMemo(() => {
+    const groups: Record<string, typeof availableWorkUnits> = {};
+    availableWorkUnits.forEach((wu) => {
+      if (!groups[wu.orderId]) groups[wu.orderId] = [];
+      groups[wu.orderId].push(wu);
+    });
+    return Object.values(groups);
+  }, [availableWorkUnits]);
+
+  const handleSelectGroup = (wus: typeof availableWorkUnits, checked: boolean) => {
+    const ids = wus.map((wu) => wu.id);
+    if (checked) {
+      setSelectedWorkUnits((prev) => Array.from(new Set([...prev, ...ids])));
+    } else {
+      setSelectedWorkUnits((prev) => prev.filter((id) => !ids.includes(id)));
+    }
+  };
+
+  const handleStartSeparation = async () => {
+    if (selectedWorkUnits.length === 0) {
+      toast({ title: "Atenção", description: "Selecione pelo menos um pedido", variant: "destructive" });
+      return;
+    }
+    try {
+      await lockMutation.mutateAsync(selectedWorkUnits);
+      const selectedSet = new Set(selectedWorkUnits);
+      queryClient.setQueryData<WorkUnitWithDetails[]>(workUnitsQueryKey, (old) => {
+        if (!old) return old;
+        return old.map(wu =>
+          selectedSet.has(wu.id)
+            ? { ...wu, lockedBy: user!.id, status: wu.status === "pendente" ? "em_andamento" : wu.status }
+            : wu
+        );
+      });
+      setStep("picking");
+      setPickingTab("list");
+      setCurrentProductIndex(0);
+      setScanStatus("idle");
+      setScanMessage("");
+      queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+    } catch {
+      toast({ title: "Erro", description: "Falha ao bloquear unidades de trabalho", variant: "destructive" });
+    }
+  };
+
+
+  const handleCompleteAll = async () => {
+    // Verificar se há exceções não autorizadas
+    const allExceptions: Exception[] = [];
+    allMyUnits.forEach(wu => {
+      wu.items.forEach((item: ItemWithProduct) => {
+        if (item.exceptions && item.exceptions.length > 0) {
+          item.exceptions.forEach((exc: Exception) => {
+            if (!exc.authorizedBy) {
+              allExceptions.push({
+                ...exc,
+                orderItem: {
+                  ...item,
+                  order: wu.order,
+                },
+              } as any);
+            }
+          });
+        }
+      });
+    });
+
+    if (allExceptions.length > 0) {
+      const userSettings = user?.settings as UserSettings;
+      if (userSettings?.canAuthorizeOwnExceptions) {
+        try {
+          await apiRequest("POST", "/api/exceptions/auto-authorize", {
+            exceptionIds: allExceptions.map(e => e.id),
+          });
+          toast({ title: "Auto-autorização", description: "Exceções autorizadas automaticamente." });
+        } catch (error) {
+          toast({ title: "Erro", description: "Falha ao auto-autorizar exceções", variant: "destructive" });
+          return;
+        }
+      } else {
+        setPendingExceptions(allExceptions);
+        setShowAuthModal(true);
+        return;
+      }
+    }
+
+    // Verificação de itens pendentes na interface antes de enviar
+    const pendingItems = allMyUnits.flatMap(wu => wu.items).filter((item: any) => {
+      const sep = Number(item.separatedQty) + (usePendingDeltaStore.getState().separacao[item.id] || 0);
+      const exc = Number(item.exceptionQty || 0);
+      return sep + exc < Number(item.quantity);
+    });
+
+    if (pendingItems.length > 0) {
+      toast({
+        title: "Separação Incompleta",
+        description: `Existem ${pendingItems.length} itens com quantidade pendente. Verifique se separou tudo.`,
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // Continuar com finalização normal
+    await finalizeWorkUnits();
+  };
+
+  const finalizeWorkUnits = async () => {
+    usePendingDeltaStore.getState().clear("separacao");
+    try {
+      let anyUnlock = false;
+      for (const wu of allMyUnits) {
+        try {
+          await completeWorkUnitMutation.mutateAsync(wu.id);
+        } catch (error: any) {
+          // Se falhar porque há itens pendentes (outras seções), fazemos apenas unlock
+          if (error.message === "Existem itens pendentes" || error.message?.includes("pendentes")) {
+            // console.log(`Unidade ${wu.id} tem itens pendentes de outras seções. Liberando bloqueio.`);
+            await unlockMutation.mutateAsync({ ids: [wu.id], reset: false });
+            anyUnlock = true;
+          } else {
+            throw error;
+          }
+        }
+      }
+      setStep("select");
+      setSelectedWorkUnits([]);
+      clearSession();
+      if (anyUnlock) {
+        toast({ title: "Salvo", description: "Sua parte foi concluída. Pedido liberado para outras seções.", variant: "default" });
+      } else {
+        toast({ title: "Concluído", description: "Separação finalizada com sucesso", variant: "default" });
+      }
+    } catch (error) {
+      console.error("Error completing work units:", error);
+      toast({ title: "Erro", description: "Falha ao finalizar separação", variant: "destructive" });
+    }
+  };
+
+  const handleExceptionAuthorized = async () => {
+    await queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+    await finalizeWorkUnits();
+  };
+
+  const processScanQueue = useCallback(async () => {
+    if (scanWorkerRunningRef.current) return;
+    scanWorkerRunningRef.current = true;
+
+    try {
+      while (scanQueueRef.current.length > 0) {
+        if (overQtyModalOpenRef.current) break;
+        const barcode = scanQueueRef.current.shift()!;
+
+        const currentCache = queryClient.getQueryData<any[]>(workUnitsQueryKey) || [];
+        const units = currentCache.filter((wu: any) =>
+          wu.lockedBy === user?.id
+        );
+        if (units.length === 0) continue;
+
+
+        const unitsWithProduct = units.filter((wu: any) =>
+          (wu.items as ItemWithProduct[]).some(item =>
+            item.product?.barcode === barcode || item.product?.boxBarcode === barcode || (Array.isArray(item.product?.boxBarcodes) && item.product.boxBarcodes.some((bx: any) => bx.code === barcode))
+          )
+        );
+
+        if (unitsWithProduct.length === 0) {
+          setScanStatus("warning");
+          setScanMessage("Produto não encontrado nos seus pedidos em aberto");
+          continue;
+        }
+
+        const { get: getDelta } = usePendingDeltaStore.getState();
+
+        let targetUnit = unitsWithProduct.find((wu: any) => {
+          const item = (wu.items as ItemWithProduct[]).find((i: ItemWithProduct) =>
+            i.product?.barcode === barcode || i.product?.boxBarcode === barcode || (Array.isArray(i.product?.boxBarcodes) && i.product.boxBarcodes.some((bx: any) => bx.code === barcode))
+          );
+          if (!item) return false;
+          const serverSeparated = Number(item.separatedQty);
+          const delta = getDelta("separacao", item.id);
+          const exceptionQty = Number(item.exceptionQty || 0);
+          return serverSeparated + delta + exceptionQty < Number(item.quantity);
+        });
+
+        const finalUnit = targetUnit || unitsWithProduct[0];
+        if (!finalUnit) continue;
+
+        const matchedItem = (finalUnit.items as ItemWithProduct[]).find(i =>
+          i.product?.barcode === barcode || i.product?.boxBarcode === barcode || (Array.isArray(i.product?.boxBarcodes) && i.product.boxBarcodes.some((bx: any) => bx.code === barcode))
+        );
+        if (!matchedItem) {
+          console.log("[DEBUG] Product not found in unit", finalUnit.id);
+          continue;
+        }
+
+        const serverSeparated = Number(matchedItem.separatedQty);
+        const itemDelta = getDelta("separacao", matchedItem.id);
+        const exceptionQty = Number(matchedItem.exceptionQty || 0);
+        const alreadyComplete = serverSeparated + itemDelta + exceptionQty >= Number(matchedItem.quantity);
+
+        console.log("[DEBUG] Item Status:", {
+          name: matchedItem.product.name,
+          serverSeparated,
+          itemDelta,
+          exceptionQty,
+          total: Number(matchedItem.quantity),
+          alreadyComplete
+        });
+
+        // COMMENTED OUT TO FORCE SERVER SIDE CHECK
+        // if (alreadyComplete) {
+        //   const targetQty = Number(matchedItem.quantity) - exceptionQty;
+        //   setOverQtyContext({
+        //     productName: matchedItem.product.name,
+        //     itemIds: [matchedItem.id],
+        //     workUnitId: finalUnit.id,
+        //     barcode,
+        //     targetQty,
+        //     message: `Coleta de "${matchedItem.product.name}" excedeu a quantidade solicitada (${targetQty}).`,
+        //     serverAlreadyReset: false,
+        //   });
+        //   setOverQtyModalOpen(true);
+        //   overQtyModalOpenRef.current = true;
+        //   const productId = matchedItem.product.id;
+        //   const idx = filteredAggregatedProducts.findIndex(ap => ap.product.id === productId);
+        //   if (idx >= 0) setCurrentProductIndex(idx);
+        //   setPickingTab("product");
+        //   break;
+        // }
+
+        let multiplier = 1;
+        if (matchedItem.product.barcode !== barcode && matchedItem.product.boxBarcodes && Array.isArray(matchedItem.product.boxBarcodes)) {
+          const bx = matchedItem.product.boxBarcodes.find((b: any) => b.code === barcode);
+          if (bx && bx.qty) multiplier = bx.qty;
+        }
+
+        usePendingDeltaStore.getState().inc("separacao", matchedItem.id, multiplier);
+
+        setScanStatus("idle");
+        setScanMessage("");
+
+        const productId = matchedItem.product.id;
+        const idx = filteredAggregatedProducts.findIndex(ap => ap.product.id === productId);
+        if (idx >= 0) setCurrentProductIndex(idx);
+        setPickingTab("product");
+
+        try {
+          const body = { barcode };
+          const res = await apiRequest("POST", `/api/work-units/${finalUnit.id}/scan-item`, body);
+          const result = await res.json();
+
+          if (result.status === "success") {
+          } else if (result.status === "over_quantity_with_exception" || result.status === "over_quantity") {
+            usePendingDeltaStore.getState().dec("separacao", matchedItem.id, multiplier);
+            usePendingDeltaStore.getState().clearItem("separacao", matchedItem.id);
+            usePendingDeltaStore.getState().resetBaseline("separacao", matchedItem.id);
+            const targetQty = Number(matchedItem.quantity) - exceptionQty;
+            setOverQtyContext({
+              productName: matchedItem.product.name,
+              itemIds: [matchedItem.id],
+              workUnitId: finalUnit.id,
+              barcode,
+              targetQty,
+              message: result.message || `Coleta de "${matchedItem.product.name}" excedeu a quantidade solicitada (${targetQty}).`,
+              serverAlreadyReset: true,
+            });
+            setOverQtyModalOpen(true);
+            overQtyModalOpenRef.current = true;
+            queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+            break;
+          } else if (result.status === "not_found") {
+            usePendingDeltaStore.getState().dec("separacao", matchedItem.id, multiplier);
+            setScanStatus("warning");
+            setScanMessage("Produto não encontrado neste pedido");
+          }
+        } catch {
+          usePendingDeltaStore.getState().dec("separacao", matchedItem.id, multiplier);
+          setScanStatus("error");
+          setScanMessage("Erro ao processar leitura");
+        }
+      }
+    } finally {
+      scanWorkerRunningRef.current = false;
+    }
+
+    if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+    syncTimerRef.current = setTimeout(() => {
+      if (scanQueueRef.current.length === 0 && !scanWorkerRunningRef.current) {
+        queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+        pendingInvalidateRef.current = false;
+      }
+    }, 300);
+  }, [queryClient, workUnitsQueryKey, user, filteredAggregatedProducts]);
+
+  const handleScanItem = useCallback((barcode: string) => {
+    if (overQtyModalOpenRef.current) return;
+    if (syncTimerRef.current) {
+      clearTimeout(syncTimerRef.current);
+      syncTimerRef.current = null;
+    }
+    scanQueueRef.current.push(barcode);
+    processScanQueue();
+  }, [processScanQueue]);
+
+  const globalScanHandler = useCallback((barcode: string) => {
+    if (step === "picking") {
+      handleScanItem(barcode);
+    }
+  }, [step, handleScanItem]);
+
+  useBarcodeScanner(globalScanHandler, step === "picking");
+
+  const handleIncrementProduct = async (ap: AggregatedProduct, qty: number = 1) => {
+    if (overQtyModalOpenRef.current) return;
+    const remaining = ap.totalQty - ap.separatedQty - ap.exceptionQty;
+    if (remaining <= 0) return;
+
+    if (!canUseManualQty) {
+      toast({
+        title: "Permissão Negada",
+        description: "Você não tem permissão para alterar quantidade manual",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const barcode = ap.product.barcode;
+    if (!barcode) return;
+
+    try {
+      const incompleteItem = ap.items.find(it =>
+        Number(it.separatedQty) + Number(it.exceptionQty || 0) < Number(it.quantity)
+      );
+      if (!incompleteItem) return;
+
+      const wu = allMyUnits.find(w => w.items.some(it => it.id === incompleteItem.id));
+      if (!wu) return;
+
+      const result = await scanItemMutation.mutateAsync({
+        workUnitId: wu.id,
+        barcode,
+        quantity: qty
+      });
+
+      if (result.status === "success") {
+        setScanStatus("idle");
+        setScanMessage("");
+        setMultiplierValue(1);
+      } else if (result.status === "over_quantity" || result.status === "over_quantity_with_exception") {
+        ap.items.forEach(item => {
+          usePendingDeltaStore.getState().clearItem("separacao", item.id);
+          usePendingDeltaStore.getState().resetBaseline("separacao", item.id);
+        });
+        setMultiplierValue(1);
+        queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+        const targetQty = ap.totalQty - ap.exceptionQty;
+        setOverQtyContext({
+          productName: ap.product.name,
+          itemIds: ap.items.map(i => i.id),
+          workUnitId: wu.id,
+          barcode: ap.product.barcode || "",
+          targetQty,
+          message: result.message || `Coleta de "${ap.product.name}" excedeu a quantidade solicitada (${targetQty}).`,
+          serverAlreadyReset: true,
+        });
+        setOverQtyModalOpen(true);
+        overQtyModalOpenRef.current = true;
+      } else {
+        setScanStatus("error");
+        setScanMessage("Erro ao incrementar");
+      }
+    } catch {
+      setScanStatus("error");
+      setScanMessage("Erro ao incrementar");
+    }
+  };
+
+  const handleOverQtyRecount = async () => {
+    if (!overQtyContext) return;
+    const ctx = overQtyContext;
+
+    ctx.itemIds.forEach(id => {
+      usePendingDeltaStore.getState().clearItem("separacao", id);
+      usePendingDeltaStore.getState().resetBaseline("separacao", id);
+    });
+
+    queryClient.setQueryData(workUnitsQueryKey, (old: any) => {
+      if (!old) return old;
+      return old.map((wu: any) => ({
+        ...wu,
+        items: wu.items.map((item: any) =>
+          ctx.itemIds.includes(item.id)
+            ? { ...item, separatedQty: 0, status: "pendente" }
+            : item
+        ),
+      }));
+    });
+
+    setOverQtyModalOpen(false);
+    overQtyModalOpenRef.current = false;
+    setOverQtyContext(null);
+    setScanStatus("idle");
+    setScanMessage("");
+    setTimeout(() => processScanQueue(), 0);
+
+    try {
+      if (!ctx.serverAlreadyReset) {
+        await apiRequest("POST", `/api/work-units/${ctx.workUnitId}/scan-item`, { barcode: ctx.barcode });
+      }
+    } catch (err) {
+      console.error("Recount error:", err);
+    }
+    queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+  };
+
+  const handleCancelPicking = () => {
+    usePendingDeltaStore.getState().clear("separacao");
+    const ids = allMyUnits.map(wu => wu.id);
+    if (ids.length > 0) {
+      unlockMutation.mutate({ ids, reset: true });
+    } else {
+      clearSession();
+      setStep("select");
+      setSelectedWorkUnits([]);
+    }
+  };
+
+  const handleNextProduct = () => {
+    const total = filteredAggregatedProducts.length;
+    if (total === 0) return;
+    // Avança para o próximo produto incompleto, ou apenas cicla para o próximo
+    const nextIncompleteIdx = filteredAggregatedProducts.findIndex((ap, idx) => {
+      if (idx <= currentProductIndex) return false;
+      return ap.totalQty - ap.separatedQty - ap.exceptionQty > 0;
+    });
+
+    if (nextIncompleteIdx >= 0) {
+      setCurrentProductIndex(nextIncompleteIdx);
+      return;
+    }
+
+    // Wrap: busca incompleto desde o início
+    const wrapIncompleteIdx = filteredAggregatedProducts.findIndex((ap, idx) => {
+      if (idx === currentProductIndex) return false;
+      return ap.totalQty - ap.separatedQty - ap.exceptionQty > 0;
+    });
+
+    if (wrapIncompleteIdx >= 0) {
+      setCurrentProductIndex(wrapIncompleteIdx);
+      return;
+    }
+
+    // Todos completos: avança linearmente para o próximo (permite navegação)
+    const nextIdx = (currentProductIndex + 1) % total;
+    setCurrentProductIndex(nextIdx);
+  };
+
+  const getProgress = () => {
+    if (aggregatedProducts.length === 0) return 0;
+    const total = aggregatedProducts.reduce((s, ap) => s + ap.totalQty, 0);
+    const done = aggregatedProducts.reduce((s, ap) => s + ap.separatedQty + ap.exceptionQty, 0);
+    return total > 0 ? (done / total) * 100 : 0;
+  };
+
+  const allItemsComplete = aggregatedProducts.length > 0 && aggregatedProducts.every(ap =>
+    ap.separatedQty + ap.exceptionQty >= ap.totalQty
+  );
+
+  const handleApplyDateFilter = () => {
+    setDateRange(tempDateRange);
+  };
+
+  return (
+    <div className="h-screen bg-background flex flex-col overflow-hidden" data-module="separacao">
+      <header className="flex items-center justify-between px-3 py-2 border-b border-border bg-card">
+        <div className="flex items-center gap-2 min-w-0">
+          <Package className="h-4 w-4 text-primary shrink-0" />
+          <span className="text-sm font-medium truncate">{user?.name} — Separador</span>
+        </div>
+        <Button variant="ghost" size="sm" onClick={logout} className="h-8 px-2 text-xs" data-testid="button-logout">
+          <LogOut className="h-3.5 w-3.5 mr-1" />
+          Sair
+        </Button>
+      </header>
+
+      {step === "select" && (
+        <div className="flex-1 flex flex-col min-h-0 px-3 py-3 gap-3 overflow-hidden">
+          <div className="space-y-2 p-2.5 bg-muted/30 rounded-lg border border-border shrink-0">
+            <div className="flex items-center gap-2">
+              <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <Input
+                placeholder="N° Pedido (separe múltiplos por vírgula)"
+                value={filterOrderId}
+                onChange={(e) => setFilterOrderId(e.target.value)}
+                className="h-8 text-xs"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <div className="flex-1">
+                <DatePickerWithRange
+                  date={tempDateRange}
+                  onDateChange={setTempDateRange}
+                  className="text-xs h-8"
+                />
+              </div>
+              <Button size="sm" className="h-8 px-3 text-xs" onClick={handleApplyDateFilter}>
+                Buscar
+              </Button>
+            </div>
+            <div className="flex items-center gap-2">
+              <Truck className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <Select value={filterRoute} onValueChange={(val) => setFilterRoute(val === "__all__" ? "" : val)}>
+                <SelectTrigger className="h-8 text-xs flex-1">
+                  <SelectValue placeholder="Todas as rotas" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">Todas as rotas</SelectItem>
+                  {routes?.map(route => (
+                    <SelectItem key={route.id} value={route.id}>{route.code} - {route.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {isLoading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-14 w-full rounded-lg" />
+              ))}
+            </div>
+          ) : groupedWorkUnits.length > 0 ? (
+            <>
+              {/* Lista com scroll que ocupa o espaço disponível */}
+              <div className="flex-1 overflow-y-scroll border rounded-lg min-h-0 touch-pan-y overscroll-contain">
+                <div className="space-y-1.5 p-2">
+                  {groupedWorkUnits.map((group) => {
+                    const firstWU = group[0];
+                    const groupIds = group.map(g => g.id);
+                    const isSelected = groupIds.every(id => selectedWorkUnits.includes(id));
+
+                    const userSections = (user?.sections as string[]) || [];
+                    const distinctProductCount = group.reduce((acc, wu) => {
+                      const filtered = wu.items?.filter(item =>
+                        userSections.length === 0 || userSections.includes(item.section)
+                      ) || [];
+                      const productIds = new Set(filtered.map(item => item.productId));
+                      return new Set([...acc, ...productIds]);
+                    }, new Set<string>()).size;
+
+                    let createdAt = "";
+                    try {
+                      createdAt = format(new Date(firstWU.order.launchedAt || firstWU.order.createdAt), "dd/MM HH:mm");
+                    } catch { }
+
+                    const routeName = routes?.find(r => r.id === firstWU.order.routeId)?.name;
+
+                    return (
+                      <div
+                        key={firstWU.orderId}
+                        className={`flex items-center gap-2.5 p-2.5 rounded-lg border transition-colors ${isSelected ? "border-primary bg-primary/5" : "border-border"}`}
+                        onClick={() => handleSelectGroup(group, !isSelected)}
+                        data-testid={`order-group-${firstWU.orderId}`}
+                      >
+                        <Checkbox
+                          checked={isSelected}
+                          onCheckedChange={(checked) => handleSelectGroup(group, !!checked)}
+                          className="shrink-0"
+                          data-testid={`checkbox-order-${firstWU.orderId}`}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-mono text-sm font-semibold">{firstWU.order.erpOrderId}</span>
+                            {routeName && <span className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded font-medium">Rota: {routeName}</span>}
+                          </div>
+                          <p className="text-xs text-muted-foreground truncate">{firstWU.order.customerName}</p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-xs font-medium">{distinctProductCount} produtos</p>
+                          <p className="text-[10px] text-muted-foreground">{createdAt}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Botão fixo no rodapé */}
+              <Button
+                className="w-full h-11 text-sm shrink-0"
+                onClick={handleStartSeparation}
+                disabled={selectedWorkUnits.length === 0 || lockMutation.isPending}
+                data-testid="button-start-separation"
+              >
+                <Package className="h-4 w-4 mr-1.5" />
+                Separar
+                {selectedWorkUnits.length > 0 && ` (${new Set(
+                  workUnits?.filter(wu => selectedWorkUnits.includes(wu.id)).map(wu => wu.orderId)
+                ).size})`}
+              </Button>
+            </>
+          ) : (
+            <div className="text-center py-10 text-muted-foreground">
+              <Package className="h-12 w-12 mx-auto mb-3 opacity-40" />
+              <p className="text-sm font-medium">Nenhum pedido disponível</p>
+              <p className="text-xs">Aguarde novos pedidos</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {step === "picking" && (
+        <>
+          <div className="px-3 pt-2 pb-1 space-y-1.5 border-b border-border bg-card">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground truncate">
+                {allMyUnits.map(wu => wu.order.erpOrderId).filter((v, i, a) => a.indexOf(v) === i).join(", ")}
+              </span>
+            </div>
+            <ScanInput
+              placeholder="Leia o código de barras..."
+              onScan={handleScanItem}
+              status={scanStatus}
+              statusMessage={scanMessage}
+              autoFocus
+              className="[&_input]:h-10 [&_input]:text-sm"
+            />
+          </div>
+
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+            {pickingTab === "product" && currentProduct && (
+              <div className="flex flex-col h-full min-h-0">
+                <div className="flex-1 overflow-y-scroll px-3 py-3 space-y-3 touch-pan-y overscroll-contain">
+                  <div className="bg-card border border-border rounded-lg p-3 space-y-2.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {currentProduct.orderCodes.map(code => (
+                        <span key={code} className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-mono">{code}</span>
+                      ))}
+                    </div>
+
+                    <p className="text-sm font-medium leading-tight">{currentProduct.product.name}</p>
+                    {currentProduct.product.manufacturer && (
+                      <p className="text-xs text-muted-foreground mt-0.5">{"Fabricante:"} {currentProduct.product.manufacturer}</p>
+                    )}
+
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                      <div>
+                        <span className="text-muted-foreground">{"Código:"}</span>
+                        <span className="ml-1 font-mono font-medium">{currentProduct.product.erpCode}</span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">{"Cód. Barras:"}</span>
+                        <span className="ml-1 font-mono">{currentProduct.product.barcode || "—"}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1 border-t border-border">
+                      <div>
+                        <span className="text-xs text-muted-foreground">Separado</span>
+                        <p className="text-lg font-bold">
+                          {currentProduct.separatedQty}
+                          <span className="text-muted-foreground font-normal text-sm">/{currentProduct.totalQty}</span>
+                          {currentProduct.exceptionQty > 0 && (
+                            <span className="text-orange-500 text-xs ml-1">(-{currentProduct.exceptionQty} exc)</span>
+                          )}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {canUseManualQty && (
+                          <>
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs text-muted-foreground">{"Qtd:"}</span>
+                              <Input
+                                type="number"
+                                min={1}
+                                max={currentProduct.totalQty - currentProduct.separatedQty - currentProduct.exceptionQty}
+                                value={multiplierValue}
+                                onChange={(e) => {
+                                  const newVal = Math.max(1, parseInt(e.target.value) || 1);
+                                  setMultiplierValue(newVal);
+                                }}
+                                onFocus={(e) => e.target.select()}
+                                className="h-10 w-20 text-center text-sm font-bold"
+                              />
+                            </div>
+                            <Button
+                              size="sm"
+                              className="h-10 px-3"
+                              onClick={() => handleIncrementProduct(currentProduct, multiplierValue)}
+                              disabled={
+                                scanItemMutation.isPending ||
+                                (currentProduct.separatedQty + currentProduct.exceptionQty >= currentProduct.totalQty) ||
+                                !currentProduct.product.barcode
+                              }
+                            >
+                              <Plus className="h-5 w-5 mr-1" />
+                              {"Separar"}
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-3 border-t bg-background mt-auto space-y-2">
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex-1 h-9 text-xs"
+                      onClick={() => {
+                        const firstIncompleteItem = currentProduct.items.find(i =>
+                          Number(i.quantity) > Number(i.separatedQty) + Number(i.exceptionQty || 0)
+                        ) || currentProduct.items[0];
+                        setExceptionItem(firstIncompleteItem);
+                        setShowExceptionDialog(true);
+                      }}
+                    >
+                      <AlertTriangle className="h-3.5 w-3.5 mr-1" />
+                      {"Exceção"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="flex-1 h-9 text-xs"
+                      onClick={handleNextProduct}
+                    >
+                      {"Próximo"}
+                      <ArrowRight className="h-3.5 w-3.5 ml-1" />
+                    </Button>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex-1 h-9 text-xs text-destructive border-destructive/30 hover:bg-destructive/10"
+                      onClick={handleCancelPicking}
+                      disabled={unlockMutation.isPending}
+                      data-testid="button-cancel-picking"
+                    >
+                      {"Cancelar"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="flex-1 h-9 text-xs bg-green-600 hover:bg-green-700"
+                      onClick={handleCompleteAll}
+                      disabled={!allItemsComplete || completeWorkUnitMutation.isPending}
+                      data-testid="button-complete-picking"
+                    >
+                      <Check className="h-3.5 w-3.5 mr-1" />
+                      {"Concluir"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {pickingTab === "product" && !currentProduct && filteredAggregatedProducts.length === 0 && (
+              <div className="flex-1 flex items-center justify-center p-4 text-muted-foreground text-sm">
+                Nenhum produto para separar
+              </div>
+            )}
+
+            {pickingTab === "list" && (
+              <div className="flex flex-col h-full min-h-0">
+                <div className="flex-1 overflow-y-scroll px-3 py-3 space-y-2 touch-pan-y overscroll-contain">
+                  {availableSections.length > 0 && (
+                    <Select value={sectionFilter} onValueChange={setSectionFilter}>
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue placeholder="Todas as seções" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Todas as seções</SelectItem>
+                        {availableSections.map(sid => {
+                          const secName = sections?.find(s => String(s.id) === sid)?.name;
+                          return (
+                            <SelectItem key={sid} value={sid}>
+                              {secName ? `${sid} - ${secName}` : sid}
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
+                  )}
+
+                  {filteredAggregatedProducts.length === 0 ? (
+                    <div className="text-center py-8 text-muted-foreground text-xs">
+                      Nenhum produto encontrado
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      {filteredAggregatedProducts.map((ap, idx) => {
+                        const remaining = ap.totalQty - ap.separatedQty - ap.exceptionQty;
+                        const isComplete = remaining <= 0;
+                        const hasException = ap.exceptionQty > 0;
+
+                        return (
+                          <div
+                            key={ap.product.id}
+                            className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-colors ${isComplete
+                              ? hasException
+                                ? "bg-amber-50/50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-900/50"
+                                : "bg-green-50/50 border-green-200 dark:bg-green-950/20 dark:border-green-900/50"
+                              : "border-border hover:bg-muted/50"
+                              }`}
+                            onClick={() => {
+                              setCurrentProductIndex(idx);
+                              setPickingTab("product");
+                            }}
+                          >
+                            <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${isComplete
+                              ? hasException ? "bg-amber-500 text-white" : "bg-green-500 text-white"
+                              : "bg-muted"
+                              }`}>
+                              {isComplete ? (
+                                hasException ? <AlertTriangle className="h-3 w-3" /> : <Check className="h-3 w-3" />
+                              ) : (
+                                <span className="text-[10px] font-medium">{remaining}</span>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-medium truncate">{ap.product.name}</p>
+                              {ap.product.manufacturer && (
+                                <p className="text-[10px] text-muted-foreground truncate">Fabricante: {ap.product.manufacturer}</p>
+                              )}
+                              <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                                <span className="font-mono">{ap.product.erpCode}</span>
+                                <span>•</span>
+                                <span className="font-mono">{ap.product.barcode || "—"}</span>
+                              </div>
+                              <div className="flex items-center gap-1 mt-0.5">
+                                {ap.orderCodes.map(code => (
+                                  <span key={code} className="text-[9px] bg-muted px-1 py-0.5 rounded font-mono">{code}</span>
+                                ))}
+                              </div>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <p className="text-xs font-medium">
+                                {ap.separatedQty}/{ap.totalQty}
+                              </p>
+                              {ap.exceptionQty > 0 && (
+                                <span className="text-[10px] text-orange-500">-{ap.exceptionQty}</span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <div className="p-3 border-t bg-background mt-auto">
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex-1 h-9 text-xs text-destructive border-destructive/30 hover:bg-destructive/10"
+                      onClick={handleCancelPicking}
+                      disabled={unlockMutation.isPending}
+                    >
+                      Cancelar
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="flex-1 h-9 text-xs bg-green-600 hover:bg-green-700"
+                      onClick={handleCompleteAll}
+                      disabled={!allItemsComplete || completeWorkUnitMutation.isPending}
+                    >
+                      <Check className="h-3.5 w-3.5 mr-1" />
+                      Concluir
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <nav className="flex border-t border-border bg-card shrink-0">
+            <button
+              className={`flex-1 flex flex-col items-center py-2 gap-0.5 transition-colors ${pickingTab === "product" ? "text-primary bg-primary/5" : "text-muted-foreground"
+                }`}
+              onClick={() => setPickingTab("product")}
+            >
+              <Package className="h-5 w-5" />
+              <span className="text-[10px] font-medium">Produto</span>
+            </button>
+            <button
+              className={`flex-1 flex flex-col items-center py-2 gap-0.5 transition-colors ${pickingTab === "list" ? "text-primary bg-primary/5" : "text-muted-foreground"
+                }`}
+              onClick={() => setPickingTab("list")}
+            >
+              <List className="h-5 w-5" />
+              <span className="text-[10px] font-medium">Lista</span>
+            </button>
+          </nav>
+        </>
+      )}
+
+      <ResultDialog
+        open={showResultDialog}
+        onOpenChange={setShowResultDialog}
+        type={resultDialogConfig.type}
+        title={resultDialogConfig.title}
+        message={resultDialogConfig.message}
+      />
+
+      {exceptionItem && (
+        <ExceptionDialog
+          open={showExceptionDialog}
+          onOpenChange={setShowExceptionDialog}
+          productName={exceptionItem.product.name}
+          maxQuantity={Math.max(0, Number(exceptionItem.quantity) - Number(exceptionItem.separatedQty) - (exceptionItem.exceptionQty || 0))}
+          hasExceptions={(exceptionItem.exceptionQty || 0) > 0}
+          onSubmit={(data) => {
+            const wu = allMyUnits.find(w => w.items.some(i => i.id === exceptionItem.id));
+            if (wu) {
+              createExceptionMutation.mutate({
+                workUnitId: wu.id,
+                orderItemId: exceptionItem.id,
+                type: data.type,
+                quantity: data.quantity,
+                observation: data.observation,
+              });
+            }
+          }}
+          onClearExceptions={() => {
+            clearExceptionsMutation.mutate(exceptionItem.id);
+            setShowExceptionDialog(false);
+          }}
+          isSubmitting={createExceptionMutation.isPending}
+          isClearing={clearExceptionsMutation.isPending}
+        />
+      )}
+
+      <ExceptionAuthorizationModal
+        open={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        exceptions={pendingExceptions}
+        onAuthorized={handleExceptionAuthorized}
+      />
+
+      {overQtyContext && (
+        <AlertDialog open={overQtyModalOpen} onOpenChange={setOverQtyModalOpen} key={overQtyContext.workUnitId || 'qty-modal'}>
+          <AlertDialogContent className="max-w-sm">
+            <AlertDialogHeader>
+              <AlertDialogTitle className="flex items-center gap-2 text-orange-600">
+                <AlertTriangle className="h-5 w-5" />
+                Quantidade Excedida
+              </AlertDialogTitle>
+              <AlertDialogDescription className="text-sm">
+                {overQtyContext?.message}
+              </AlertDialogDescription>
+            </AlertDialogHeader >
+            <AlertDialogFooter>
+              <Button
+                className="w-full bg-blue-600 hover:bg-blue-700"
+                onClick={handleOverQtyRecount}
+              >
+                Recontar produto
+              </Button>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
+    </div>
+  );
+}

@@ -1,0 +1,1629 @@
+import { db } from "./db";
+import { eq, and, sql, desc, inArray, isNull, gt, lt, or, like } from "drizzle-orm";
+import {
+  users, orders, orderItems, products, routes, workUnits, exceptions, auditLogs, sessions, sections, sectionGroups, manualQtyRules, db2Mappings, cacheOrcamentos, orderVolumes,
+  type User, type InsertUser, type Order, type InsertOrder, type OrderItem, type InsertOrderItem,
+  type Product, type InsertProduct, type Route, type InsertRoute, type WorkUnit, type InsertWorkUnit,
+  type Exception, type InsertException, type AuditLog, type InsertAuditLog, type Session,
+  type SectionGroup, type InsertSectionGroup, type Section, pickingSessions, type PickingSession, type InsertPickingSession,
+  type ManualQtyRule, type InsertManualQtyRule,
+  type Db2Mapping, type MappingField, type BatchSyncPayload,
+  type OrderVolume, type InsertOrderVolume,
+} from "@shared/schema";
+import { randomUUID } from "crypto";
+
+export interface IStorage {
+  // Users
+  getUser(id: string): Promise<User | undefined>;
+  getUserByUsername(username: string): Promise<User | undefined>;
+  getUserByBadgeCode(badgeCode: string): Promise<User | undefined>;
+  createUser(user: InsertUser): Promise<User>;
+  getAllUsers(): Promise<User[]>;
+  updateUser(id: string, user: Partial<User>): Promise<User | undefined>;
+
+  // Sections
+  getAllSections(): Promise<Section[]>;
+
+  // Section Groups
+  getAllSectionGroups(): Promise<SectionGroup[]>;
+  getSectionGroupById(id: string): Promise<SectionGroup | undefined>;
+  createSectionGroup(group: InsertSectionGroup): Promise<SectionGroup>;
+  updateSectionGroup(id: string, group: Partial<InsertSectionGroup>): Promise<SectionGroup | undefined>;
+  deleteSectionGroup(id: string): Promise<void>;
+
+  // Sessions
+  createSession(userId: string, token: string, sessionKey: string, expiresAt: Date): Promise<Session>;
+  getSessionByToken(token: string): Promise<Session | undefined>;
+  deleteSession(token: string): Promise<void>;
+
+  // Routes
+  getAllRoutes(): Promise<Route[]>;
+  createRoute(route: InsertRoute): Promise<Route>;
+  updateRoute(id: string, route: Partial<InsertRoute>): Promise<Route | undefined>;
+  toggleRouteActive(id: string, active: boolean): Promise<Route | undefined>;
+
+  // Products
+  getAllProducts(): Promise<Product[]>;
+  getProductByBarcode(barcode: string): Promise<Product | undefined>;
+  createProduct(product: InsertProduct): Promise<Product>;
+
+  // Orders
+  getAllOrders(): Promise<Order[]>;
+  getOrderById(id: string): Promise<Order | undefined>;
+  getOrderWithItems(id: string): Promise<(Order & { items: (OrderItem & { product: Product })[] }) | undefined>;
+  createOrder(order: InsertOrder): Promise<Order>;
+  updateOrder(id: string, data: Partial<Order>): Promise<Order | undefined>;
+  assignRouteToOrders(orderIds: string[], routeId: string | null): Promise<void>;
+  setOrderPriority(orderIds: string[], priority: number): Promise<void>;
+  launchOrders(orderIds: string[], loadCode?: string): Promise<void>;
+  checkAndUpdateOrderStatus(orderId: string): Promise<WorkUnit | null>;
+  recalculateOrderStatus(orderId: string): Promise<void>;
+
+  // Order Items
+  createOrderItem(item: InsertOrderItem): Promise<OrderItem>;
+  getOrderItemsByOrderId(orderId: string): Promise<(OrderItem & { product: Product; exceptionQty?: number; exceptions?: Exception[] })[]>;
+  updateOrderItem(id: string, data: Partial<OrderItem>): Promise<OrderItem | undefined>;
+  relaunchOrder(orderId: string): Promise<void>;
+
+  // Work Units
+  getWorkUnits(type?: string): Promise<(WorkUnit & { order: Order; items: (OrderItem & { product: Product; exceptionQty?: number })[]; lockedByName?: string })[]>;
+  getWorkUnitById(id: string): Promise<(WorkUnit & { order: Order; items: (OrderItem & { product: Product; exceptionQty?: number })[] }) | undefined>;
+  createWorkUnit(workUnit: InsertWorkUnit): Promise<WorkUnit>;
+  updateWorkUnit(id: string, data: Partial<WorkUnit>): Promise<WorkUnit | undefined>;
+  lockWorkUnits(workUnitIds: string[], userId: string, expiresAt: Date): Promise<void>;
+  unlockWorkUnits(workUnitIds: string[]): Promise<void>;
+  resetWorkUnitProgress(id: string): Promise<void>; // Added missing interface method
+  resetConferenciaProgress(id: string): Promise<void>;
+  checkAndCompleteWorkUnit(id: string, autoComplete?: boolean): Promise<boolean>;
+  checkAllWorkUnitsComplete(orderId: string): Promise<boolean>;
+  checkAllConferenceUnitsComplete(orderId: string): Promise<boolean>;
+
+  // Exceptions
+  getAllExceptions(): Promise<(Exception & { orderItem: OrderItem & { product: Product; order: Order }; reportedByUser: User; workUnit: WorkUnit })[]>;
+
+  createException(exception: InsertException): Promise<Exception>;
+  deleteException(id: string): Promise<void>;
+  deleteExceptionsForItem(orderItemId: string): Promise<void>;
+  authorizeExceptions(exceptionIds: string[], authData: { authorizedBy: string; authorizedByName: string; authorizedAt: string }): Promise<void>;
+
+  // Audit Logs
+  createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
+  getAllAuditLogs(): Promise<(AuditLog & { user: User | null })[]>;
+
+  // Stats
+  getOrderStats(): Promise<{ pendentes: number; emSeparacao: number; separados: number; conferidos: number; excecoes: number }>;
+
+  // Reports
+  getPickingListReportData(filters: { orderIds?: string[]; pickupPoints?: string[]; sections?: string[] }): Promise<{
+    section: string;
+    pickupPoint: number;
+    items: (OrderItem & { product: Product; order: Order })[];
+  }[]>;
+  getRouteOrdersPrintData(orderIds: string[]): Promise<any[]>;
+  getLoadingMapProductCentricReportData(loadCode: string): Promise<{
+    section: string;
+    products: {
+      product: Product;
+      totalQuantity: number;
+      orders: {
+        erpOrderId: string;
+        customerName: string;
+        quantity: number;
+      }[];
+    }[];
+  }[]>;
+  getLoadingMapReportData(loadCode: string): Promise<{
+    customerName: string;
+    customerCode: string | null;
+    sections: {
+      section: string;
+      items: {
+        product: Product;
+        quantity: number;
+        exceptionQty: number;
+        exceptionType: string | null;
+        exceptionObs: string | null;
+      }[];
+    }[];
+  }[]>;
+
+  // Picking Sessions
+  createPickingSession(session: InsertPickingSession): Promise<PickingSession>;
+  getPickingSession(orderId: string, sectionId: string): Promise<PickingSession | undefined>;
+  updatePickingSessionHeartbeat(id: string): Promise<void>;
+  deletePickingSession(orderId: string, sectionId: string): Promise<void>;
+  getPickingSessionsByOrder(orderId: string): Promise<PickingSession[]>;
+  cancelOrderLaunch(orderId: string): Promise<void>;
+
+  // Manual Quantity Rules
+  getAllManualQtyRules(): Promise<ManualQtyRule[]>;
+  createManualQtyRule(rule: InsertManualQtyRule): Promise<ManualQtyRule>;
+  updateManualQtyRule(id: string, data: Partial<InsertManualQtyRule>): Promise<ManualQtyRule | undefined>;
+  deleteManualQtyRule(id: string): Promise<void>;
+  checkProductManualQty(product: Product): Promise<boolean>;
+
+  // DB2 Mappings
+  getMappingByDataset(dataset: string): Promise<Db2Mapping | undefined>;
+  getAllMappings(): Promise<Db2Mapping[]>;
+  saveMapping(dataset: string, mappingJson: MappingField[], description: string | null, createdBy: string): Promise<Db2Mapping>;
+  activateMapping(id: string): Promise<Db2Mapping | undefined>;
+  getCacheOrcamentosPreview(limit: number): Promise<any[]>;
+
+  // Order Volumes
+  upsertOrderVolume(data: Omit<InsertOrderVolume, 'totalVolumes'> & { userId: string }): Promise<OrderVolume>;
+  getOrderVolume(orderId: string): Promise<OrderVolume | undefined>;
+  deleteOrderVolume(orderId: string): Promise<void>;
+  getAllOrderVolumes(): Promise<OrderVolume[]>;
+}
+
+export class DatabaseStorage implements IStorage {
+  // Users
+  async getUser(id: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user;
+  }
+
+  async getUserByBadgeCode(badgeCode: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.badgeCode, badgeCode));
+    return user;
+  }
+
+  async createUser(insertUser: InsertUser): Promise<User> {
+    const [newUser] = await db.insert(users).values(insertUser as any).returning();
+    return newUser;
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    return db.select().from(users).orderBy(users.name);
+  }
+
+  async updateUser(id: string, userUpdate: Partial<User>): Promise<User | undefined> {
+    // console.log(`[STORAGE] updateUser: Updating user ${id}`, JSON.stringify(userUpdate));
+    await db
+      .update(users)
+      .set(userUpdate)
+      .where(eq(users.id, id));
+
+    // Fetch the updated user to return it (workaround for potential returning() issues or just safety)
+    return this.getUser(id);
+  }
+
+
+
+  // Sessions
+  async createSession(userId: string, token: string, sessionKey: string, expiresAt: Date): Promise<Session> {
+    try {
+      // console.log(`[STORAGE] createSession: userId=${userId}, token=${token}`);
+      const [session] = await db.insert(sessions).values({
+        userId,
+        token,
+        sessionKey,
+        expiresAt: expiresAt.toISOString(),
+      }).returning();
+      return session;
+    } catch (e: any) {
+      console.error("[STORAGE] createSession ERROR:", e);
+      console.error("Message:", e.message);
+      throw e;
+    }
+  }
+
+  async getSessionByToken(token: string): Promise<Session | undefined> {
+    const [session] = await db.select().from(sessions)
+      .where(and(eq(sessions.token, token), gt(sessions.expiresAt, new Date().toISOString())));
+    return session;
+  }
+
+  async deleteSession(token: string): Promise<void> {
+    await db.delete(sessions).where(eq(sessions.token, token));
+  }
+
+  // Routes
+  async getAllRoutes(): Promise<Route[]> {
+    return db.select().from(routes).orderBy(routes.name);
+  }
+
+  async createRoute(route: InsertRoute): Promise<Route> {
+    if (!route.code) {
+      // Auto-generate code from Name (slug) or UUID
+      // Auto-generate code from Name (slug) or UUID
+      let slug = route.name.toUpperCase().replace(/[^A-Z0-9]/g, "").substring(0, 10);
+      if (!slug || slug.length === 0) {
+        slug = `R-${Math.floor(Math.random() * 10000)}`;
+      }
+      route.code = slug;
+
+      // Check existence
+      const existing = await db.select().from(routes).where(eq(routes.code, route.code)).limit(1);
+      if (existing.length > 0) {
+        route.code = `${route.code}-${Math.floor(Math.random() * 999)}`;
+      }
+    }
+    const [newRoute] = await db.insert(routes).values({
+      ...route,
+      code: route.code!,
+    }).returning();
+    return newRoute;
+  }
+
+  async updateRoute(id: string, route: Partial<InsertRoute>): Promise<Route | undefined> {
+    const [updated] = await db.update(routes).set(route).where(eq(routes.id, id)).returning();
+    return updated;
+  }
+
+  async toggleRouteActive(id: string, active: boolean): Promise<Route | undefined> {
+    const [updated] = await db.update(routes).set({ active }).where(eq(routes.id, id)).returning();
+    return updated;
+  }
+
+  // Products
+  async getAllProducts(): Promise<Product[]> {
+    return db.select().from(products).orderBy(products.name);
+  }
+
+  async getProductByBarcode(barcode: string): Promise<Product | undefined> {
+    const matchedProducts = await db.select().from(products).where(
+      or(
+        eq(products.barcode, barcode),
+        eq(products.boxBarcode, barcode),
+        like(products.boxBarcodes, `%${barcode}%`)
+      )
+    );
+
+    // Strict verify in memory for boxBarcodes to avoid false positives with floating point numbers
+    for (const p of matchedProducts) {
+      if (p.barcode === barcode || p.boxBarcode === barcode) return p;
+      if (p.boxBarcodes && Array.isArray(p.boxBarcodes)) {
+        // We expect {code: string, qty: number} objects based on the new sync format
+        if (p.boxBarcodes.some((b: any) => b.code === barcode)) return p;
+      }
+    }
+    return undefined;
+  }
+
+  async createProduct(product: InsertProduct): Promise<Product> {
+    const [newProduct] = await db.insert(products).values(product).returning();
+    return newProduct;
+  }
+
+  // Orders
+  async getAllOrders(): Promise<(Order & { hasExceptions: boolean; totalItems: number; pickedItems: number })[]> {
+    const allOrders = await db.select().from(orders).orderBy(desc(orders.priority), desc(orders.createdAt));
+
+    // Get Exceptions
+    const allExceptions = await db.select({ orderItemId: exceptions.orderItemId }).from(exceptions);
+    const exceptionItemIds = new Set(allExceptions.map(e => e.orderItemId));
+
+    // Get Item Stats
+    const itemStats = await db.select({
+      orderId: orderItems.orderId,
+      total: sql<number>`count(*)`,
+      picked: sql<number>`sum(case when ${orderItems.status} in ('separado', 'conferido', 'finalizado') then 1 else 0 end)`
+    }).from(orderItems).groupBy(orderItems.orderId);
+
+    const statsMap = new Map(itemStats.map(s => [s.orderId, { total: Number(s.total), picked: Number(s.picked) }]));
+
+    const allItems = await db.select({ id: orderItems.id, orderId: orderItems.orderId }).from(orderItems);
+    const ordersWithExceptions = new Set<string>();
+
+    for (const item of allItems) {
+      if (exceptionItemIds.has(item.id)) {
+        ordersWithExceptions.add(item.orderId);
+      }
+    }
+
+    return allOrders.map(o => {
+      const stats = statsMap.get(o.id) || { total: 0, picked: 0 };
+      return {
+        ...o,
+        hasExceptions: ordersWithExceptions.has(o.id),
+        totalItems: stats.total,
+        itemCount: stats.total,
+        pickedItems: stats.picked
+      };
+    });
+  }
+
+  async getOrderById(id: string): Promise<Order | undefined> {
+    const [order] = await db.select().from(orders).where(eq(orders.id, id));
+    return order;
+  }
+
+  async getOrderWithItems(id: string): Promise<(Order & { items: (OrderItem & { product: Product })[] }) | undefined> {
+    const [order] = await db.select().from(orders).where(eq(orders.id, id));
+    if (!order) return undefined;
+
+    const items = await this.getOrderItemsByOrderId(id);
+    return { ...order, items };
+  }
+
+  async createOrder(order: InsertOrder): Promise<Order> {
+    const [newOrder] = await db.insert(orders).values({
+      ...order,
+      status: (order.status || "pendente") as any,
+    }).returning();
+    return newOrder;
+  }
+
+  async updateOrder(id: string, data: Partial<Order>): Promise<Order | undefined> {
+    const [updated] = await db.update(orders)
+      .set({ ...data, updatedAt: new Date().toISOString() })
+      .where(eq(orders.id, id))
+      .returning();
+    return updated;
+  }
+
+  async assignRouteToOrders(orderIds: string[], routeId: string | null): Promise<void> {
+    await db.update(orders)
+      .set({ routeId, updatedAt: new Date().toISOString() })
+      .where(inArray(orders.id, orderIds));
+  }
+
+  async setOrderPriority(orderIds: string[], priority: number): Promise<void> {
+    await db.update(orders)
+      .set({ priority, updatedAt: new Date().toISOString() })
+      .where(inArray(orders.id, orderIds));
+  }
+
+  async launchOrders(orderIds: string[], loadCode?: string): Promise<void> {
+    await db.update(orders)
+      .set({
+        isLaunched: true,
+        launchedAt: new Date().toISOString(),
+        loadCode: loadCode || null,
+        updatedAt: new Date().toISOString()
+      })
+      .where(inArray(orders.id, orderIds));
+  }
+
+  async checkAndUpdateOrderStatus(orderId: string): Promise<WorkUnit | null> {
+    // Agora validamos se TODAS as unidades de trabalho de separa\u00e7\u00e3o est\u00e3o conclu\u00eddas
+    const allWusComplete = await this.checkAllWorkUnitsComplete(orderId);
+    let createdWorkUnit: WorkUnit | null = null;
+
+    if (allWusComplete) {
+      await db.update(orders)
+        .set({
+          status: "separado",
+          updatedAt: new Date().toISOString()
+        })
+        .where(eq(orders.id, orderId));
+
+      // Criar Unidade de Confer\u00eancia se n\u00e3o existir
+      const existing = await db.select().from(workUnits)
+        .where(and(
+          eq(workUnits.orderId, orderId),
+          eq(workUnits.type, "conferencia")
+        ))
+        .limit(1);
+
+      if (existing.length === 0) {
+        [createdWorkUnit] = await db.insert(workUnits).values({
+          orderId,
+          type: "conferencia",
+          status: "pendente",
+          pickupPoint: 0,
+        }).returning();
+      }
+    }
+    return createdWorkUnit;
+  }
+
+  async recalculateOrderStatus(orderId: string): Promise<void> {
+    const order = await this.getOrderById(orderId);
+    if (!order || !order.isLaunched) return;
+    // Removido bloqueio restritivo para permitir revers\u00e3o de 'separado' se itens forem resetados
+    if (["conferido", "em_conferencia", "finalizado"].includes(order.status)) return;
+
+    const items = await this.getOrderItemsByOrderId(orderId);
+    const allItemsPicked = items.length > 0 && items.every(i => Number(i.separatedQty) >= Number(i.quantity));
+
+    if (allItemsPicked) {
+      return;
+    }
+
+    const orderWorkUnits = await db.select().from(workUnits)
+      .where(and(eq(workUnits.orderId, orderId), eq(workUnits.type, "separacao")));
+
+    const anyInProgress = orderWorkUnits.some(wu => wu.status === "em_andamento");
+
+    const newStatus = anyInProgress ? "em_separacao" : "pendente";
+
+    if (order.status !== newStatus) {
+      await db.update(orders)
+        .set({ status: newStatus as any, updatedAt: new Date().toISOString() })
+        .where(eq(orders.id, orderId));
+    }
+  }
+
+  // Order Items
+  async createOrderItem(item: InsertOrderItem): Promise<OrderItem> {
+    const [newItem] = await db.insert(orderItems).values({
+      orderId: item.orderId,
+      productId: item.productId,
+      quantity: item.quantity,
+      section: item.section,
+      pickupPoint: item.pickupPoint, // Ensure this exists in item
+      status: (item.status || "pendente") as any,
+      qtyPicked: item.qtyPicked || 0,
+      qtyChecked: item.qtyChecked || 0,
+      exceptionType: item.exceptionType as any,
+      separatedQty: item.separatedQty || 0,
+      checkedQty: item.checkedQty || 0,
+    }).returning();
+    return newItem;
+  }
+
+  async getOrderItemsByOrderId(orderId: string): Promise<(OrderItem & { product: Product; exceptionQty?: number; exceptions?: Exception[] })[]> {
+    const items = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId));
+
+    // Fetch products and exceptions
+    const itemsWithProduct = await Promise.all(items.map(async (item) => {
+      const [product] = await db.select().from(products).where(eq(products.id, item.productId));
+      const itemExceptions = await db.select().from(exceptions).where(eq(exceptions.orderItemId, item.id));
+
+      return {
+        ...item,
+        product,
+        exceptions: itemExceptions
+      };
+    }));
+
+    return itemsWithProduct;
+  }
+
+  async updateOrderItem(id: string, data: Partial<OrderItem>): Promise<OrderItem | undefined> {
+    const [updated] = await db.update(orderItems)
+      .set(data)
+      .where(eq(orderItems.id, id))
+      .returning();
+    return updated;
+  }
+
+  async relaunchOrder(orderId: string): Promise<void> {
+    // Reset Order
+    await db.update(orders)
+      .set({
+        status: "pendente",
+        isLaunched: true, // Ensure it's launched
+        launchedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      })
+      .where(eq(orders.id, orderId));
+
+    // Reset Work Units
+    await db.update(workUnits)
+      .set({
+        status: "pendente",
+        lockedBy: null,
+        lockedAt: null,
+        lockExpiresAt: null,
+        startedAt: null,
+        completedAt: null,
+        cartQrCode: null,
+        palletQrCode: null
+      })
+      .where(eq(workUnits.orderId, orderId));
+
+    // Reset Order Items
+    await db.update(orderItems)
+      .set({
+        status: "pendente",
+        separatedQty: 0,
+        checkedQty: 0
+      })
+      .where(eq(orderItems.orderId, orderId));
+
+    // Delete all exceptions for this order
+    const orderItemIds = await db.select({ id: orderItems.id })
+      .from(orderItems)
+      .where(eq(orderItems.orderId, orderId));
+
+    for (const item of orderItemIds) {
+      await db.delete(exceptions).where(eq(exceptions.orderItemId, item.id));
+    }
+  }
+
+  // Work Units
+  // Retorna unidades de trabalho, opcionalmente filtradas por tipo.
+  // IMPORTANTE: Para 'conferencia', filtra pedidos que ainda n\u00e3o est\u00e3o 'separado' ou adiante.
+  async getWorkUnits(type?: string): Promise<(WorkUnit & { order: Order; items: (OrderItem & { product: Product; exceptionQty?: number })[]; lockedByName?: string })[]> {
+    const query = type
+      ? db.select().from(workUnits).where(eq(workUnits.type, type as any))
+      : db.select().from(workUnits);
+
+    const wus = await query;
+    if (wus.length === 0) return [];
+
+    const orderIds = [...new Set(wus.map(wu => wu.orderId))];
+
+    // Fetch Orders
+    const ordersData = await db.select().from(orders).where(inArray(orders.id, orderIds));
+    const ordersMap = new Map(ordersData.map(o => [o.id, o]));
+
+    // Fetch locked-by user names
+    const lockedByIds = [...new Set(wus.map(wu => wu.lockedBy).filter(Boolean))] as string[];
+    const usersMap = new Map<string, string>();
+    if (lockedByIds.length > 0) {
+      const usersData = await db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, lockedByIds));
+      for (const u of usersData) {
+        usersMap.set(u.id, u.name);
+      }
+    }
+
+    // Fetch Items
+    const itemsData = await db.select().from(orderItems).where(inArray(orderItems.orderId, orderIds));
+
+    // Fetch Products
+    const productIds = [...new Set(itemsData.map(i => i.productId))];
+    const productsData = productIds.length > 0
+      ? await db.select().from(products).where(inArray(products.id, productIds))
+      : [];
+    const productsMap = new Map(productsData.map(p => [p.id, p]));
+
+    // Fetch Exceptions
+    const itemIds = itemsData.map(i => i.id);
+    const exceptionsData = itemIds.length > 0
+      ? await db.select().from(exceptions).where(inArray(exceptions.orderItemId, itemIds))
+      : [];
+
+    // Group exceptions by itemId
+    const exceptionsMap = new Map<string, number>();
+    const exceptionsByItem = new Map<string, typeof exceptionsData>();
+    for (const exc of exceptionsData) {
+      const current = exceptionsMap.get(exc.orderItemId) || 0;
+      exceptionsMap.set(exc.orderItemId, current + Number(exc.quantity));
+      const list = exceptionsByItem.get(exc.orderItemId) || [];
+      list.push(exc);
+      exceptionsByItem.set(exc.orderItemId, list);
+    }
+
+    // Assemble Items
+    const itemsByOrder = new Map<string, (OrderItem & { product: Product; exceptionQty?: number })[]>();
+    for (const item of itemsData) {
+      const product = productsMap.get(item.productId);
+      if (!product) continue;
+
+      const exceptionQty = exceptionsMap.get(item.id) || 0;
+      const itemExceptions = exceptionsByItem.get(item.id) || [];
+      const fullItem = { ...item, product, exceptionQty, exceptions: itemExceptions };
+
+      const list = itemsByOrder.get(item.orderId) || [];
+      list.push(fullItem);
+      itemsByOrder.set(item.orderId, list);
+    }
+
+    // Assemble Result
+    const result: (WorkUnit & { order: Order; items: (OrderItem & { product: Product; exceptionQty?: number })[]; lockedByName?: string })[] = [];
+
+
+    for (const wu of wus) {
+      const order = ordersMap.get(wu.orderId);
+      if (order) {
+        // Filtro específico para Conferência: Só ver pedidos Separados ou já em Conferência/Conferidos
+        if (type === "conferencia") {
+          const allowedStatuses = ["separado", "em_conferencia", "conferido"];
+          if (!allowedStatuses.includes(order.status) || wu.status === "concluido") {
+            continue;
+          }
+        }
+
+        const allItems = itemsByOrder.get(wu.orderId) || [];
+        let filteredItems = allItems;
+
+        if (wu.type === "conferencia") {
+          // Conference units (pickupPoint=0) should see ALL items regardless of their pickup point
+          filteredItems = allItems;
+        } else {
+          filteredItems = wu.section
+            ? allItems.filter(i => i.section === wu.section && i.pickupPoint === wu.pickupPoint)
+            : allItems.filter(i => i.pickupPoint === wu.pickupPoint);
+        }
+
+
+
+        const lockedByName = wu.lockedBy ? usersMap.get(wu.lockedBy) : undefined;
+        result.push({ ...wu, order, items: filteredItems, lockedByName });
+      }
+    }
+
+    result.sort((a, b) => {
+      const timeA = a.order?.launchedAt ? new Date(a.order.launchedAt).getTime() : 0;
+      const timeB = b.order?.launchedAt ? new Date(b.order.launchedAt).getTime() : 0;
+      return timeB - timeA;
+    });
+
+    return result;
+  }
+
+  async getWorkUnitById(id: string): Promise<(WorkUnit & { order: Order; items: (OrderItem & { product: Product; exceptionQty?: number })[] }) | undefined> {
+    const [wu] = await db.select().from(workUnits).where(eq(workUnits.id, id));
+    if (!wu) return undefined;
+
+    const [order] = await db.select().from(orders).where(eq(orders.id, wu.orderId));
+    if (!order) return undefined;
+
+    const items = await this.getOrderItemsByOrderId(wu.orderId);
+    let filteredItems = items;
+
+    if (wu.type === "conferencia") {
+      filteredItems = items;
+    } else {
+      filteredItems = wu.section
+        ? items.filter(i => i.section === wu.section && i.pickupPoint === wu.pickupPoint)
+        : items.filter(i => i.pickupPoint === wu.pickupPoint);
+    }
+
+    return { ...wu, order, items: filteredItems };
+  }
+
+  async createWorkUnit(workUnit: InsertWorkUnit): Promise<WorkUnit> {
+    const [newWu] = await db.insert(workUnits).values({
+      ...workUnit,
+      type: workUnit.type as any,
+      status: (workUnit.status || "pendente") as any,
+    }).returning();
+    return newWu;
+  }
+
+  async updateWorkUnit(id: string, data: Partial<WorkUnit>): Promise<WorkUnit | undefined> {
+    const [updated] = await db.update(workUnits)
+      .set(data)
+      .where(eq(workUnits.id, id))
+      .returning();
+    return updated;
+  }
+
+  async lockWorkUnits(workUnitIds: string[], userId: string, expiresAt: Date): Promise<void> {
+    await db.update(workUnits)
+      .set({
+        lockedBy: userId,
+        lockedAt: new Date().toISOString(),
+        lockExpiresAt: expiresAt.toISOString(),
+        // status: "em_andamento", // Status update moved to scan-cart
+        // startedAt: new Date().toISOString(), // Moved to scan-cart
+      })
+      .where(inArray(workUnits.id, workUnitIds));
+  }
+
+  async unlockWorkUnits(workUnitIds: string[]): Promise<void> {
+    if (workUnitIds.length === 0) return;
+    await db.update(workUnits)
+      .set({ lockedBy: null, lockedAt: null, lockExpiresAt: null })
+      .where(inArray(workUnits.id, workUnitIds));
+  }
+
+  async resetWorkUnitProgress(id: string): Promise<void> {
+    const [wu] = await db.select().from(workUnits).where(eq(workUnits.id, id));
+    if (!wu) return;
+
+    // Reset items separatedQty
+    await db.update(orderItems)
+      .set({ separatedQty: 0, status: "pendente" })
+      .where(and(
+        eq(orderItems.orderId, wu.orderId),
+        eq(orderItems.pickupPoint, wu.pickupPoint),
+        wu.section ? eq(orderItems.section, wu.section) : undefined
+      ));
+
+    // Reset work unit status
+    await db.update(workUnits)
+      .set({ status: "pendente", startedAt: null, completedAt: null, cartQrCode: null })
+      .where(eq(workUnits.id, id));
+  }
+
+  async resetConferenciaProgress(id: string): Promise<void> {
+    const [wu] = await db.select().from(workUnits).where(eq(workUnits.id, id));
+    if (!wu) return;
+
+    // Reset items checkedQty
+    await db.update(orderItems)
+      .set({ checkedQty: 0 })
+      .where(eq(orderItems.orderId, wu.orderId));
+
+    // Reset work unit status
+    await db.update(workUnits)
+      .set({ status: "pendente", startedAt: null, completedAt: null })
+      .where(eq(workUnits.id, id));
+  }
+
+  async checkAndCompleteWorkUnit(id: string, autoComplete: boolean = true): Promise<boolean> {
+    const [workUnit] = await db.select().from(workUnits).where(eq(workUnits.id, id));
+    if (!workUnit) return false;
+
+    // Manual items fetch matching reset logic
+    const whereClause = and(
+      eq(orderItems.orderId, workUnit.orderId),
+      eq(orderItems.pickupPoint, workUnit.pickupPoint),
+      workUnit.section ? eq(orderItems.section, workUnit.section) : undefined
+    );
+    const items = await db.select().from(orderItems).where(whereClause);
+
+    // Get exceptions for this work unit
+    const unitExceptions = await db.select().from(exceptions).where(eq(exceptions.workUnitId, id));
+
+    const allComplete = items.every(item => {
+      const itemExcs = unitExceptions.filter(e => e.orderItemId === item.id);
+      const excQty = itemExcs.reduce((sum, e) => sum + Number(e.quantity), 0);
+      const isItemDone = Number(item.separatedQty) + excQty >= Number(item.quantity);
+      // console.log(`Debug WU ${id}: Item ${item.id} status - Sep: ${item.separatedQty}, Exc: ${excQty}, Target: ${item.quantity}. Done: ${isItemDone}`);
+      return isItemDone;
+    });
+
+    // console.log(`Debug WU ${id}: All Complete ? ${allComplete} `);
+
+    if (allComplete) {
+      if (autoComplete) {
+        await db.update(workUnits)
+          .set({ status: "concluido", completedAt: new Date().toISOString(), lockedBy: null, lockedAt: null })
+          .where(eq(workUnits.id, id));
+      }
+      return true;
+    }
+    return false;
+  }
+
+  async checkAllWorkUnitsComplete(orderId: string): Promise<boolean> {
+    // 1. Pegar TODAS as unidades de separa\u00e7\u00e3o existentes
+    const units = await db.select().from(workUnits).where(and(eq(workUnits.orderId, orderId), eq(workUnits.type, "separacao")));
+    if (units.length === 0) return false;
+
+    // Todas as WUs de separa\u00e7\u00e3o devem estar conclu\u00eddas
+    const allWusDone = units.every(u => u.status === "concluido");
+    if (!allWusDone) return false;
+
+    // 2. DOUBLE CHECK: Validar itens do pedido e exce\u00e7\u00f5es
+    // Isso evita que o pedido seja finalizado se existem se\u00e7\u00f5es que sequer tiveram WUs criadas
+    const items = await this.getOrderItemsByOrderId(orderId);
+    if (items.length === 0) return false;
+
+    // Buscar exce\u00e7\u00f5es de separa\u00e7\u00e3o do pedido
+    const orderExceptions = await db.select().from(exceptions)
+      .innerJoin(workUnits, eq(exceptions.workUnitId, workUnits.id))
+      .where(and(eq(workUnits.orderId, orderId), eq(workUnits.type, "separacao")));
+
+    // Validar se CADA item foi separado ou tratado como exce\u00e7\u00e3o
+    // Adicionalmente, verificamos se existe ALGUM item com quantidade > 0 que n\u00e3o tem separa\u00e7\u00e3o nem exce\u00e7\u00e3o.
+    // Se existir, for\u00e7amos FALSE.
+    const anyItemPending = items.some(item => {
+      const itemExcs = orderExceptions.filter(e => e.exceptions.orderItemId === item.id);
+      const excQty = itemExcs.reduce((sum, e) => sum + Number(e.exceptions.quantity), 0);
+      const sep = Number(item.separatedQty);
+      const qty = Number(item.quantity);
+      // Item Pendente se (sep + exc < qty) E (qty > 0)
+      return qty > 0 && (sep + excQty) < qty;
+    });
+
+    if (anyItemPending) return false;
+
+    // Redundante, mas mant\u00e9m a l\u00f3gica original de 'every'
+    const everythingSeparated = items.every(item => {
+      const itemExcs = orderExceptions.filter(e => e.exceptions.orderItemId === item.id);
+      const excQty = itemExcs.reduce((sum, e) => sum + Number(e.exceptions.quantity), 0);
+      const isDone = (Number(item.separatedQty) + excQty) >= Number(item.quantity);
+      return isDone;
+    });
+
+    return everythingSeparated;
+  }
+
+  async checkAllConferenceUnitsComplete(orderId: string): Promise<boolean> {
+    // 1. Pegar TODAS as unidades de confer\u00eancia (paletiza\u00e7\u00e3o/confer\u00eancia)
+    // Assumindo que confer\u00eancia usa type='conferencia' ou que itens verificados marcam o pedido.
+    // O pedido entra em 'em_conferencia'. O target \u00e9 'conferido'.
+
+    // items must be fully checked
+    const items = await this.getOrderItemsByOrderId(orderId);
+    if (items.length === 0) return false;
+
+    const everythingChecked = items.every(item => {
+      // Se o item foi separado (qty > 0), ele precisa ser conferido.
+      // checkedQty >= separatedQty
+      const sep = Number(item.separatedQty);
+      const checked = Number(item.checkedQty);
+      if (sep === 0) return true; // Nada separado, nada a conferir
+      return checked >= sep;
+    });
+
+    return everythingChecked;
+  }
+
+  async adjustItemQuantityForException(orderItemId: string): Promise<void> {
+    const [item] = await db.select().from(orderItems).where(eq(orderItems.id, orderItemId));
+    if (!item) return;
+
+    const itemExceptions = await db.select().from(exceptions).where(eq(exceptions.orderItemId, orderItemId));
+    const totalExceptionQty = itemExceptions.reduce((sum, e) => sum + Number(e.quantity), 0);
+
+    const currentSeparated = Number(item.separatedQty);
+    const target = Number(item.quantity);
+
+    // Logic: separated + exception should not exceed target?
+    // Or strictly: separated cannot exceed (target - exception).
+    // The user implies they are converting separated to exception.
+
+    const maxSeparated = Math.max(0, target - totalExceptionQty);
+
+    if (currentSeparated > maxSeparated) {
+      await db.update(orderItems)
+        .set({ separatedQty: maxSeparated })
+        .where(eq(orderItems.id, orderItemId));
+    }
+  }
+
+  async canCreateException(orderItemId: string, newQuantity: number): Promise<boolean> {
+    const [item] = await db.select().from(orderItems).where(eq(orderItems.id, orderItemId));
+    if (!item) return false;
+
+    const itemExceptions = await db.select().from(exceptions).where(eq(exceptions.orderItemId, orderItemId));
+    const currentExceptionQty = itemExceptions.reduce((sum, e) => sum + Number(e.quantity), 0);
+
+    return (currentExceptionQty + Number(newQuantity)) <= Number(item.quantity);
+  }
+
+  // Exceptions
+  async getAllExceptions(): Promise<(Exception & { orderItem: OrderItem & { product: Product; order: Order }; reportedByUser: User; workUnit: WorkUnit })[]> {
+    const excs = await db.select().from(exceptions).orderBy(desc(exceptions.createdAt));
+    const result: (Exception & { orderItem: OrderItem & { product: Product; order: Order }; reportedByUser: User; workUnit: WorkUnit })[] = [];
+
+    for (const exc of excs) {
+      const [item] = await db.select().from(orderItems).where(eq(orderItems.id, exc.orderItemId));
+      const [product] = item ? await db.select().from(products).where(eq(products.id, item.productId)) : [undefined];
+      const [order] = item ? await db.select().from(orders).where(eq(orders.id, item.orderId)) : [undefined];
+      const [user] = await db.select().from(users).where(eq(users.id, exc.reportedBy));
+      const [wu] = exc.workUnitId ? await db.select().from(workUnits).where(eq(workUnits.id, exc.workUnitId)) : [undefined];
+
+      if (item && product && order && user && wu) {
+        result.push({
+          ...exc,
+          orderItem: { ...item, product, order },
+          reportedByUser: user,
+          workUnit: wu,
+        });
+      }
+    }
+
+    return result;
+  }
+
+
+  async createException(exception: InsertException): Promise<Exception> {
+    const [newExc] = await db.insert(exceptions).values({
+      ...exception,
+      type: exception.type as any,
+    }).returning();
+    return newExc;
+  }
+
+  async deleteException(id: string): Promise<void> {
+    await db.delete(exceptions).where(eq(exceptions.id, id));
+  }
+
+  async deleteExceptionsForItem(orderItemId: string): Promise<void> {
+    await db.delete(exceptions).where(eq(exceptions.orderItemId, orderItemId));
+  }
+
+  async authorizeExceptions(exceptionIds: string[], authData: { authorizedBy: string; authorizedByName: string; authorizedAt: string }): Promise<void> {
+    await db.update(exceptions)
+      .set({
+        authorizedBy: authData.authorizedBy,
+        authorizedByName: authData.authorizedByName,
+        authorizedAt: authData.authorizedAt,
+      })
+      .where(inArray(exceptions.id, exceptionIds));
+  }
+
+  // Audit Logs
+  async createAuditLog(log: InsertAuditLog): Promise<AuditLog> {
+    const [newLog] = await db.insert(auditLogs).values({
+      ...log,
+      createdAt: new Date().toISOString()
+    }).returning();
+    return newLog;
+  }
+
+  async getAllAuditLogs(): Promise<(AuditLog & { user: User | null })[]> {
+    const logs = await db.select().from(auditLogs).orderBy(desc(auditLogs.createdAt));
+    const result: (AuditLog & { user: User | null })[] = [];
+
+    for (const log of logs) {
+      const [user] = log.userId
+        ? await db.select().from(users).where(eq(users.id, log.userId))
+        : [null];
+
+      result.push({ ...log, user });
+    }
+
+    return result;
+  }
+
+  async getAllSections(): Promise<Section[]> {
+    return db.select().from(sections).orderBy(sections.id);
+  }
+
+  // Section Groups
+  async getAllSectionGroups(): Promise<SectionGroup[]> {
+    return await db.select().from(sectionGroups);
+  }
+
+  async getSectionGroupById(id: string): Promise<SectionGroup | undefined> {
+    const [group] = await db.select().from(sectionGroups).where(eq(sectionGroups.id, id));
+    return group;
+  }
+
+  async createSectionGroup(group: InsertSectionGroup): Promise<SectionGroup> {
+    try {
+      const [newGroup] = await db.insert(sectionGroups).values(group).returning();
+      return newGroup;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async updateSectionGroup(id: string, group: Partial<InsertSectionGroup>): Promise<SectionGroup | undefined> {
+    const [updated] = await db
+      .update(sectionGroups)
+      .set({ ...group, updatedAt: new Date().toISOString() })
+      .where(eq(sectionGroups.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteSectionGroup(id: string): Promise<void> {
+    await db.delete(sectionGroups).where(eq(sectionGroups.id, id));
+  }
+
+  // Stats
+  async getOrderStats(): Promise<{ pendentes: number; emSeparacao: number; separados: number; conferidos: number; excecoes: number }> {
+    const allOrders = await db.select().from(orders);
+    const allExceptions = await db.select().from(exceptions);
+
+    return {
+      pendentes: allOrders.filter(o => o.status === "pendente").length,
+      emSeparacao: allOrders.filter(o => o.status === "em_separacao").length,
+      separados: allOrders.filter(o => o.status === "separado").length,
+      conferidos: allOrders.filter(o => o.status === "conferido").length,
+      excecoes: allExceptions.length,
+    };
+  }
+
+  async getPickingListReportData(filters: { orderIds?: string[]; pickupPoints?: string[]; sections?: string[] }): Promise<{
+    section: string;
+    pickupPoint: number;
+    items: (OrderItem & { product: Product; order: Order })[];
+  }[]> {
+    const conditions = [];
+
+    if (filters.orderIds && filters.orderIds.length > 0) {
+      conditions.push(inArray(orderItems.orderId, filters.orderIds));
+    }
+
+    if (filters.pickupPoints && filters.pickupPoints.length > 0) {
+      // pickupPoint in db is integer
+      const ppInts = filters.pickupPoints.map(p => parseInt(p)).filter(p => !isNaN(p));
+      if (ppInts.length > 0) {
+        conditions.push(inArray(orderItems.pickupPoint, ppInts));
+      }
+    }
+
+    if (filters.sections && filters.sections.length > 0) {
+      conditions.push(inArray(orderItems.section, filters.sections));
+    }
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const items = await db.select().from(orderItems).where(whereClause);
+    const result: any[] = [];
+
+    // Optimize: Fetch all related products and orders in batch if possible, or just lazily for now (simple report)
+    // For better perf, batch fetch.
+    const productIds = Array.from(new Set(items.map(i => i.productId)));
+    const orderIds = Array.from(new Set(items.map(i => i.orderId)));
+
+    const fetchedProducts = productIds.length > 0
+      ? await db.select().from(products).where(inArray(products.id, productIds))
+      : [];
+    const fetchedOrders = orderIds.length > 0
+      ? await db.select().from(orders).where(inArray(orders.id, orderIds))
+      : [];
+
+    const productMap = new Map(fetchedProducts.map(p => [p.id, p]));
+    const orderMap = new Map(fetchedOrders.map(o => [o.id, o]));
+
+    // Grouping: Section -> Pickup Point
+    const grouped = new Map<string, any>();
+
+    for (const item of items) {
+      const product = productMap.get(item.productId);
+      const order = orderMap.get(item.orderId);
+
+      if (!product || !order) continue;
+
+      const key = `${item.section}|${item.pickupPoint}`;
+
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          section: item.section,
+          pickupPoint: item.pickupPoint,
+          items: []
+        });
+      }
+
+      grouped.get(key).items.push({ ...item, product, order });
+    }
+
+    // Convert map to array and sort
+    return Array.from(grouped.values()).sort((a, b) => {
+      // Sort by Section then PickupPoint
+      const secDiff = a.section.localeCompare(b.section);
+      if (secDiff !== 0) return secDiff;
+      return a.pickupPoint - b.pickupPoint;
+    });
+  }
+
+
+
+  // Picking Sessions
+  async createPickingSession(session: InsertPickingSession): Promise<PickingSession> {
+    const [newSession] = await db.insert(pickingSessions).values(session).returning();
+    return newSession;
+  }
+
+  async getPickingSession(orderId: string, sectionId: string): Promise<PickingSession | undefined> {
+    const [session] = await db.select()
+      .from(pickingSessions)
+      .where(and(eq(pickingSessions.orderId, orderId), eq(pickingSessions.sectionId, sectionId)));
+    return session;
+  }
+
+  async updatePickingSessionHeartbeat(id: string): Promise<void> {
+    await db.update(pickingSessions)
+      .set({ lastHeartbeat: new Date().toISOString() })
+      .where(eq(pickingSessions.id, id));
+  }
+
+  async deletePickingSession(orderId: string, sectionId: string): Promise<void> {
+    await db.delete(pickingSessions)
+      .where(and(eq(pickingSessions.orderId, orderId), eq(pickingSessions.sectionId, sectionId)));
+  }
+
+  async getPickingSessionsByOrder(orderId: string): Promise<PickingSession[]> {
+    return await db.select().from(pickingSessions).where(eq(pickingSessions.orderId, orderId));
+  }
+
+  async cancelOrderLaunch(orderId: string): Promise<void> {
+    // Delete only conferencia work units (which are generated during the process)
+    await db.delete(workUnits).where(and(eq(workUnits.orderId, orderId), eq(workUnits.type, "conferencia")));
+
+    // Reset separacao and balcao work units to pendente
+    await db.update(workUnits)
+      .set({ 
+        status: "pendente", 
+        lockedBy: null, 
+        lockedAt: null,
+        startedAt: null,
+        completedAt: null,
+        cartQrCode: null,
+        palletQrCode: null
+      })
+      .where(and(eq(workUnits.orderId, orderId), inArray(workUnits.type, ["separacao", "balcao"])));
+
+    // Delete all picking sessions for this order
+    await db.delete(pickingSessions).where(eq(pickingSessions.orderId, orderId));
+
+    // Get all order items to delete exceptions
+    const items = await db.select({ id: orderItems.id })
+      .from(orderItems)
+      .where(eq(orderItems.orderId, orderId));
+
+    // Delete all exceptions for order items
+    for (const item of items) {
+      await db.delete(exceptions).where(eq(exceptions.orderItemId, item.id));
+    }
+
+    // Reset all order items — exceptionQty is computed from the exceptions table (already deleted above)
+    // exceptionType is a direct column and should be cleared
+    await db.update(orderItems)
+      .set({
+        status: "pendente",
+        qtyPicked: 0,
+        separatedQty: 0,
+        checkedQty: 0,
+        exceptionType: null,
+      })
+      .where(eq(orderItems.orderId, orderId));
+
+    // Delete volume record for this order (carga/pacote volume)
+    await db.delete(orderVolumes).where(eq(orderVolumes.orderId, orderId));
+
+    // Reset order completely: clear rota, carga/pacote, lançamento, prioridade
+    await db.update(orders)
+      .set({
+        status: "pendente",
+        isLaunched: false,
+        launchedAt: null,
+        loadCode: null,
+        routeId: null,
+        priority: 0,
+        updatedAt: new Date().toISOString()
+      })
+      .where(eq(orders.id, orderId));
+  }
+
+
+  // Manual Quantity Rules
+  async getAllManualQtyRules(): Promise<ManualQtyRule[]> {
+    return await db.select().from(manualQtyRules).orderBy(desc(manualQtyRules.createdAt));
+  }
+
+  async createManualQtyRule(rule: InsertManualQtyRule): Promise<ManualQtyRule> {
+    const [newRule] = await db.insert(manualQtyRules).values(rule as any).returning();
+    return newRule;
+  }
+
+  async updateManualQtyRule(id: string, data: Partial<InsertManualQtyRule>): Promise<ManualQtyRule | undefined> {
+    const [updated] = await db.update(manualQtyRules).set(data as any).where(eq(manualQtyRules.id, id)).returning();
+    return updated;
+  }
+
+  async deleteManualQtyRule(id: string): Promise<void> {
+    await db.delete(manualQtyRules).where(eq(manualQtyRules.id, id));
+  }
+
+  async checkProductManualQty(product: Product): Promise<boolean> {
+    const rules = await db.select().from(manualQtyRules).where(eq(manualQtyRules.active, true));
+
+    for (const rule of rules) {
+      const values = rule.value.split(";").map(v => v.trim()).filter(v => v.length > 0);
+      for (const val of values) {
+        switch (rule.ruleType) {
+          case "product_code":
+            if (product.erpCode === val) return true;
+            break;
+          case "barcode":
+            if (product.barcode === val || product.boxBarcode === val) return true;
+            break;
+          case "description_keyword":
+            if (product.name && product.name.toUpperCase().includes(val.toUpperCase())) return true;
+            break;
+          case "manufacturer":
+            if (product.manufacturer && product.manufacturer.toUpperCase().includes(val.toUpperCase())) return true;
+            break;
+        }
+      }
+    }
+    return false;
+  }
+
+  // DB2 Mappings
+  async getMappingByDataset(dataset: string): Promise<Db2Mapping | undefined> {
+    const [mapping] = await db.select().from(db2Mappings)
+      .where(and(eq(db2Mappings.dataset, dataset), eq(db2Mappings.isActive, true)))
+      .orderBy(desc(db2Mappings.version))
+      .limit(1);
+    return mapping;
+  }
+
+  async getAllMappings(): Promise<Db2Mapping[]> {
+    return db.select().from(db2Mappings).orderBy(db2Mappings.dataset, desc(db2Mappings.version));
+  }
+
+  async saveMapping(dataset: string, mappingJson: MappingField[], description: string | null, createdBy: string): Promise<Db2Mapping> {
+    const existing = await db.select().from(db2Mappings)
+      .where(eq(db2Mappings.dataset, dataset))
+      .orderBy(desc(db2Mappings.version))
+      .limit(1);
+
+    const nextVersion = existing.length > 0 ? (existing[0].version + 1) : 1;
+
+    const [mapping] = await db.insert(db2Mappings).values({
+      dataset,
+      version: nextVersion,
+      isActive: false,
+      mappingJson: mappingJson as any,
+      description,
+      createdBy,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }).returning();
+
+    return mapping;
+  }
+
+  async activateMapping(id: string): Promise<Db2Mapping | undefined> {
+    const [mapping] = await db.select().from(db2Mappings).where(eq(db2Mappings.id, id));
+    if (!mapping) return undefined;
+
+    await db.update(db2Mappings)
+      .set({ isActive: false })
+      .where(eq(db2Mappings.dataset, mapping.dataset));
+
+    const [activated] = await db.update(db2Mappings)
+      .set({ isActive: true, updatedAt: new Date().toISOString() })
+      .where(eq(db2Mappings.id, id))
+      .returning();
+
+    return activated;
+  }
+
+  async checkAndCompleteConference(id: string): Promise<boolean> {
+    const [workUnit] = await db.select().from(workUnits).where(eq(workUnits.id, id));
+    if (!workUnit) return false;
+
+    const items = await db.select().from(orderItems).where(
+      eq(orderItems.orderId, workUnit.orderId)
+    );
+
+    const unitExceptions = await db.select().from(exceptions).where(eq(exceptions.workUnitId, id));
+
+    const allComplete = items.every(item => {
+      const itemExcs = unitExceptions.filter(e => e.orderItemId === item.id);
+      const excQty = itemExcs.reduce((sum, e) => sum + Number(e.quantity), 0);
+      const sep = Number(item.separatedQty) || 0;
+      if (sep === 0) return true;
+      return Number(item.checkedQty) + excQty >= sep;
+    });
+
+    if (allComplete) {
+      await db.update(workUnits)
+        .set({ status: "concluido", completedAt: new Date().toISOString(), lockedBy: null, lockedAt: null })
+        .where(eq(workUnits.id, id));
+      return true;
+    }
+    return false;
+  }
+
+  async getCacheOrcamentosPreview(limit: number): Promise<any[]> {
+    const rows = await db.select().from(cacheOrcamentos).limit(limit);
+    return rows;
+  }
+
+  async processBatchSync(
+    workUnitId: string,
+    payload: BatchSyncPayload,
+    userId: string
+  ): Promise<void> {
+    const wu = await this.getWorkUnitById(workUnitId);
+    if (!wu) throw new Error("Work Unit não encontrada");
+
+    // Start a Database Transaction
+    await db.transaction(async (tx) => {
+
+      // 1. Process Items (Add Quantities)
+      for (const item of payload.items) {
+        if (!item.qtyToAdd || item.qtyToAdd <= 0) continue;
+
+        // Fetch current item state inside transaction ensuring row lock if needed, but select is fine here
+        const [dbItem] = await tx.select().from(orderItems).where(eq(orderItems.id, item.orderItemId));
+        if (!dbItem) continue;
+
+        // Determine which field to update based on Work Unit Type
+        if (wu.type === "separacao") {
+          const newQty = Number(dbItem.separatedQty) + item.qtyToAdd;
+          await tx.update(orderItems)
+            .set({ separatedQty: newQty, status: "separado" }) // updating status visually
+            .where(eq(orderItems.id, item.orderItemId));
+
+        } else if (wu.type === "conferencia" || wu.type === "balcao") {
+          const newQty = Number(dbItem.checkedQty) + item.qtyToAdd;
+          await tx.update(orderItems)
+            .set({ checkedQty: newQty, status: "conferido" })
+            .where(eq(orderItems.id, item.orderItemId));
+        }
+
+        // Audit log for item level sync (optional but good for tracking)
+        await tx.insert(auditLogs).values({
+          action: "batch_sync_item",
+          entityType: "order_item",
+          entityId: item.orderItemId,
+          userId: userId,
+          details: `Adicionado +${item.qtyToAdd} na WU ${workUnitId} (${wu.type})`,
+        });
+      }
+
+      // 2. Process Exceptions
+      for (const exc of payload.exceptions) {
+        // Create the exception
+        await tx.insert(exceptions).values({
+          workUnitId: workUnitId,
+          orderItemId: exc.orderItemId,
+          type: exc.type,
+          quantity: exc.quantity,
+          observation: exc.observation || null,
+          reportedBy: userId,
+          authorizedBy: exc.authorizedBy,
+          authorizedByName: exc.authorizedByName,
+          authorizedAt: exc.authorizedBy ? new Date().toISOString() : undefined,
+        });
+
+        // Audit Log for Exception
+        await tx.insert(auditLogs).values({
+          action: "batch_sync_exception",
+          entityType: "exception",
+          entityId: exc.orderItemId, // Link to item ID
+          userId: userId,
+          details: `Exceção reportada: ${exc.type}, Qtd: ${exc.quantity}`,
+        });
+      }
+
+    });
+  }
+
+  async getRouteOrdersPrintData(orderIds: string[]): Promise<any[]> {
+    if (orderIds.length === 0) return [];
+
+    const ordersData = await db.select().from(orders).where(inArray(orders.id, orderIds));
+    const itemsData = await db.select().from(orderItems).where(inArray(orderItems.orderId, orderIds));
+
+    const productIds = [...new Set(itemsData.map(i => i.productId))];
+    const productsData = productIds.length > 0
+      ? await db.select().from(products).where(inArray(products.id, productIds))
+      : [];
+    const productsMap = new Map(productsData.map(p => [p.id, p]));
+
+    return ordersData.map(order => ({
+      ...order,
+      items: itemsData.filter(i => i.orderId === order.id).map(item => ({
+        ...item,
+        product: productsMap.get(item.productId)
+      }))
+    }));
+  }
+
+  async getLoadingMapProductCentricReportData(loadCode: string): Promise<{
+    section: string;
+    products: {
+      product: Product;
+      totalQuantity: number;
+      totalExceptionQty?: number;
+      orders: {
+        erpOrderId: string;
+        customerName: string;
+        quantity: number;
+        exceptionQty?: number;
+        exceptionType?: string | null;
+        exceptionObs?: string | null;
+      }[];
+    }[];
+  }[]> {
+    const ordersData = (await db.select().from(orders).where(eq(orders.loadCode, loadCode))).filter(o => o.status === "conferido");
+    if (ordersData.length === 0) return [];
+
+    const orderIds = ordersData.map(o => o.id);
+    const itemsData = await db.select().from(orderItems).where(inArray(orderItems.orderId, orderIds));
+    if (itemsData.length === 0) return [];
+
+    const productIds = [...new Set(itemsData.map(i => i.productId))];
+    const productsData = productIds.length > 0
+      ? await db.select().from(products).where(inArray(products.id, productIds))
+      : [];
+    const productsMap = new Map(productsData.map(p => [p.id, p]));
+    const ordersMap = new Map(ordersData.map(o => [o.id, o]));
+
+    const itemIds = itemsData.map(i => i.id);
+    const exceptionsData = itemIds.length > 0
+      ? await db.select().from(exceptions).where(inArray(exceptions.orderItemId, itemIds))
+      : [];
+
+    const exceptionByItem = new Map<string, { qty: number; type: string | null; obs: string | null }>();
+    for (const exc of exceptionsData) {
+      const existing = exceptionByItem.get(exc.orderItemId);
+      const qty = Number(exc.quantity);
+      if (!existing) {
+        exceptionByItem.set(exc.orderItemId, { qty, type: exc.type, obs: exc.observation || null });
+      } else {
+        existing.qty += qty;
+        if (!existing.type && exc.type) existing.type = exc.type;
+        if (!existing.obs && exc.observation) existing.obs = exc.observation;
+      }
+    }
+
+    const sectionMap = new Map<string, Map<string, {
+      product: Product;
+      totalQuantity: number;
+      totalExceptionQty?: number;
+      orders: { erpOrderId: string; customerName: string; quantity: number; exceptionQty?: number; exceptionType?: string | null; exceptionObs?: string | null }[]
+    }>>();
+
+    for (const item of itemsData) {
+      const product = productsMap.get(item.productId);
+      const order = ordersMap.get(item.orderId);
+      if (!product || !order) continue;
+
+      const sectionKey = item.section || "Sem Seção";
+      if (!sectionMap.has(sectionKey)) {
+        sectionMap.set(sectionKey, new Map());
+      }
+
+      const prodMap = sectionMap.get(sectionKey)!;
+      if (!prodMap.has(product.id)) {
+        prodMap.set(product.id, {
+          product,
+          totalQuantity: 0,
+          totalExceptionQty: 0,
+          orders: []
+        });
+      }
+
+      const prodEntry = prodMap.get(product.id)!;
+      prodEntry.totalQuantity += Number(item.quantity);
+      
+      const excInfo = exceptionByItem.get(item.id);
+      if (excInfo) {
+        prodEntry.totalExceptionQty = (prodEntry.totalExceptionQty || 0) + excInfo.qty;
+      }
+
+      prodEntry.orders.push({
+        erpOrderId: order.erpOrderId,
+        customerName: order.customerName,
+        quantity: Number(item.quantity),
+        exceptionQty: excInfo?.qty || 0,
+        exceptionType: excInfo?.type || null,
+        exceptionObs: excInfo?.obs || null
+      });
+    }
+
+    return Array.from(sectionMap.entries()).map(([section, prodMap]) => {
+      const products = Array.from(prodMap.values());
+      products.sort((a, b) => a.product.name.localeCompare(b.product.name));
+      return { section, products };
+    }).sort((a, b) => a.section.localeCompare(b.section));
+  }
+
+  async getLoadingMapReportData(loadCode: string): Promise<{
+    customerName: string;
+    customerCode: string | null;
+    erpOrderId: string;
+    totalValue: number;
+    totalProducts: number;
+    sections: { section: string; items: { product: Product; quantity: number; exceptionQty: number; exceptionType: string | null; exceptionObs: string | null }[] }[];
+  }[]> {
+    // Find all completed orders with this loadCode
+    const ordersData = (await db.select().from(orders).where(eq(orders.loadCode, loadCode))).filter(o => o.status === "conferido");
+    if (ordersData.length === 0) return [];
+
+    const orderIds = ordersData.map(o => o.id);
+
+    // Fetch items for all these orders
+    const itemsData = await db.select().from(orderItems).where(inArray(orderItems.orderId, orderIds));
+    if (itemsData.length === 0) return [];
+
+    // Fetch products
+    const productIds = [...new Set(itemsData.map(i => i.productId))];
+    const productsData = productIds.length > 0
+      ? await db.select().from(products).where(inArray(products.id, productIds))
+      : [];
+    const productsMap = new Map(productsData.map(p => [p.id, p]));
+
+    // Fetch exceptions for all items
+    const itemIds = itemsData.map(i => i.id);
+    const exceptionsData = itemIds.length > 0
+      ? await db.select().from(exceptions).where(inArray(exceptions.orderItemId, itemIds))
+      : [];
+
+    // Map exception data by orderItemId
+    const exceptionByItem = new Map<string, { qty: number; type: string | null; obs: string | null }>();
+    for (const exc of exceptionsData) {
+      const existing = exceptionByItem.get(exc.orderItemId);
+      const qty = Number(exc.quantity);
+      if (!existing) {
+        exceptionByItem.set(exc.orderItemId, { qty, type: exc.type, obs: exc.observation || null });
+      } else {
+        existing.qty += qty;
+      }
+    }
+
+    // Build result grouped by customer -> section
+    const customerMap = new Map<string, {
+      customerName: string;
+      customerCode: string | null;
+      erpOrderId: string;
+      totalValue: number;
+      totalProducts: number;
+      sectionMap: Map<string, { product: Product; quantity: number; exceptionQty: number; exceptionType: string | null; exceptionObs: string | null }[]>;
+    }>();
+
+    for (const order of ordersData) {
+      const key = order.erpOrderId;
+      const items = itemsData.filter(i => i.orderId === order.id);
+
+      if (!customerMap.has(key)) {
+        customerMap.set(key, {
+          customerName: order.customerName,
+          customerCode: order.customerCode || null,
+          erpOrderId: order.erpOrderId,
+          totalValue: Number(order.totalValue || 0),
+          totalProducts: items.length,
+          sectionMap: new Map(),
+        });
+      }
+      const customer = customerMap.get(key)!;
+
+      for (const item of items) {
+        const product = productsMap.get(item.productId);
+        if (!product) continue;
+
+        const sectionKey = item.section || "Sem Seção";
+        if (!customer.sectionMap.has(sectionKey)) {
+          customer.sectionMap.set(sectionKey, []);
+        }
+
+        const excInfo = exceptionByItem.get(item.id) || { qty: 0, type: null, obs: null };
+        customer.sectionMap.get(sectionKey)!.push({
+          product,
+          quantity: Number(item.quantity),
+          exceptionQty: excInfo.qty,
+          exceptionType: excInfo.type,
+          exceptionObs: excInfo.obs,
+        });
+      }
+    }
+
+    // Convert to final structure
+    return Array.from(customerMap.values()).map(customer => ({
+      customerName: customer.customerName,
+      customerCode: customer.customerCode,
+      erpOrderId: customer.erpOrderId,
+      totalValue: customer.totalValue,
+      totalProducts: customer.totalProducts,
+      sections: Array.from(customer.sectionMap.entries()).map(([section, items]) => {
+        items.sort((a, b) => a.product.name.localeCompare(b.product.name));
+        return {
+          section,
+          items,
+        };
+      }),
+    }));
+  }
+
+  // Order Volumes
+  async upsertOrderVolume(data: Omit<InsertOrderVolume, 'totalVolumes'> & { userId: string }): Promise<OrderVolume> {
+    const total = (data.sacola ?? 0) + (data.caixa ?? 0) + (data.saco ?? 0) + (data.avulso ?? 0);
+    const now = new Date().toISOString();
+
+    const existing = await this.getOrderVolume(data.orderId);
+    if (existing) {
+      const [updated] = await db.update(orderVolumes)
+        .set({ sacola: data.sacola, caixa: data.caixa, saco: data.saco, avulso: data.avulso, totalVolumes: total, updatedAt: now })
+        .where(eq(orderVolumes.orderId, data.orderId))
+        .returning();
+      return updated;
+    }
+
+    const [created] = await db.insert(orderVolumes).values({
+      id: randomUUID(),
+      orderId: data.orderId,
+      erpOrderId: data.erpOrderId,
+      sacola: data.sacola ?? 0,
+      caixa: data.caixa ?? 0,
+      saco: data.saco ?? 0,
+      avulso: data.avulso ?? 0,
+      totalVolumes: total,
+      createdBy: data.userId,
+      createdAt: now,
+      updatedAt: now,
+    }).returning();
+    return created;
+  }
+
+  async getOrderVolume(orderId: string): Promise<OrderVolume | undefined> {
+    const [vol] = await db.select().from(orderVolumes).where(eq(orderVolumes.orderId, orderId));
+    return vol;
+  }
+
+  async deleteOrderVolume(orderId: string): Promise<void> {
+    await db.delete(orderVolumes).where(eq(orderVolumes.orderId, orderId));
+  }
+
+  async getAllOrderVolumes(): Promise<OrderVolume[]> {
+    return db.select().from(orderVolumes).orderBy(desc(orderVolumes.createdAt));
+  }
+}
+
+export const storage = new DatabaseStorage();
+
