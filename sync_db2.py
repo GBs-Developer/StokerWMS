@@ -1206,6 +1206,162 @@ def sync_box_barcodes(conn_db2, conn_sqlite: sqlite3.Connection):
         log(f"Erro ao sincronizar box_barcodes: {e}")
 
 
+def sync_enderecos_wms(conn_db2, conn_sqlite: sqlite3.Connection):
+    """Sincroniza endereços WMS do DB2 para o SQLite local, por empresa."""
+    cursor = conn_sqlite.cursor()
+
+    sql_path = os.path.join(PROJECT_ROOT, "sql", "enderecos_wms.sql")
+    if not os.path.exists(sql_path):
+        log("WARN: sql/enderecos_wms.sql nao encontrado. Pulando sync de endereços.")
+        return
+
+    with open(sql_path, 'r', encoding='utf-8') as f:
+        query = f.read()
+
+    try:
+        dados = executar_sql_db2(conn_db2, query)
+    except Exception as e:
+        log(f"  ERRO ao executar query enderecos_wms: {e}")
+        return
+
+    if not dados:
+        log("Endereços WMS | nenhum registro do DB2")
+        return
+
+    inseridos = 0
+    ignorados = 0
+
+    for row in dados:
+        try:
+            empresa = int(row.get('IDEMPRESA', 0))
+            bairro = str(row.get('IDBAIRRO', '')).strip()
+            rua = str(row.get('DESCRRUA', '')).strip()
+            bloco = str(row.get('DESCRBLOCO', '')).strip()
+            nivel = str(row.get('DESCRNIVEL', '')).strip()
+
+            if not bairro or not rua or not bloco or not nivel:
+                ignorados += 1
+                continue
+
+            code = f"{bairro}-{rua}-{bloco}-{nivel}"
+
+            cursor.execute(
+                "SELECT id FROM wms_addresses WHERE company_id = ? AND code = ?",
+                (empresa, code)
+            )
+            if cursor.fetchone():
+                ignorados += 1
+                continue
+
+            addr_id = str(uuid.uuid4())
+            cursor.execute("""
+                INSERT INTO wms_addresses (id, company_id, bairro, rua, bloco, nivel, code, type, active, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'standard', 1, datetime('now'))
+            """, (addr_id, empresa, bairro, rua, bloco, nivel, code))
+            inseridos += 1
+
+        except Exception as e:
+            log(f"  Erro ao inserir endereço: {e}")
+
+    conn_sqlite.commit()
+    log(f"Endereços WMS | obtidos={len(dados)} | novos={inseridos} | existentes={ignorados}")
+
+
+def sync_notas_recebimento(conn_db2, conn_sqlite: sqlite3.Connection):
+    """Sincroniza notas fiscais de recebimento do DB2 para o SQLite local, por empresa."""
+    cursor = conn_sqlite.cursor()
+
+    sql_path = os.path.join(PROJECT_ROOT, "sql", "notas_recebimento.sql")
+    if not os.path.exists(sql_path):
+        log("WARN: sql/notas_recebimento.sql nao encontrado. Pulando sync de notas.")
+        return
+
+    with open(sql_path, 'r', encoding='utf-8') as f:
+        query = f.read()
+
+    try:
+        dados = executar_sql_db2(conn_db2, query)
+    except Exception as e:
+        log(f"  ERRO ao executar query notas_recebimento: {e}")
+        return
+
+    if not dados:
+        log("Notas Recebimento | nenhum registro do DB2")
+        return
+
+    nf_map = {}
+    for row in dados:
+        empresa = int(row.get('IDEMPRESA', 0))
+        numnota = str(row.get('NUMNOTA', '')).strip()
+        serie = str(row.get('SERIENOTA', '')).strip()
+        key = f"{empresa}-{numnota}-{serie}"
+
+        if key not in nf_map:
+            nf_map[key] = {
+                'empresa': empresa,
+                'numnota': numnota,
+                'serie': serie,
+                'fornecedor': str(row.get('IDCLIFOR', '')).strip(),
+                'autorizacao': str(row.get('IDAUTORIZACAO', '')).strip(),
+                'items': []
+            }
+
+        nf_map[key]['items'].append({
+            'idproduto': str(row.get('IDPRODUTO', '')).strip(),
+            'codigoforn': str(row.get('CODIGOINTERNOFORN', '')).strip(),
+            'quantidade': float(row.get('QTDPRODUTO', 0) or 0),
+            'descricao': str(row.get('DESCRRESPRODUTO', '')).strip(),
+        })
+
+    nf_inseridas = 0
+    nf_atualizadas = 0
+    itens_inseridos = 0
+
+    for key, nf_data in nf_map.items():
+        try:
+            empresa = nf_data['empresa']
+            numnota = nf_data['numnota']
+
+            cursor.execute(
+                "SELECT id FROM nf_cache WHERE company_id = ? AND nf_number = ?",
+                (empresa, numnota)
+            )
+            existing = cursor.fetchone()
+
+            if existing:
+                nf_id = existing[0]
+                cursor.execute("DELETE FROM nf_items WHERE nf_id = ?", (nf_id,))
+                nf_atualizadas += 1
+            else:
+                nf_id = str(uuid.uuid4())
+                cursor.execute("""
+                    INSERT INTO nf_cache (id, company_id, nf_number, nf_series, supplier_name, status, synced_at)
+                    VALUES (?, ?, ?, ?, ?, 'pendente', datetime('now'))
+                """, (nf_id, empresa, numnota, nf_data['serie'], nf_data['fornecedor']))
+                nf_inseridas += 1
+
+            for item in nf_data['items']:
+                item_id = str(uuid.uuid4())
+
+                prod_id = None
+                cursor.execute("SELECT id FROM products WHERE erp_code = ?", (item['idproduto'],))
+                prod_row = cursor.fetchone()
+                if prod_row:
+                    prod_id = prod_row[0]
+
+                cursor.execute("""
+                    INSERT INTO nf_items (id, nf_id, product_id, erp_code, product_name, quantity, unit, company_id)
+                    VALUES (?, ?, ?, ?, ?, ?, 'UN', ?)
+                """, (item_id, nf_id, prod_id, item['idproduto'], item['descricao'], item['quantidade'], empresa))
+                itens_inseridos += 1
+
+        except Exception as e:
+            log(f"  Erro ao inserir NF {key}: {e}")
+
+    conn_sqlite.commit()
+    log(f"Notas Recebimento | NFs={len(nf_map)} | novas={nf_inseridas} | atualizadas={nf_atualizadas} | itens={itens_inseridos}")
+
+
 def sincronizar(data_inicial: Optional[str] = None) -> bool:
     """Fluxo principal de sincronização."""
     inicio = time.time()
@@ -1222,6 +1378,8 @@ def sincronizar(data_inicial: Optional[str] = None) -> bool:
         sync_orcamentos(conn_db2, conn_sqlite)
         transform_data(conn_sqlite)
         sync_box_barcodes(conn_db2, conn_sqlite)
+        sync_enderecos_wms(conn_db2, conn_sqlite)
+        sync_notas_recebimento(conn_db2, conn_sqlite)
         
         duracao = time.time() - inicio
         # log(f"Sync concluído | duração={duracao:.2f}s")

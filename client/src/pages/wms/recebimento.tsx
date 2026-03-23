@@ -51,10 +51,13 @@ export default function RecebimentoPage() {
   const [scanError, setScanError] = useState("");
   const [showItemList, setShowItemList] = useState(true);
 
+  const [nfSearch, setNfSearch] = useState("");
   const [nfNumber, setNfNumber] = useState("");
   const [nfData, setNfData] = useState<any>(null);
   const [nfLoading, setNfLoading] = useState(false);
   const [selectedNfItems, setSelectedNfItems] = useState<Set<number>>(new Set());
+  const [nfList, setNfList] = useState<any[]>([]);
+  const [nfListLoading, setNfListLoading] = useState(false);
 
   const [labelDialog, setLabelDialog] = useState<any>(null);
   const [labelLoading, setLabelLoading] = useState(false);
@@ -150,14 +153,29 @@ export default function RecebimentoPage() {
     setPalletItems(prev => prev.filter((_, i) => i !== idx));
   };
 
-  const searchNf = async () => {
-    if (!nfNumber.trim()) return;
+  const searchNfList = async () => {
+    setNfListLoading(true);
+    try {
+      const q = nfSearch.trim();
+      const res = await fetch(`/api/nf/list${q ? `?q=${encodeURIComponent(q)}` : ""}`, { credentials: "include" });
+      if (res.ok) {
+        setNfList(await res.json());
+      }
+    } catch {
+      toast({ title: "Erro", description: "Falha ao listar NFs", variant: "destructive" });
+    } finally {
+      setNfListLoading(false);
+    }
+  };
+
+  const loadNfDetail = async (nfNumber: string) => {
     setNfLoading(true);
     try {
       const res = await fetch(`/api/nf/${nfNumber}`, { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
         setNfData(data);
+        setNfNumber(nfNumber);
         setSelectedNfItems(new Set());
       } else {
         const err = await res.json();
@@ -170,6 +188,12 @@ export default function RecebimentoPage() {
       setNfLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (activeTab === "nf" && nfList.length === 0) {
+      searchNfList();
+    }
+  }, [activeTab]);
 
   const toggleNfItem = (idx: number) => {
     setSelectedNfItems(prev => {
@@ -402,50 +426,92 @@ export default function RecebimentoPage() {
         )}
 
         {activeTab === "nf" && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <FileText className="h-5 w-5" />
-                Buscar Nota Fiscal
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex gap-2">
-                <Input
-                  placeholder="Número da NF"
-                  value={nfNumber}
-                  onChange={e => setNfNumber(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && searchNf()}
-                  className="font-mono"
-                  data-testid="input-nf-number"
-                />
-                <Button onClick={searchNf} disabled={nfLoading} data-testid="button-search-nf">
-                  {nfLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Search className="h-4 w-4 mr-2" />Buscar</>}
-                </Button>
-              </div>
-
-              {nfData && (
-                <div className="space-y-3">
-                  <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <span className="font-semibold text-blue-800 dark:text-blue-200">NF {nfData.nfNumber}</span>
-                        {nfData.supplierName && (
-                          <span className="text-sm text-blue-600 dark:text-blue-400 ml-2">— {nfData.supplierName}</span>
-                        )}
-                      </div>
-                      <Badge variant="secondary">{nfData.items?.length || 0} itens</Badge>
-                    </div>
-                    {nfData.issueDate && (
-                      <p className="text-xs text-blue-500 mt-1">Emissão: {new Date(nfData.issueDate).toLocaleDateString("pt-BR")}</p>
-                    )}
+          <div className="space-y-4">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <FileText className="h-5 w-5" />
+                  Notas Fiscais de Recebimento
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Buscar por número da NF ou fornecedor..."
+                      value={nfSearch}
+                      onChange={e => setNfSearch(e.target.value)}
+                      onKeyDown={e => e.key === "Enter" && searchNfList()}
+                      className="pl-9"
+                      data-testid="input-nf-search"
+                    />
                   </div>
+                  <Button onClick={searchNfList} disabled={nfListLoading} data-testid="button-search-nf-list">
+                    {nfListLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Buscar"}
+                  </Button>
+                </div>
 
-                  {nfData.items?.length > 0 && (
+                {nfListLoading ? (
+                  <div className="text-center py-6"><Loader2 className="h-6 w-6 mx-auto animate-spin text-muted-foreground" /></div>
+                ) : nfList.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-6">
+                    Nenhuma NF encontrada. As notas são sincronizadas do ERP automaticamente.
+                  </p>
+                ) : (
+                  <div className="space-y-1 max-h-60 overflow-y-auto">
+                    {nfList.map((nf: any) => (
+                      <div
+                        key={nf.id}
+                        onClick={() => loadNfDetail(nf.nfNumber)}
+                        className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all ${nfData?.nfNumber === nf.nfNumber ? "bg-primary/5 border-primary/30 ring-1 ring-primary/20" : "hover:bg-muted/50"}`}
+                        data-testid={`nf-list-${nf.id}`}
+                      >
+                        <div>
+                          <span className="font-mono font-semibold text-sm">NF {nf.nfNumber}</span>
+                          {nf.nfSeries && <span className="text-xs text-muted-foreground ml-1">Série {nf.nfSeries}</span>}
+                          {nf.supplierName && (
+                            <p className="text-xs text-muted-foreground mt-0.5">Fornecedor: {nf.supplierName}</p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant={nf.status === "pendente" ? "secondary" : nf.status === "recebida" ? "default" : "outline"}>
+                            {nf.status}
+                          </Badge>
+                          <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {nfLoading && (
+              <div className="text-center py-6"><Loader2 className="h-6 w-6 mx-auto animate-spin text-muted-foreground" /></div>
+            )}
+
+            {nfData && !nfLoading && (
+              <Card className="border-2 border-blue-200 dark:border-blue-900">
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-base">
+                      <span className="font-mono">NF {nfData.nfNumber}</span>
+                      {nfData.supplierName && (
+                        <span className="text-sm text-muted-foreground font-normal ml-2">— {nfData.supplierName}</span>
+                      )}
+                    </CardTitle>
+                    <Button variant="ghost" size="sm" onClick={() => { setNfData(null); setSelectedNfItems(new Set()); }}>
+                      Fechar
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {nfData.items?.length > 0 ? (
                     <>
                       <div className="flex items-center justify-between">
                         <p className="text-sm text-muted-foreground">
-                          {selectedNfItems.size > 0 ? `${selectedNfItems.size} selecionado(s)` : "Selecione itens para adicionar ao pallet"}
+                          {selectedNfItems.size > 0 ? `${selectedNfItems.size} selecionado(s)` : `${nfData.items.length} itens — selecione para adicionar ao pallet`}
                         </p>
                         <div className="flex gap-2">
                           <Button variant="outline" size="sm" onClick={addAllNfItems} data-testid="button-add-all-nf">
@@ -486,17 +552,15 @@ export default function RecebimentoPage() {
                         ))}
                       </div>
                     </>
-                  )}
-
-                  {(!nfData.items || nfData.items.length === 0) && (
+                  ) : (
                     <p className="text-sm text-muted-foreground text-center py-4">
                       NF encontrada mas sem itens detalhados. Use a leitura de código para adicionar os produtos.
                     </p>
                   )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                </CardContent>
+              </Card>
+            )}
+          </div>
         )}
 
         <Card>

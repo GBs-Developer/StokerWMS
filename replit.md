@@ -22,7 +22,7 @@ Preferred communication style: Simple, everyday language.
 
 The frontend is organized with pages under `client/src/pages/` grouped by function:
 - **Auth pages**: `login.tsx`, `company-select.tsx`, `home.tsx`
-- **WMS / Operação modules**: `wms/recebimento.tsx`, `wms/checkin.tsx` (Endereçamento), `wms/transferencia.tsx`, `wms/contagem.tsx`, `wms/enderecos.tsx`
+- **WMS / Operação modules**: `wms/recebimento.tsx`, `wms/checkin.tsx` (Endereçamento), `wms/transferencia.tsx`, `wms/contagem.tsx`, `wms/enderecos.tsx`, `wms/produtos.tsx`
 - **Logística modules**: `fila-pedidos/`, `supervisor/orders.tsx`, `supervisor/routes.tsx`, `supervisor/route-orders.tsx` (Expedição), `supervisor/exceptions.tsx`
 - **Administração modules**: `supervisor/users.tsx`, `supervisor/manual-qty-rules.tsx`, `supervisor/mapping-studio.tsx`, `supervisor/reports.tsx`, `supervisor/audit.tsx`, `admin/permissoes.tsx`
 - **Legacy operator modules**: `separacao/`, `conferencia/`, `balcao/`, `handheld/`
@@ -120,6 +120,14 @@ Tables defined in `shared/schema.ts`:
 - `countingCycles` - Counting cycle headers with approval workflow
 - `countingCycleItems` - Individual count items with divergence tracking
 - `productCompanyStock` - Per-company stock quantities
+
+### ERP Synchronization (DB2)
+- `sync_db2.py` syncs data from IBM DB2 ERP to local SQLite every 10 minutes
+- SQL queries stored in `sql/` directory: `orcamentos.sql`, `enderecos_wms.sql`, `notas_recebimento.sql`
+- Sync functions: `sync_orcamentos` (orders), `sync_box_barcodes` (product barcodes), `sync_enderecos_wms` (warehouse addresses), `sync_notas_recebimento` (purchase NFs)
+- All ERP data respects company parameter (IDEMPRESA IN (1, 3))
+- Addresses are inserted only if they don't already exist (checked by company_id + code)
+- NFs are grouped by company + nfNumber + series, items linked to local products when possible
 
 ### Build System
 - **Development**: Vite dev server with HMR, proxied through Express

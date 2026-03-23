@@ -675,6 +675,30 @@ export function registerWmsRoutes(app: Express) {
     }
   });
 
+  app.get("/api/nf/list", ...authMiddleware, receiverRoles, async (req: Request, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const q = (req.query.q as string || "").trim();
+
+      let conditions = [eq(nfCache.companyId, companyId)];
+      if (q) {
+        conditions.push(
+          sql`(${nfCache.nfNumber} LIKE ${'%' + q + '%'} OR ${nfCache.supplierName} LIKE ${'%' + q + '%'} COLLATE NOCASE)`
+        );
+      }
+
+      const results = await db.select().from(nfCache)
+        .where(and(...conditions))
+        .orderBy(desc(nfCache.syncedAt))
+        .limit(50);
+
+      res.json(results);
+    } catch (error) {
+      console.error("List NF error:", error);
+      res.status(500).json({ error: "Erro ao listar NFs" });
+    }
+  });
+
   app.get("/api/nf/:nfNumber", ...authMiddleware, receiverRoles, async (req: Request, res: Response) => {
     try {
       const companyId = getCompanyId(req);
@@ -697,8 +721,8 @@ export function registerWmsRoutes(app: Express) {
 
   app.post("/api/nf/sync", ...authMiddleware, supervisorRoles, async (req: Request, res: Response) => {
     res.json({
-      message: "Sincronização de NF pendente. O SQL de sync da NF no DB2 ainda não foi fornecido.",
-      status: "pending_integration",
+      message: "Sincronização executada automaticamente a cada 10 minutos via sync_db2.py. Use POST /api/sync para forçar.",
+      status: "ok",
     });
   });
 
