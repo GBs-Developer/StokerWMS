@@ -2421,6 +2421,42 @@ export async function registerRoutes(
     }
   });
 
+  // ==================== Permissions Management ====================
+
+  app.get("/api/admin/permissions", isAuthenticated, requireRole("administrador"), async (req: Request, res: Response) => {
+    try {
+      const allUsers = await storage.getAllUsers();
+      const result = allUsers.map((u: any) => ({
+        id: u.id,
+        username: u.username,
+        name: u.name,
+        role: u.role,
+        allowedModules: u.allowedModules ? (typeof u.allowedModules === "string" ? JSON.parse(u.allowedModules) : u.allowedModules) : null,
+      }));
+      res.json(result);
+    } catch (error) {
+      console.error("Get permissions error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.put("/api/admin/permissions/:userId", isAuthenticated, requireRole("administrador"), async (req: Request, res: Response) => {
+    try {
+      const { userId } = req.params;
+      const { allowedModules } = req.body;
+
+      if (allowedModules !== null && !Array.isArray(allowedModules)) {
+        return res.status(400).json({ error: "allowedModules deve ser um array ou null" });
+      }
+
+      await storage.updateUser(userId, { allowedModules });
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Update permissions error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
   // ==================== Mapping Studio ====================
 
   app.get("/api/datasets", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {

@@ -25,6 +25,7 @@ async function runMigrations() {
         "ALTER TABLE sessions ADD COLUMN company_id INTEGER",
         "ALTER TABLE audit_logs ADD COLUMN company_id INTEGER",
         "ALTER TABLE orders ADD COLUMN observation2 TEXT",
+        "ALTER TABLE users ADD COLUMN allowed_modules TEXT",
     ];
 
     for (const sql of alterMigrations) {

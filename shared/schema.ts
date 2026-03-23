@@ -62,6 +62,7 @@ export const users = sqliteTable("users", {
   badgeCode: text("badge_code"),
   defaultCompanyId: integer("default_company_id"),
   allowedCompanies: text("allowed_companies", { mode: "json" }).$type<number[]>().default([1, 3]),
+  allowedModules: text("allowed_modules", { mode: "json" }).$type<string[]>(),
   createdAt: timestamp("created_at").notNull().default(new Date().toISOString()),
 });
 

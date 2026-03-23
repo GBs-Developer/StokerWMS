@@ -20,10 +20,14 @@ Preferred communication style: Simple, everyday language.
 - **Form Handling**: React Hook Form with Zod validation
 - **Date Utilities**: date-fns
 
-The frontend is organized with pages under `client/src/pages/` grouped by role:
-- **Legacy modules**: `separacao/`, `conferencia/`, `balcao/`, `supervisor/`, `fila-pedidos/`, `handheld/`
-- **WMS modules**: `wms/enderecos.tsx`, `wms/recebimento.tsx`, `wms/checkin.tsx`, `wms/transferencia.tsx`, `wms/contagem.tsx`
+The frontend is organized with pages under `client/src/pages/` grouped by function:
 - **Auth pages**: `login.tsx`, `company-select.tsx`, `home.tsx`
+- **WMS / Operação modules**: `wms/recebimento.tsx`, `wms/checkin.tsx` (Endereçamento), `wms/transferencia.tsx`, `wms/contagem.tsx`, `wms/enderecos.tsx`
+- **Logística modules**: `fila-pedidos/`, `supervisor/orders.tsx`, `supervisor/routes.tsx`, `supervisor/route-orders.tsx` (Expedição), `supervisor/exceptions.tsx`
+- **Administração modules**: `supervisor/users.tsx`, `supervisor/manual-qty-rules.tsx`, `supervisor/mapping-studio.tsx`, `supervisor/reports.tsx`, `supervisor/audit.tsx`, `admin/permissoes.tsx`
+- **Legacy operator modules**: `separacao/`, `conferencia/`, `balcao/`, `handheld/`
+
+Home page (`home.tsx`) organizes modules into three collapsible sections: Operação, Logística, Administração. Module visibility is controlled by role-based defaults or per-user `allowedModules` overrides set in the Permissões de Acesso page.
 
 Reusable UI components are in `client/src/components/ui/` following shadcn conventions.
 
