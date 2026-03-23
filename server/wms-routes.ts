@@ -612,7 +612,7 @@ export function registerWmsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/pallets/:id/print-label", ...authMiddleware, receiverRoles, async (req: Request, res: Response) => {
+  app.get("/api/pallets/:id/print-label", ...authMiddleware, receiverRoles, async (req: Request, res: Response) => {
     try {
       const companyId = getCompanyId(req);
       const { id } = req.params;
@@ -982,6 +982,60 @@ export function registerWmsRoutes(app: Express) {
     } catch (error) {
       console.error("Delete counting cycle error:", error);
       res.status(500).json({ error: "Erro ao apagar ciclo" });
+    }
+  });
+
+  app.get("/api/products/by-barcode/:code", ...authMiddleware, anyWmsRole, async (req: Request, res: Response) => {
+    try {
+      const { code } = req.params;
+      const companyId = getCompanyId(req);
+
+      let [product] = await db.select().from(products)
+        .where(eq(products.barcode, code));
+
+      if (!product) {
+        [product] = await db.select().from(products)
+          .where(eq(products.erpCode, code));
+      }
+
+      if (!product) {
+        const boxMatches = await db.select().from(products)
+          .where(sql`${products.boxBarcodes} LIKE ${'%' + code + '%'}`);
+        product = boxMatches.find(p => {
+          if (!p.boxBarcodes) return false;
+          try {
+            const barcodes = typeof p.boxBarcodes === "string" ? JSON.parse(p.boxBarcodes) : p.boxBarcodes;
+            return Array.isArray(barcodes) && barcodes.some((b: any) => b.code === code);
+          } catch { return false; }
+        }) as any;
+      }
+
+      if (!product) {
+        return res.status(404).json({ error: "Produto não encontrado" });
+      }
+
+      const [cs] = await db.select().from(productCompanyStock)
+        .where(and(eq(productCompanyStock.productId, product.id), eq(productCompanyStock.companyId, companyId)));
+
+      let boxQty = null;
+      if (product.boxBarcodes) {
+        try {
+          const barcodes = typeof product.boxBarcodes === "string" ? JSON.parse(product.boxBarcodes) : product.boxBarcodes;
+          if (Array.isArray(barcodes)) {
+            const match = barcodes.find((b: any) => b.code === code);
+            if (match) boxQty = match.qty;
+          }
+        } catch {}
+      }
+
+      res.json({
+        ...product,
+        companyStockQty: cs?.stockQty ?? product.stockQty,
+        boxQty,
+      });
+    } catch (error) {
+      console.error("Product by barcode error:", error);
+      res.status(500).json({ error: "Erro ao buscar produto" });
     }
   });
 
