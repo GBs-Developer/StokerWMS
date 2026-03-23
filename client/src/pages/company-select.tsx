@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useAuth, getCompanyLabel } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -8,20 +8,25 @@ import { Building2, Loader2 } from "lucide-react";
 
 export default function CompanySelectPage() {
   const [, navigate] = useLocation();
-  const { user, allowedCompanies, selectCompany, logout } = useAuth();
+  const { user, companyId, allowedCompanies, selectCompany, logout } = useAuth();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSelect = async (companyId: number) => {
+  useEffect(() => {
+    if (companyId) {
+      navigate("/");
+    }
+  }, [companyId, navigate]);
+
+  const handleSelect = async (selectedId: number) => {
     setIsLoading(true);
     try {
-      const success = await selectCompany(companyId);
+      const success = await selectCompany(selectedId);
       if (success) {
         toast({
           title: "Empresa selecionada",
-          description: getCompanyLabel(companyId),
+          description: getCompanyLabel(selectedId),
         });
-        navigate("/");
       } else {
         toast({
           title: "Erro",
@@ -55,6 +60,7 @@ export default function CompanySelectPage() {
                 variant="outline"
                 className="w-full h-16 text-left justify-start gap-4 text-base"
                 onClick={() => handleSelect(id)}
+                data-testid={`button-select-company-${id}`}
                 disabled={isLoading}
               >
                 <Building2 className="h-6 w-6 text-primary flex-shrink-0" />
