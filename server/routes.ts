@@ -8,6 +8,7 @@ import { registerWmsRoutes } from "./wms-routes";
 import { z } from "zod";
 import { exec, spawn } from "child_process";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import { setupSSE, broadcastSSE } from "./sse";
 import { db } from "./db";
@@ -41,11 +42,15 @@ export async function registerRoutes(
 
   // Sync helper function
   const runSync = (callback?: (error: any, success: boolean) => void) => {
-    console.log("[Auto-Sync] Triggering DB sync...");
     const scriptPath = path.resolve(process.cwd(), "sync_db2.py");
-    exec(`python3 "${scriptPath}" --quiet`, { windowsHide: true }, (error, stdout, stderr) => {
+    if (!fs.existsSync(scriptPath)) {
+      if (callback) callback(null, false);
+      return;
+    }
+    console.log("[Auto-Sync] Triggering DB sync...");
+    const pythonCmd = process.platform === "win32" ? "python" : "python3";
+    exec(`${pythonCmd} "${scriptPath}" --quiet`, { windowsHide: true }, (error, stdout, stderr) => {
       if (error) {
-        console.error(`[Sync] Error: ${error.message}`);
         if (callback) callback(error, false);
         return;
       }
@@ -74,6 +79,9 @@ export async function registerRoutes(
       runSync((error, success) => {
         if (error) {
           return res.status(500).json({ error: "Falha na sincronização", details: error.message });
+        }
+        if (!success) {
+          return res.status(503).json({ error: "Script de sincronização não disponível" });
         }
         res.json({ success: true, message: "Sincronização concluída com sucesso" });
       });
@@ -2724,7 +2732,8 @@ export async function registerRoutes(
       const QUERY_TIMEOUT = 120000;
 
       const result = await new Promise<string>((resolve, reject) => {
-        const proc = spawn("python3", [scriptPath], {
+        const pythonCmd = process.platform === "win32" ? "python" : "python3";
+        const proc = spawn(pythonCmd, [scriptPath], {
           cwd: process.cwd(),
         });
 
