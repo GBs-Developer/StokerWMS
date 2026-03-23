@@ -27,6 +27,7 @@ import {
   Cog,
   BoxesIcon,
   ScrollText,
+  Search,
 } from "lucide-react";
 
 interface ModuleItem {
@@ -76,6 +77,7 @@ export default function HomePage() {
         { icon: ArrowRightLeft, title: "Transferência", description: "Movimentar pallets entre endereços", href: "/wms/transferencia" },
         { icon: BarChart3, title: "Contagem", description: "Ciclos de contagem e inventário", href: "/wms/contagem" },
         { icon: Warehouse, title: "Endereços", description: "Gerenciar endereços do armazém", href: "/wms/enderecos" },
+        { icon: Search, title: "Buscar Produtos", description: "Pesquisar produtos e estoque", href: "/wms/produtos" },
       ],
     },
     {
@@ -109,13 +111,13 @@ export default function HomePage() {
 
   const roleModuleAccess: Record<string, string[]> = {
     administrador: [
-      "/wms/recebimento", "/wms/checkin", "/wms/transferencia", "/wms/contagem", "/wms/enderecos",
+      "/wms/recebimento", "/wms/checkin", "/wms/transferencia", "/wms/contagem", "/wms/enderecos", "/wms/produtos",
       "/fila-pedidos", "/supervisor/orders", "/supervisor/routes", "/supervisor/route-orders", "/supervisor/exceptions",
       "/supervisor/users", "/supervisor/manual-qty-rules", "/supervisor/mapping-studio", "/supervisor/reports", "/supervisor/audit",
       "/admin/permissoes",
     ],
     supervisor: [
-      "/wms/recebimento", "/wms/checkin", "/wms/transferencia", "/wms/contagem", "/wms/enderecos",
+      "/wms/recebimento", "/wms/checkin", "/wms/transferencia", "/wms/contagem", "/wms/enderecos", "/wms/produtos",
       "/fila-pedidos", "/supervisor/orders", "/supervisor/routes", "/supervisor/route-orders", "/supervisor/exceptions",
       "/supervisor/users", "/supervisor/reports", "/supervisor/audit",
     ],
@@ -123,9 +125,9 @@ export default function HomePage() {
     conferencia: ["/conferencia"],
     balcao: ["/balcao"],
     fila_pedidos: ["/fila-pedidos"],
-    recebedor: ["/wms/recebimento"],
-    empilhador: ["/wms/checkin", "/wms/transferencia"],
-    conferente_wms: ["/wms/contagem"],
+    recebedor: ["/wms/recebimento", "/wms/produtos"],
+    empilhador: ["/wms/checkin", "/wms/transferencia", "/wms/produtos"],
+    conferente_wms: ["/wms/contagem", "/wms/produtos"],
   };
 
   const userRole = user?.role || "";

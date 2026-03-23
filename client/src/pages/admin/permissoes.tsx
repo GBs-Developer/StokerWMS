@@ -39,6 +39,7 @@ const ALL_MODULES = [
   { id: "/wms/transferencia", label: "Transferência", section: "Operação" },
   { id: "/wms/contagem", label: "Contagem", section: "Operação" },
   { id: "/wms/enderecos", label: "Endereços", section: "Operação" },
+  { id: "/wms/produtos", label: "Buscar Produtos", section: "Operação" },
   { id: "/fila-pedidos", label: "Fila de Pedidos", section: "Logística" },
   { id: "/supervisor/orders", label: "Pedidos", section: "Logística" },
   { id: "/supervisor/routes", label: "Rotas", section: "Logística" },

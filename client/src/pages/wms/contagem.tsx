@@ -8,8 +8,17 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Plus, Loader2, Eye, EyeOff, CheckCircle, XCircle, BarChart3 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { ArrowLeft, Plus, Loader2, Eye, EyeOff, CheckCircle, XCircle, BarChart3, Trash2 } from "lucide-react";
 import { useLocation } from "wouter";
+import { apiRequest } from "@/lib/queryClient";
 
 export default function ContagemPage() {
   const [, navigate] = useLocation();
@@ -20,6 +29,7 @@ export default function ContagemPage() {
   const [showNew, setShowNew] = useState(false);
   const [newNotes, setNewNotes] = useState("");
   const [revealedItems, setRevealedItems] = useState<Set<string>>(new Set());
+  const [deleteTarget, setDeleteTarget] = useState<any>(null);
 
   const isSupervisor = user?.role === "supervisor" || user?.role === "administrador";
 
@@ -49,6 +59,28 @@ export default function ContagemPage() {
       setShowNew(false);
       setNewNotes("");
       toast({ title: "Ciclo criado" });
+    },
+    onError: (e: Error) => {
+      toast({ title: "Erro", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("DELETE", `/api/counting-cycles/${id}`);
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Erro ao apagar");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["counting-cycles"] });
+      setDeleteTarget(null);
+      if (selectedCycle && selectedCycle.id === deleteTarget?.id) {
+        setSelectedCycle(null);
+      }
+      toast({ title: "Ciclo apagado" });
     },
     onError: (e: Error) => {
       toast({ title: "Erro", description: e.message, variant: "destructive" });
@@ -137,6 +169,14 @@ export default function ContagemPage() {
     rejeitado: "bg-red-100 text-red-800",
   };
 
+  const statusLabels: Record<string, string> = {
+    pendente: "Pendente",
+    em_andamento: "Em Andamento",
+    concluido: "Concluído",
+    aprovado: "Aprovado",
+    rejeitado: "Rejeitado",
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <GradientHeader title="Ciclo de Contagem" subtitle={companyId ? getCompanyLabel(companyId) : ""}>
@@ -150,7 +190,7 @@ export default function ContagemPage() {
           <>
             <div className="flex justify-between items-center">
               <h2 className="text-lg font-semibold">Ciclos de Contagem</h2>
-              <Button onClick={() => setShowNew(!showNew)} size="sm">
+              <Button onClick={() => setShowNew(!showNew)} size="sm" data-testid="button-new-cycle">
                 <Plus className="h-4 w-4 mr-2" /> Novo Ciclo
               </Button>
             </div>
@@ -158,8 +198,8 @@ export default function ContagemPage() {
             {showNew && (
               <Card>
                 <CardContent className="pt-4 space-y-3">
-                  <Textarea placeholder="Observações do ciclo..." value={newNotes} onChange={e => setNewNotes(e.target.value)} />
-                  <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending}>
+                  <Textarea placeholder="Observações do ciclo..." value={newNotes} onChange={e => setNewNotes(e.target.value)} data-testid="input-cycle-notes" />
+                  <Button onClick={() => createMutation.mutate()} disabled={createMutation.isPending} data-testid="button-create-cycle">
                     {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
                     Criar Ciclo
                   </Button>
@@ -177,13 +217,25 @@ export default function ContagemPage() {
             ) : (
               <div className="space-y-2">
                 {cycles.map((c: any) => (
-                  <div key={c.id} className="flex items-center justify-between p-3 rounded-lg border cursor-pointer hover:bg-muted/50"
-                    onClick={() => loadCycle(c.id)}>
-                    <div>
+                  <div key={c.id} className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 group" data-testid={`row-cycle-${c.id}`}>
+                    <div className="flex-1 cursor-pointer" onClick={() => loadCycle(c.id)}>
                       <div className="font-semibold text-sm">Ciclo {c.type === "por_endereco" ? "por Endereço" : "por Produto"}</div>
                       <div className="text-xs text-muted-foreground">{new Date(c.createdAt).toLocaleDateString("pt-BR")}</div>
                     </div>
-                    <Badge className={statusColors[c.status] || ""}>{c.status}</Badge>
+                    <div className="flex items-center gap-2">
+                      <Badge className={statusColors[c.status] || ""}>{statusLabels[c.status] || c.status}</Badge>
+                      {isSupervisor && c.status !== "em_andamento" && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={(e) => { e.stopPropagation(); setDeleteTarget(c); }}
+                          data-testid={`button-delete-cycle-${c.id}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -197,18 +249,24 @@ export default function ContagemPage() {
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base">Ciclo de Contagem</CardTitle>
                 <div className="flex items-center gap-2">
-                  <Badge className={statusColors[selectedCycle.status] || ""}>{selectedCycle.status}</Badge>
+                  <Badge className={statusColors[selectedCycle.status] || ""}>{statusLabels[selectedCycle.status] || selectedCycle.status}</Badge>
                   {isSupervisor && selectedCycle.status === "concluido" && (
                     <>
                       <Button size="sm" variant="default" onClick={() => approveMutation.mutate()}
-                        disabled={approveMutation.isPending}>
+                        disabled={approveMutation.isPending} data-testid="button-approve-cycle">
                         <CheckCircle className="h-4 w-4 mr-1" /> Aprovar
                       </Button>
                       <Button size="sm" variant="destructive" onClick={() => rejectMutation.mutate()}
-                        disabled={rejectMutation.isPending}>
+                        disabled={rejectMutation.isPending} data-testid="button-reject-cycle">
                         <XCircle className="h-4 w-4 mr-1" /> Rejeitar
                       </Button>
                     </>
+                  )}
+                  {isSupervisor && selectedCycle.status !== "em_andamento" && (
+                    <Button size="sm" variant="ghost" className="text-destructive"
+                      onClick={() => setDeleteTarget(selectedCycle)} data-testid="button-delete-cycle-detail">
+                      <Trash2 className="h-4 w-4 mr-1" /> Apagar
+                    </Button>
                   )}
                 </div>
               </div>
@@ -253,6 +311,7 @@ export default function ContagemPage() {
                   {item.status === "pendente" && selectedCycle.status !== "aprovado" && (
                     <div className="flex gap-2 items-center">
                       <Input type="number" placeholder="Quantidade contada" className="w-40"
+                        data-testid={`input-count-${item.id}`}
                         onKeyDown={e => {
                           if (e.key === "Enter") {
                             const input = e.currentTarget;
@@ -273,13 +332,38 @@ export default function ContagemPage() {
                 </div>
               ))}
 
-              <Button variant="outline" className="w-full" onClick={() => setSelectedCycle(null)}>
+              <Button variant="outline" className="w-full" onClick={() => setSelectedCycle(null)} data-testid="button-back-to-list">
                 Voltar à lista
               </Button>
             </CardContent>
           </Card>
         )}
       </main>
+
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Apagar Ciclo de Contagem</DialogTitle>
+            <DialogDescription>
+              Tem certeza que deseja apagar este ciclo? Esta ação não pode ser desfeita.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)} data-testid="button-cancel-delete">
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => deleteTarget && deleteMutation.mutate(deleteTarget.id)}
+              disabled={deleteMutation.isPending}
+              data-testid="button-confirm-delete"
+            >
+              {deleteMutation.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
+              Apagar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

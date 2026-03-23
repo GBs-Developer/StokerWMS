@@ -33,6 +33,7 @@ import RecebimentoPage from "@/pages/wms/recebimento";
 import CheckinPage from "@/pages/wms/checkin";
 import TransferenciaPage from "@/pages/wms/transferencia";
 import ContagemPage from "@/pages/wms/contagem";
+import ProdutosPage from "@/pages/wms/produtos";
 import PermissoesPage from "@/pages/admin/permissoes";
 import NotFound from "@/pages/not-found";
 import { Loader2 } from "lucide-react";
@@ -250,6 +251,12 @@ function Router() {
       <Route path="/wms/contagem">
         <ProtectedRoute allowedRoles={["conferente_wms", "supervisor", "administrador"]}>
           <ContagemPage />
+        </ProtectedRoute>
+      </Route>
+
+      <Route path="/wms/produtos">
+        <ProtectedRoute allowedRoles={["recebedor", "empilhador", "conferente_wms", "supervisor", "administrador"]}>
+          <ProdutosPage />
         </ProtectedRoute>
       </Route>
 

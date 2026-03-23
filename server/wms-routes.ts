@@ -959,6 +959,66 @@ export function registerWmsRoutes(app: Express) {
     }
   });
 
+  app.delete("/api/counting-cycles/:id", ...authMiddleware, supervisorRoles, async (req: Request, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const { id } = req.params;
+
+      const [cycle] = await db.select().from(countingCycles)
+        .where(and(eq(countingCycles.id, id), eq(countingCycles.companyId, companyId)));
+      if (!cycle) {
+        return res.status(404).json({ error: "Ciclo não encontrado" });
+      }
+
+      if (cycle.status === "em_andamento") {
+        return res.status(400).json({ error: "Não é possível apagar um ciclo em andamento" });
+      }
+
+      await db.delete(countingCycleItems).where(eq(countingCycleItems.cycleId, id));
+      await db.delete(countingCycles).where(eq(countingCycles.id, id));
+
+      await createAuditLog(req, "delete", "counting_cycle", id, `Ciclo de contagem apagado (status: ${cycle.status})`);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Delete counting cycle error:", error);
+      res.status(500).json({ error: "Erro ao apagar ciclo" });
+    }
+  });
+
+  app.get("/api/products/search", ...authMiddleware, anyWmsRole, async (req: Request, res: Response) => {
+    try {
+      const q = (req.query.q as string || "").trim();
+      if (q.length < 2) {
+        return res.json([]);
+      }
+
+      const companyId = getCompanyId(req);
+      const searchPattern = `%${q}%`;
+
+      const results = await db.select().from(products)
+        .where(
+          sql`(${products.name} LIKE ${searchPattern} COLLATE NOCASE
+            OR ${products.erpCode} LIKE ${searchPattern} COLLATE NOCASE
+            OR ${products.barcode} LIKE ${searchPattern} COLLATE NOCASE)`
+        )
+        .limit(50);
+
+      const withStock = await Promise.all(results.map(async (p) => {
+        const [cs] = await db.select().from(productCompanyStock)
+          .where(and(eq(productCompanyStock.productId, p.id), eq(productCompanyStock.companyId, companyId)));
+        return {
+          ...p,
+          companyStockQty: cs?.stockQty ?? p.stockQty,
+        };
+      }));
+
+      res.json(withStock);
+    } catch (error) {
+      console.error("Product search error:", error);
+      res.status(500).json({ error: "Erro ao buscar produtos" });
+    }
+  });
+
   app.get("/api/products/:id/stock", ...authMiddleware, anyWmsRole, async (req: Request, res: Response) => {
     try {
       const companyId = getCompanyId(req);
