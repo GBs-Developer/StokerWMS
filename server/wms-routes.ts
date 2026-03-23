@@ -148,12 +148,12 @@ export function registerWmsRoutes(app: Express) {
         return res.status(400).json({ error: "Endereço possui pallets alocados" });
       }
 
-      await db.update(wmsAddresses).set({ active: false }).where(eq(wmsAddresses.id, id));
-      await createAuditLog(req, "deactivate", "wms_address", id, `Endereço inativado: ${existing.code}`);
+      await db.delete(wmsAddresses).where(eq(wmsAddresses.id, id));
+      await createAuditLog(req, "delete", "wms_address", id, `Endereço apagado: ${existing.code}`);
       res.json({ success: true });
     } catch (error) {
       console.error("Delete address error:", error);
-      res.status(500).json({ error: "Erro ao desativar endereço" });
+      res.status(500).json({ error: "Erro ao apagar endereço" });
     }
   });
 

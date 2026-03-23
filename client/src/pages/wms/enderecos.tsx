@@ -97,7 +97,7 @@ export default function EnderecosPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["wms-addresses"] });
       setDeleteTarget(null);
-      toast({ title: "Endereço removido" });
+      toast({ title: "Endereço apagado" });
     },
     onError: (e: Error) => {
       toast({ title: "Erro", description: e.message, variant: "destructive" });
@@ -221,9 +221,9 @@ export default function EnderecosPage() {
       <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Remover Endereço</DialogTitle>
+            <DialogTitle>Apagar Endereço</DialogTitle>
             <DialogDescription>
-              Tem certeza que deseja remover o endereço <span className="font-mono font-semibold">{deleteTarget?.code}</span>? O endereço será desativado.
+              Tem certeza que deseja apagar o endereço <span className="font-mono font-semibold">{deleteTarget?.code}</span>? Esta ação não pode ser desfeita.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
