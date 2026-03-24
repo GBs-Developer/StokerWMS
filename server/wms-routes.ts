@@ -157,6 +157,45 @@ export function registerWmsRoutes(app: Express) {
     }
   });
 
+  app.get("/api/wms-addresses/with-occupancy", ...authMiddleware, anyWmsRole, async (req: Request, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const allAddresses = await db.select().from(wmsAddresses)
+        .where(eq(wmsAddresses.companyId, companyId))
+        .orderBy(wmsAddresses.code);
+
+      const occupiedPallets = await db.select({
+        addressId: pallets.addressId,
+        palletId: pallets.id,
+        palletCode: pallets.code,
+        palletStatus: pallets.status,
+      }).from(pallets)
+        .where(and(
+          eq(pallets.companyId, companyId),
+          sql`${pallets.status} != 'cancelado'`,
+          sql`${pallets.addressId} IS NOT NULL`,
+        ));
+
+      const occupancyMap = new Map<string, { palletId: string; palletCode: string; palletStatus: string }>();
+      for (const p of occupiedPallets) {
+        if (p.addressId) {
+          occupancyMap.set(p.addressId, { palletId: p.palletId, palletCode: p.palletCode, palletStatus: p.palletStatus });
+        }
+      }
+
+      const enriched = allAddresses.map(addr => ({
+        ...addr,
+        occupied: occupancyMap.has(addr.id),
+        pallet: occupancyMap.get(addr.id) || null,
+      }));
+
+      res.json(enriched);
+    } catch (error) {
+      console.error("Get addresses with occupancy error:", error);
+      res.status(500).json({ error: "Erro ao buscar endereços" });
+    }
+  });
+
   app.get("/api/wms-addresses/available", ...authMiddleware, anyWmsRole, async (req: Request, res: Response) => {
     try {
       const companyId = getCompanyId(req);
@@ -232,21 +271,43 @@ export function registerWmsRoutes(app: Express) {
       const companyId = getCompanyId(req);
       const statusFilter = req.query.status as string | undefined;
 
-      let query = db.select().from(pallets).where(eq(pallets.companyId, companyId));
+      const conditions = [eq(pallets.companyId, companyId)];
       if (statusFilter) {
-        query = db.select().from(pallets).where(and(eq(pallets.companyId, companyId), eq(pallets.status, statusFilter as any)));
+        conditions.push(eq(pallets.status, statusFilter as any));
       }
 
-      const result = await query.orderBy(desc(pallets.createdAt));
+      const result = await db.select().from(pallets)
+        .where(and(...conditions))
+        .orderBy(desc(pallets.createdAt))
+        .limit(500);
 
-      const enriched = await Promise.all(result.map(async (p) => {
-        const items = await db.select().from(palletItems).where(eq(palletItems.palletId, p.id));
-        let address = null;
-        if (p.addressId) {
-          const [addr] = await db.select().from(wmsAddresses).where(eq(wmsAddresses.id, p.addressId));
-          address = addr || null;
-        }
-        return { ...p, items, address };
+      const palletIds = result.map(p => p.id);
+      const addressIds = result.map(p => p.addressId).filter(Boolean) as string[];
+
+      const allItems = palletIds.length > 0
+        ? await db.select().from(palletItems).where(sql`${palletItems.palletId} IN (${sql.join(palletIds.map(id => sql`${id}`), sql`, `)})`)
+        : [];
+
+      const allAddresses = addressIds.length > 0
+        ? await db.select().from(wmsAddresses).where(sql`${wmsAddresses.id} IN (${sql.join(addressIds.map(id => sql`${id}`), sql`, `)})`)
+        : [];
+
+      const itemsByPallet = new Map<string, typeof allItems>();
+      for (const item of allItems) {
+        const list = itemsByPallet.get(item.palletId) || [];
+        list.push(item);
+        itemsByPallet.set(item.palletId, list);
+      }
+
+      const addressMap = new Map<string, (typeof allAddresses)[0]>();
+      for (const addr of allAddresses) {
+        addressMap.set(addr.id, addr);
+      }
+
+      const enriched = result.map(p => ({
+        ...p,
+        items: itemsByPallet.get(p.id) || [],
+        address: p.addressId ? addressMap.get(p.addressId) || null : null,
       }));
 
       res.json(enriched);
@@ -456,13 +517,27 @@ export function registerWmsRoutes(app: Express) {
         return res.status(404).json({ error: "Pallet não encontrado" });
       }
       if (pallet.status === "cancelado") {
-        return res.status(400).json({ error: "Pallet cancelado" });
+        return res.status(400).json({ error: "Pallet cancelado não pode ser transferido" });
+      }
+      if (pallet.status === "sem_endereco") {
+        return res.status(400).json({ error: "Pallet sem endereço. Use o módulo de Check-in para alocar primeiro." });
+      }
+
+      if (!toAddressId) {
+        return res.status(400).json({ error: "Selecione um endereço de destino" });
+      }
+
+      if (pallet.addressId === toAddressId) {
+        return res.status(400).json({ error: "Endereço de destino é o mesmo endereço atual do pallet" });
       }
 
       const [toAddress] = await db.select().from(wmsAddresses)
         .where(and(eq(wmsAddresses.id, toAddressId), eq(wmsAddresses.companyId, companyId)));
       if (!toAddress) {
         return res.status(404).json({ error: "Endereço destino não encontrado" });
+      }
+      if (!toAddress.active) {
+        return res.status(400).json({ error: "Endereço destino está inativo" });
       }
 
       const occupant = await db.select().from(pallets)
@@ -472,7 +547,7 @@ export function registerWmsRoutes(app: Express) {
           sql`${pallets.id} != ${id}`,
         ));
       if (occupant.length > 0) {
-        return res.status(400).json({ error: "Endereço destino já ocupado" });
+        return res.status(400).json({ error: "Endereço destino já ocupado por outro pallet" });
       }
 
       const now = new Date().toISOString();
@@ -572,6 +647,10 @@ export function registerWmsRoutes(app: Express) {
       }
       if (pallet.status === "cancelado") {
         return res.status(400).json({ error: "Pallet já cancelado" });
+      }
+
+      if (!reason || reason.trim().length < 3) {
+        return res.status(400).json({ error: "Informe o motivo do cancelamento (mínimo 3 caracteres)" });
       }
 
       const pickingAddresses = await db.select().from(wmsAddresses)
@@ -1072,15 +1151,11 @@ export function registerWmsRoutes(app: Express) {
 
       const companyId = getCompanyId(req);
       const searchType = req.query.type as string || "all";
-      
-      console.log(`[DEBUG] Search query: "${q}", company: ${companyId}, type: ${searchType}`);
-      // Intelligent search handling
-      // If user types Tubo%sold%100, Postgres ILIKE will handle it.
-      // We also want to support spaces as % for easier searching.
+
       const searchPattern = `%${q.replace(/\s+/g, "%")}%`;
 
       const conditions = [];
-      
+
       if (searchType === "code") {
         conditions.push(or(
           ilike(products.erpCode, `%${q}%`),
@@ -1097,60 +1172,98 @@ export function registerWmsRoutes(app: Express) {
       }
 
       let query = db.select().from(products);
-      
+
       if (conditions.length > 0) {
         query = query.where(and(...conditions)) as any;
       }
-      
-      const sqlQuery = (query as any).toSQL();
-      console.log(`[DEBUG] Final SQL:`, sqlQuery);
-      
+
       const results = await query.limit(50);
 
-      console.log(`[DEBUG] Found ${results.length} products`);
+      const productIds = results.map(p => p.id);
 
-      const withStock = await Promise.all(results.map(async (p) => {
-        const [cs] = await db.select().from(productCompanyStock)
-          .where(and(eq(productCompanyStock.productId, p.id), eq(productCompanyStock.companyId, companyId)));
-        
-        const totalStock = Number(cs?.stockQty ?? p.stockQty ?? 0);
-        console.log(`[DEBUG] Product: ${p.name}, ERP: ${p.erpCode}, totalStock: ${totalStock} (from CS: ${cs?.stockQty}, from P: ${p.stockQty})`);
+      const allCompanyStock = productIds.length > 0
+        ? await db.select().from(productCompanyStock)
+            .where(and(
+              sql`${productCompanyStock.productId} IN (${sql.join(productIds.map(id => sql`${id}`), sql`, `)})`,
+              eq(productCompanyStock.companyId, companyId)
+            ))
+        : [];
 
-        // Get addresses with stock for this product in WMS
-        const addressStock = await db.select({
-          addressCode: wmsAddresses.code,
-          quantity: sql<number>`SUM(${palletItems.quantity})`
-        })
-        .from(palletItems)
-        .innerJoin(pallets, eq(palletItems.palletId, pallets.id))
-        .innerJoin(wmsAddresses, eq(pallets.addressId, wmsAddresses.id))
-        .where(and(
-          eq(palletItems.productId, p.id),
-          eq(palletItems.companyId, companyId),
-          sql`${pallets.status} != 'cancelado'`
-        ))
-        .groupBy(wmsAddresses.code);
+      const stockMap = new Map<string, number>();
+      for (const cs of allCompanyStock) {
+        stockMap.set(cs.productId, Number(cs.stockQty));
+      }
 
-        const totalInAddresses = addressStock.reduce((acc, curr) => acc + (curr.quantity ? Number(curr.quantity) : 0), 0);
+      const addressStockAll = productIds.length > 0
+        ? await db.select({
+            productId: palletItems.productId,
+            addressCode: wmsAddresses.code,
+            quantity: sql<number>`SUM(${palletItems.quantity})`
+          })
+          .from(palletItems)
+          .innerJoin(pallets, eq(palletItems.palletId, pallets.id))
+          .innerJoin(wmsAddresses, eq(pallets.addressId, wmsAddresses.id))
+          .where(and(
+            sql`${palletItems.productId} IN (${sql.join(productIds.map(id => sql`${id}`), sql`, `)})`,
+            eq(palletItems.companyId, companyId),
+            sql`${pallets.status} != 'cancelado'`
+          ))
+          .groupBy(palletItems.productId, wmsAddresses.code)
+        : [];
+
+      const addressStockByProduct = new Map<string, Array<{ code: string; quantity: number }>>();
+      for (const row of addressStockAll) {
+        const list = addressStockByProduct.get(row.productId) || [];
+        list.push({ code: row.addressCode, quantity: Number(row.quantity) });
+        addressStockByProduct.set(row.productId, list);
+      }
+
+      const lastMovements = productIds.length > 0
+        ? await db.select({
+            productId: palletItems.productId,
+            lastMovement: sql<string>`MAX(${palletMovements.createdAt})`,
+            lastMovementType: sql<string>`(ARRAY_AGG(${palletMovements.movementType} ORDER BY ${palletMovements.createdAt} DESC))[1]`
+          })
+          .from(palletMovements)
+          .innerJoin(palletItems, eq(palletMovements.palletId, palletItems.palletId))
+          .where(and(
+            sql`${palletItems.productId} IN (${sql.join(productIds.map(id => sql`${id}`), sql`, `)})`,
+            eq(palletItems.companyId, companyId)
+          ))
+          .groupBy(palletItems.productId)
+        : [];
+
+      const lastMovementMap = new Map<string, { date: string; type: string }>();
+      for (const m of lastMovements) {
+        lastMovementMap.set(m.productId, { date: m.lastMovement, type: m.lastMovementType });
+      }
+
+      const withStock = results.map(p => {
+        const totalStock = stockMap.get(p.id) ?? Number(p.stockQty ?? 0);
+        const addresses = addressStockByProduct.get(p.id) || [];
+        const totalInAddresses = addresses.reduce((acc, curr) => acc + curr.quantity, 0);
         const pickingStock = Math.max(0, totalStock - totalInAddresses);
+        const lastMove = lastMovementMap.get(p.id);
 
         return {
           ...p,
-          companyStockQty: totalStock, // legacy field
+          companyStockQty: totalStock,
           totalStock,
           pickingStock,
-          addresses: addressStock.map(a => ({
-            code: a.addressCode,
-            quantity: Number(a.quantity)
-          }))
+          addressCount: addresses.length,
+          hasNoAddress: addresses.length === 0 && totalStock > 0,
+          lastMovementDate: lastMove?.date || null,
+          lastMovementType: lastMove?.type || null,
+          addresses,
         };
-      }));
+      });
 
-      // Sort: if q is an exact match for ERP code, put it first
       const sorted = [...withStock].sort((a, b) => {
         if (a.erpCode === q) return -1;
         if (b.erpCode === q) return 1;
-        return 0;
+        if (a.totalStock > 0 && b.totalStock === 0) return -1;
+        if (b.totalStock > 0 && a.totalStock === 0) return 1;
+        return (a.name || "").localeCompare(b.name || "");
       });
 
       res.json(sorted);

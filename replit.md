@@ -74,23 +74,52 @@ Routes are registered in `server/routes.ts` (legacy + auth) and `server/wms-rout
 - Types: standard, picking, recebimento, expedicao
 - Active/inactive toggle, bulk import support
 - Supervisor-only management
+- **Dashboard stats**: total/active/occupied/empty/inactive counts
+- **Filters**: by type (standard/picking/etc) and status (active/inactive/occupied/empty)
+- **Occupancy display**: shows which pallet occupies each address via `/api/wms-addresses/with-occupancy` endpoint
+- **Search**: by address code or pallet code
+- **Delete confirmation**: dialog-based with safeguard against deleting occupied addresses
+
+#### Product Search (Produtos)
+- Search by name, ERP code, or barcode with debounced input
+- **Search types**: All, Code only, Description only (tab selector)
+- **Batch-optimized queries**: stock, address allocation, and last movement data loaded in batch (no N+1)
+- **Rich results**: total stock, picking stock, address count, address list with quantities
+- **Warning badges**: "Sem endereço" for products with stock but no WMS address
+- **Last movement date**: shows most recent pallet movement per product
+- **Smart sorting**: exact ERP code match first, then stocked products, then alphabetical
+- Clear search button, Enter key submit
 
 #### Pallet Receiving (Recebimento)
 - NF (nota fiscal) search and association
 - Add items by barcode with lot/expiry tracking
 - Auto-generated pallet codes: `PLT-{companyId}-{timestamp}`
 - Creates movement audit trail on creation
+- **Progress indicator** when importing items from NF
+- **Direct quantity editing**: click quantity to type exact value
+- **Confirmation dialog** before creating pallet (prevents double-click)
+- Item summary shown in confirmation
 
 #### Check-in/Allocation
 - Scan pallet → select available address → allocate
 - Rule: 1 pallet per address max
 - Address must belong to same company
 - Forklift operator or supervisor access
+- **Confirmation dialog** before allocation
+- **Item details**: shows products with ERP code, quantity, lot info
+- **Timestamps**: created date shown on pending pallets
+- **Filter/search**: for large pending pallet lists
+- **Cancel dialog**: confirmation required before canceling a pallet
 
 #### Transfer
 - Scan pallet → select destination address → transfer
-- Validates destination is empty and same company
-- Supervisor can cancel pallets with reason
+- **Validation**: only `alocado` pallets can transfer; `sem_endereco` blocked with guidance message
+- **Validation**: destination must be active, empty, and different from current address
+- **Confirmation dialog** before executing transfer
+- **Pallet detail view**: shows items with product info, quantities, lots
+- **Movement history**: shows recent movements for selected pallet
+- Supervisor can cancel pallets with reason (minimum 3 characters enforced)
+- **Filter/search**: for pallet list by code or address
 - Full movement audit trail
 
 #### Counting Cycles (Contagem)

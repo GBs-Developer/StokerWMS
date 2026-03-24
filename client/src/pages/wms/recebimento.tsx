@@ -11,6 +11,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
@@ -58,9 +59,13 @@ export default function RecebimentoPage() {
   const [selectedNfItems, setSelectedNfItems] = useState<Set<number>>(new Set());
   const [nfList, setNfList] = useState<any[]>([]);
   const [nfListLoading, setNfListLoading] = useState(false);
+  const [nfImportProgress, setNfImportProgress] = useState<{ current: number; total: number } | null>(null);
 
   const [labelDialog, setLabelDialog] = useState<any>(null);
   const [labelLoading, setLabelLoading] = useState(false);
+  const [showCreateConfirm, setShowCreateConfirm] = useState(false);
+  const [editingQtyIdx, setEditingQtyIdx] = useState<number | null>(null);
+  const [editingQtyValue, setEditingQtyValue] = useState("");
 
   const scanInputRef = useRef<HTMLInputElement>(null);
 
@@ -149,6 +154,23 @@ export default function RecebimentoPage() {
     }));
   };
 
+  const startEditQty = (idx: number) => {
+    setEditingQtyIdx(idx);
+    setEditingQtyValue(String(palletItems[idx].quantity));
+  };
+
+  const commitEditQty = () => {
+    if (editingQtyIdx === null) return;
+    const val = parseInt(editingQtyValue, 10);
+    if (!isNaN(val) && val > 0) {
+      setPalletItems(prev => prev.map((item, i) =>
+        i === editingQtyIdx ? { ...item, quantity: val } : item
+      ));
+    }
+    setEditingQtyIdx(null);
+    setEditingQtyValue("");
+  };
+
   const removeItem = (idx: number) => {
     setPalletItems(prev => prev.filter((_, i) => i !== idx));
   };
@@ -205,9 +227,10 @@ export default function RecebimentoPage() {
   };
 
   const mergeNfItemsIntoPallet = (itemsToAdd: any[]) => {
+    setNfImportProgress({ current: 0, total: itemsToAdd.length });
     setPalletItems(prev => {
       const merged = [...prev];
-      itemsToAdd.forEach(nfItem => {
+      itemsToAdd.forEach((nfItem, i) => {
         const pid = nfItem.productId || nfItem.id;
         const existingIdx = merged.findIndex(i => i.productId === pid);
         if (existingIdx >= 0) {
@@ -225,9 +248,11 @@ export default function RecebimentoPage() {
             unit: nfItem.unit || "UN",
           });
         }
+        setNfImportProgress({ current: i + 1, total: itemsToAdd.length });
       });
       return merged;
     });
+    setTimeout(() => setNfImportProgress(null), 1500);
   };
 
   const addSelectedNfItems = () => {
@@ -270,11 +295,13 @@ export default function RecebimentoPage() {
       setNfData(null);
       setNfNumber("");
       setLastScanned(null);
+      setShowCreateConfirm(false);
       toast({ title: "Pallet criado!", description: `Código: ${data.code}` });
       fetchLabel(data.id);
     },
     onError: (e: Error) => {
       toast({ title: "Erro", description: e.message, variant: "destructive" });
+      setShowCreateConfirm(false);
     },
   });
 
@@ -408,7 +435,7 @@ export default function RecebimentoPage() {
                     <p className="font-semibold text-sm text-green-800 dark:text-green-200 truncate">{lastScanned.product.name}</p>
                     <p className="text-xs text-green-600 dark:text-green-400">
                       {lastScanned.product.erpCode}
-                      {lastScanned.isBox && <span className="ml-2 font-semibold">📦 Caixa: +{lastScanned.qty} un</span>}
+                      {lastScanned.isBox && <span className="ml-2 font-semibold">Caixa: +{lastScanned.qty} un</span>}
                       {!lastScanned.isBox && <span className="ml-2">+{lastScanned.qty} {lastScanned.product.unit || "UN"}</span>}
                     </p>
                   </div>
@@ -507,6 +534,21 @@ export default function RecebimentoPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3">
+                  {nfImportProgress && (
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>Importando itens...</span>
+                        <span>{nfImportProgress.current}/{nfImportProgress.total}</span>
+                      </div>
+                      <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
+                        <div
+                          className="bg-primary h-2 rounded-full transition-all duration-300"
+                          style={{ width: `${(nfImportProgress.current / nfImportProgress.total) * 100}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
                   {nfData.items?.length > 0 ? (
                     <>
                       <div className="flex items-center justify-between">
@@ -514,11 +556,11 @@ export default function RecebimentoPage() {
                           {selectedNfItems.size > 0 ? `${selectedNfItems.size} selecionado(s)` : `${nfData.items.length} itens — selecione para adicionar ao pallet`}
                         </p>
                         <div className="flex gap-2">
-                          <Button variant="outline" size="sm" onClick={addAllNfItems} data-testid="button-add-all-nf">
+                          <Button variant="outline" size="sm" onClick={addAllNfItems} disabled={!!nfImportProgress} data-testid="button-add-all-nf">
                             Adicionar Todos
                           </Button>
                           {selectedNfItems.size > 0 && (
-                            <Button size="sm" onClick={addSelectedNfItems} data-testid="button-add-selected-nf">
+                            <Button size="sm" onClick={addSelectedNfItems} disabled={!!nfImportProgress} data-testid="button-add-selected-nf">
                               <Plus className="h-4 w-4 mr-1" />
                               Adicionar {selectedNfItems.size}
                             </Button>
@@ -606,7 +648,26 @@ export default function RecebimentoPage() {
                           <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => updateItemQty(idx, -1)} data-testid={`button-dec-${idx}`}>
                             <Minus className="h-3 w-3" />
                           </Button>
-                          <span className="font-mono font-bold text-sm w-10 text-center">{item.quantity}</span>
+                          {editingQtyIdx === idx ? (
+                            <Input
+                              value={editingQtyValue}
+                              onChange={e => setEditingQtyValue(e.target.value.replace(/\D/g, ""))}
+                              onBlur={commitEditQty}
+                              onKeyDown={e => e.key === "Enter" && commitEditQty()}
+                              className="h-7 w-14 text-center font-mono font-bold text-sm p-0"
+                              autoFocus
+                              data-testid={`input-qty-${idx}`}
+                            />
+                          ) : (
+                            <span
+                              className="font-mono font-bold text-sm w-10 text-center cursor-pointer hover:bg-muted rounded px-1 py-0.5"
+                              onClick={() => startEditQty(idx)}
+                              title="Clique para editar"
+                              data-testid={`qty-display-${idx}`}
+                            >
+                              {item.quantity}
+                            </span>
+                          )}
                           <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => updateItemQty(idx, 1)} data-testid={`button-inc-${idx}`}>
                             <Plus className="h-3 w-3" />
                           </Button>
@@ -628,7 +689,7 @@ export default function RecebimentoPage() {
                     <span className="font-bold">{totalItems} unidades</span>
                   </div>
                   <Button
-                    onClick={() => createPalletMutation.mutate()}
+                    onClick={() => setShowCreateConfirm(true)}
                     disabled={createPalletMutation.isPending || palletItems.length === 0}
                     className="gap-2"
                     data-testid="button-create-pallet"
@@ -667,7 +728,9 @@ export default function RecebimentoPage() {
                       <QrCode className="h-5 w-5 text-primary" />
                       <div>
                         <span className="font-mono font-semibold">{p.code}</span>
-                        <div className="text-xs text-muted-foreground">{p.items?.length || 0} itens · {new Date(p.createdAt).toLocaleString("pt-BR")}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {p.items?.length || 0} itens · {new Date(p.createdAt).toLocaleString("pt-BR")}
+                        </div>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -683,6 +746,33 @@ export default function RecebimentoPage() {
           </CardContent>
         </Card>
       </main>
+
+      <Dialog open={showCreateConfirm} onOpenChange={setShowCreateConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirmar Criação do Pallet</DialogTitle>
+            <DialogDescription>
+              Deseja gerar um novo pallet com {palletItems.length} produto{palletItems.length !== 1 ? "s" : ""} e {totalItems} unidade{totalItems !== 1 ? "s" : ""}?
+              {nfData && <span className="block mt-1">Vinculado à NF {nfData.nfNumber}</span>}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-40 overflow-y-auto space-y-1">
+            {palletItems.map((item, idx) => (
+              <div key={idx} className="flex justify-between text-sm py-1 border-b border-dashed last:border-0">
+                <span className="truncate mr-2">{item.productName}</span>
+                <span className="font-mono flex-shrink-0">{item.quantity} {item.unit}</span>
+              </div>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCreateConfirm(false)}>Cancelar</Button>
+            <Button onClick={() => createPalletMutation.mutate()} disabled={createPalletMutation.isPending} data-testid="button-confirm-create-pallet">
+              {createPalletMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Package className="h-4 w-4 mr-2" />}
+              Confirmar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!labelDialog} onOpenChange={(open) => !open && setLabelDialog(null)}>
         <DialogContent className="max-w-md">

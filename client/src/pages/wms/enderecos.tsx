@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { GradientHeader } from "@/components/ui/gradient-header";
@@ -16,7 +16,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Plus, MapPin, Loader2, ToggleLeft, ToggleRight, Trash2, Search } from "lucide-react";
+import { ArrowLeft, Plus, MapPin, Loader2, ToggleLeft, ToggleRight, Trash2, Search, Package, X, Filter } from "lucide-react";
 import { useLocation } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -32,12 +32,14 @@ export default function EnderecosPage() {
   const [nivel, setNivel] = useState("");
   const [type, setType] = useState("standard");
   const [searchTerm, setSearchTerm] = useState("");
+  const [filterType, setFilterType] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("all");
   const [deleteTarget, setDeleteTarget] = useState<any>(null);
 
   const { data: addresses = [], isLoading } = useQuery({
-    queryKey: ["wms-addresses", companyId],
+    queryKey: ["wms-addresses-occupancy", companyId],
     queryFn: async () => {
-      const res = await fetch("/api/wms-addresses", { credentials: "include" });
+      const res = await fetch("/api/wms-addresses/with-occupancy", { credentials: "include" });
       if (!res.ok) throw new Error("Erro ao buscar endereços");
       return res.json();
     },
@@ -59,6 +61,7 @@ export default function EnderecosPage() {
       return res.json();
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["wms-addresses-occupancy"] });
       queryClient.invalidateQueries({ queryKey: ["wms-addresses"] });
       setBairro(""); setRua(""); setBloco(""); setNivel("");
       setShowForm(false);
@@ -81,6 +84,7 @@ export default function EnderecosPage() {
       return res.json();
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["wms-addresses-occupancy"] });
       queryClient.invalidateQueries({ queryKey: ["wms-addresses"] });
     },
   });
@@ -95,6 +99,7 @@ export default function EnderecosPage() {
       return res.json();
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["wms-addresses-occupancy"] });
       queryClient.invalidateQueries({ queryKey: ["wms-addresses"] });
       setDeleteTarget(null);
       toast({ title: "Endereço apagado" });
@@ -111,13 +116,34 @@ export default function EnderecosPage() {
     expedicao: "Expedição",
   };
 
-  const filteredAddresses = searchTerm
-    ? addresses.filter((addr: any) =>
-        addr.code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        addr.bairro?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        addr.rua?.toLowerCase().includes(searchTerm.toLowerCase())
-      )
-    : addresses;
+  const filteredAddresses = useMemo(() => {
+    return addresses.filter((addr: any) => {
+      if (searchTerm) {
+        const term = searchTerm.toLowerCase();
+        const matches = addr.code?.toLowerCase().includes(term) ||
+          addr.bairro?.toLowerCase().includes(term) ||
+          addr.rua?.toLowerCase().includes(term) ||
+          addr.pallet?.palletCode?.toLowerCase().includes(term);
+        if (!matches) return false;
+      }
+      if (filterType !== "all" && addr.type !== filterType) return false;
+      if (filterStatus === "active" && !addr.active) return false;
+      if (filterStatus === "inactive" && addr.active) return false;
+      if (filterStatus === "occupied" && !addr.occupied) return false;
+      if (filterStatus === "empty" && addr.occupied) return false;
+      return true;
+    });
+  }, [addresses, searchTerm, filterType, filterStatus]);
+
+  const stats = useMemo(() => {
+    const total = addresses.length;
+    const active = addresses.filter((a: any) => a.active).length;
+    const occupied = addresses.filter((a: any) => a.occupied).length;
+    const empty = addresses.filter((a: any) => a.active && !a.occupied).length;
+    return { total, active, inactive: total - active, occupied, empty };
+  }, [addresses]);
+
+  const hasFilters = searchTerm || filterType !== "all" || filterStatus !== "all";
 
   return (
     <div className="min-h-screen bg-background">
@@ -128,19 +154,78 @@ export default function EnderecosPage() {
       </GradientHeader>
 
       <main className="max-w-4xl mx-auto px-4 py-6">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-4">
+          <div className="text-center p-2 rounded-lg bg-muted/30 border">
+            <p className="text-lg font-bold">{stats.total}</p>
+            <p className="text-[10px] text-muted-foreground uppercase">Total</p>
+          </div>
+          <div className="text-center p-2 rounded-lg bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-900">
+            <p className="text-lg font-bold text-green-700 dark:text-green-400">{stats.active}</p>
+            <p className="text-[10px] text-muted-foreground uppercase">Ativos</p>
+          </div>
+          <div className="text-center p-2 rounded-lg bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900">
+            <p className="text-lg font-bold text-blue-700 dark:text-blue-400">{stats.occupied}</p>
+            <p className="text-[10px] text-muted-foreground uppercase">Ocupados</p>
+          </div>
+          <div className="text-center p-2 rounded-lg bg-muted/30 border">
+            <p className="text-lg font-bold">{stats.empty}</p>
+            <p className="text-[10px] text-muted-foreground uppercase">Livres</p>
+          </div>
+          <div className="text-center p-2 rounded-lg bg-muted/30 border">
+            <p className="text-lg font-bold text-muted-foreground">{stats.inactive}</p>
+            <p className="text-[10px] text-muted-foreground uppercase">Inativos</p>
+          </div>
+        </div>
+
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
-          <h2 className="text-lg font-semibold">{filteredAddresses.length} endereço{filteredAddresses.length !== 1 ? "s" : ""}</h2>
-          <div className="flex items-center gap-2">
-            <div className="relative">
+          <div className="flex items-center gap-2 flex-1 w-full sm:w-auto">
+            <div className="relative flex-1">
               <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Buscar endereço..."
+                placeholder="Buscar endereço ou pallet..."
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
-                className="pl-9 w-48"
+                className="pl-9 pr-8"
                 data-testid="input-search-address"
               />
+              {searchTerm && (
+                <Button variant="ghost" size="sm" className="absolute right-1 top-1 h-7 w-7 p-0" onClick={() => setSearchTerm("")}>
+                  <X className="h-3 w-3" />
+                </Button>
+              )}
             </div>
+            <Select value={filterType} onValueChange={setFilterType}>
+              <SelectTrigger className="w-28" data-testid="select-filter-type">
+                <Filter className="h-3 w-3 mr-1" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="standard">Padrão</SelectItem>
+                <SelectItem value="picking">Picking</SelectItem>
+                <SelectItem value="recebimento">Recebimento</SelectItem>
+                <SelectItem value="expedicao">Expedição</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={filterStatus} onValueChange={setFilterStatus}>
+              <SelectTrigger className="w-28" data-testid="select-filter-status">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="active">Ativos</SelectItem>
+                <SelectItem value="inactive">Inativos</SelectItem>
+                <SelectItem value="occupied">Ocupados</SelectItem>
+                <SelectItem value="empty">Livres</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center gap-2">
+            {hasFilters && (
+              <Button variant="ghost" size="sm" onClick={() => { setSearchTerm(""); setFilterType("all"); setFilterStatus("all"); }} data-testid="button-clear-filters">
+                <X className="h-3 w-3 mr-1" /> Limpar
+              </Button>
+            )}
             <Button onClick={() => setShowForm(!showForm)} size="sm" data-testid="button-new-address">
               <Plus className="h-4 w-4 mr-2" /> Novo
             </Button>
@@ -175,28 +260,41 @@ export default function EnderecosPage() {
           </Card>
         )}
 
+        <p className="text-sm text-muted-foreground mb-2">{filteredAddresses.length} endereço{filteredAddresses.length !== 1 ? "s" : ""}{hasFilters ? " (filtrado)" : ""}</p>
+
         {isLoading ? (
           <div className="text-center py-12"><Loader2 className="h-8 w-8 mx-auto animate-spin text-muted-foreground" /></div>
         ) : filteredAddresses.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
             <MapPin className="h-12 w-12 mx-auto mb-4 opacity-40" />
-            <p>{searchTerm ? "Nenhum endereço encontrado" : "Nenhum endereço cadastrado"}</p>
+            <p>{hasFilters ? "Nenhum endereço encontrado com esses filtros" : "Nenhum endereço cadastrado"}</p>
           </div>
         ) : (
           <div className="space-y-2">
             {filteredAddresses.map((addr: any) => (
               <div key={addr.id} className={`flex items-center justify-between p-3 rounded-lg border group ${addr.active ? 'bg-card' : 'bg-muted/50 opacity-60'}`} data-testid={`row-address-${addr.id}`}>
                 <div className="flex items-center gap-3">
-                  <MapPin className="h-5 w-5 text-primary" />
+                  <MapPin className={`h-5 w-5 ${addr.occupied ? 'text-blue-500' : 'text-muted-foreground/40'}`} />
                   <div>
-                    <span className="font-mono font-semibold">{addr.code}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono font-semibold">{addr.code}</span>
+                      {addr.occupied && addr.pallet && (
+                        <Badge variant="outline" className="text-[9px] font-mono border-blue-300 text-blue-600">
+                          <Package className="h-2.5 w-2.5 mr-1" />
+                          {addr.pallet.palletCode}
+                        </Badge>
+                      )}
+                    </div>
                     <div className="text-xs text-muted-foreground">
                       {addr.bairro} / {addr.rua} / {addr.bloco} / {addr.nivel}
                     </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Badge variant={addr.type === "standard" ? "default" : "secondary"}>
+                  <Badge variant={addr.occupied ? "default" : "secondary"} className="text-[9px]">
+                    {addr.occupied ? "Ocupado" : "Livre"}
+                  </Badge>
+                  <Badge variant={addr.type === "standard" ? "outline" : "secondary"} className="text-[9px]">
                     {typeLabels[addr.type] || addr.type}
                   </Badge>
                   <Button variant="ghost" size="sm" onClick={() => toggleMutation.mutate({ id: addr.id, active: !addr.active })} data-testid={`button-toggle-${addr.id}`}>
@@ -207,6 +305,7 @@ export default function EnderecosPage() {
                     size="sm"
                     className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
                     onClick={() => setDeleteTarget(addr)}
+                    disabled={addr.occupied}
                     data-testid={`button-delete-${addr.id}`}
                   >
                     <Trash2 className="h-4 w-4" />

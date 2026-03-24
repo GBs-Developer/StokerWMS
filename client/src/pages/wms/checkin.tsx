@@ -6,9 +6,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, QrCode, MapPin, Loader2, Package, CheckCircle, Trash2, Ban } from "lucide-react";
+import { ArrowLeft, QrCode, MapPin, Loader2, Package, CheckCircle, Trash2, Ban, Search, X, Clock } from "lucide-react";
 import { useLocation } from "wouter";
 import { AddressPicker } from "@/components/wms/address-picker";
 
@@ -20,6 +27,9 @@ export default function CheckinPage() {
   const [scanInput, setScanInput] = useState("");
   const [selectedPallet, setSelectedPallet] = useState<any>(null);
   const [selectedAddress, setSelectedAddress] = useState("");
+  const [filterText, setFilterText] = useState("");
+  const [showAllocateConfirm, setShowAllocateConfirm] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState<string | null>(null);
 
   const { data: palletsWithoutAddress = [] } = useQuery({
     queryKey: ["pallets-no-address", companyId],
@@ -42,7 +52,9 @@ export default function CheckinPage() {
   });
 
   const loadPallet = async (code: string) => {
-    const pallet = palletsWithoutAddress.find((p: any) => p.code === code || p.id === code);
+    const trimmed = code.trim();
+    if (!trimmed) return;
+    const pallet = palletsWithoutAddress.find((p: any) => p.code === trimmed || p.id === trimmed);
     if (pallet) {
       const res = await fetch(`/api/pallets/${pallet.id}`, { credentials: "include" });
       if (res.ok) {
@@ -50,7 +62,7 @@ export default function CheckinPage() {
         setScanInput("");
       }
     } else {
-      toast({ title: "Pallet não encontrado", variant: "destructive" });
+      toast({ title: "Pallet não encontrado", description: "Verifique se o pallet está pendente de endereçamento", variant: "destructive" });
     }
   };
 
@@ -76,9 +88,11 @@ export default function CheckinPage() {
       toast({ title: "Pallet alocado com sucesso!" });
       setSelectedPallet(null);
       setSelectedAddress("");
+      setShowAllocateConfirm(false);
     },
     onError: (e: Error) => {
       toast({ title: "Erro", description: e.message, variant: "destructive" });
+      setShowAllocateConfirm(false);
     },
   });
 
@@ -100,16 +114,24 @@ export default function CheckinPage() {
       queryClient.invalidateQueries({ queryKey: ["pallets-no-address"] });
       toast({ title: "Pallet cancelado com sucesso!" });
       setSelectedPallet(null);
+      setShowCancelConfirm(null);
     },
     onError: (e: Error) => {
       toast({ title: "Erro", description: e.message, variant: "destructive" });
+      setShowCancelConfirm(null);
     },
   });
+
+  const selectedAddressObj = selectedAddress ? availableAddresses.find((a: any) => a.id === selectedAddress) : null;
+
+  const filteredPallets = filterText
+    ? palletsWithoutAddress.filter((p: any) => p.code?.toLowerCase().includes(filterText.toLowerCase()))
+    : palletsWithoutAddress;
 
   return (
     <div className="min-h-screen bg-background">
       <GradientHeader title="Check-in / Alocação" subtitle={companyId ? (companiesData?.find(c => c.id === companyId)?.name || "") : ""}>
-        <Button variant="outline" size="sm" onClick={() => navigate("/")} className="bg-white/10 border-white/20 text-white hover:bg-white/20">
+        <Button variant="outline" size="sm" onClick={() => navigate("/")} className="bg-white/10 border-white/20 text-white hover:bg-white/20" data-testid="button-back">
           <ArrowLeft className="h-4 w-4 mr-2" /> Voltar
         </Button>
       </GradientHeader>
@@ -122,8 +144,8 @@ export default function CheckinPage() {
               <Input placeholder="Escaneie ou digite o código do pallet" value={scanInput}
                 onChange={e => setScanInput(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && loadPallet(scanInput)}
-                autoFocus />
-              <Button onClick={() => loadPallet(scanInput)}>
+                autoFocus data-testid="input-scan-checkin" />
+              <Button onClick={() => loadPallet(scanInput)} disabled={!scanInput.trim()} data-testid="button-search-checkin">
                 <QrCode className="h-4 w-4 mr-2" /> Buscar
               </Button>
             </div>
@@ -132,32 +154,52 @@ export default function CheckinPage() {
 
         {!selectedPallet && palletsWithoutAddress.length > 0 && (
           <Card>
-            <CardHeader><CardTitle className="text-base">Pallets Pendentes ({palletsWithoutAddress.length})</CardTitle></CardHeader>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base">Pallets Pendentes ({palletsWithoutAddress.length})</CardTitle>
+                {palletsWithoutAddress.length > 5 && (
+                  <div className="relative w-40">
+                    <Search className="absolute left-2.5 top-2 h-4 w-4 text-muted-foreground" />
+                    <Input placeholder="Filtrar..." value={filterText} onChange={e => setFilterText(e.target.value)} className="pl-8 h-8 text-sm" data-testid="input-filter-checkin" />
+                    {filterText && (
+                      <Button variant="ghost" size="sm" className="absolute right-0.5 top-0.5 h-7 w-7 p-0" onClick={() => setFilterText("")}>
+                        <X className="h-3 w-3" />
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                {palletsWithoutAddress.map((p: any) => (
+                {filteredPallets.map((p: any) => (
                     <div key={p.id} className="group relative">
                       <div className="flex items-center justify-between p-3 rounded-lg border cursor-pointer hover:bg-muted/50 transition-colors"
-                        onClick={() => loadPallet(p.code)}>
+                        onClick={() => loadPallet(p.code)} data-testid={`checkin-pallet-${p.id}`}>
                         <div className="flex items-center gap-3">
                           <Package className="h-5 w-5 text-primary" />
                           <div>
                             <div className="font-mono font-semibold text-sm">{p.code}</div>
-                            <div className="text-[10px] text-muted-foreground uppercase">{p.items?.length || 0} itens</div>
+                            <div className="flex items-center gap-2 text-[10px] text-muted-foreground uppercase">
+                              <span>{p.items?.length || 0} itens</span>
+                              <span className="flex items-center gap-1">
+                                <Clock className="h-2.5 w-2.5" />
+                                {new Date(p.createdAt).toLocaleString("pt-BR")}
+                              </span>
+                            </div>
                           </div>
                         </div>
                         <Badge variant="outline" className="text-[10px] opacity-70">Aguardando Endereço</Badge>
                       </div>
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         className="absolute -right-2 -top-2 h-6 w-6 rounded-full bg-destructive text-destructive-foreground opacity-0 group-hover:opacity-100 transition-opacity shadow-sm hover:bg-destructive/90"
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (confirm("Deseja realmente apagar este pallet?")) {
-                            cancelMutation.mutate(p.id);
-                          }
+                          setShowCancelConfirm(p.id);
                         }}
+                        data-testid={`button-cancel-pallet-${p.id}`}
                       >
                         <Trash2 className="h-3 w-3" />
                       </Button>
@@ -173,41 +215,54 @@ export default function CheckinPage() {
             <CardHeader><CardTitle className="text-base">Pallet: {selectedPallet.code}</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
+                <p className="text-xs font-bold text-muted-foreground uppercase">Itens ({selectedPallet.items?.length || 0})</p>
                 {selectedPallet.items?.map((item: any, idx: number) => (
-                  <div key={idx} className="flex justify-between p-2 rounded border text-sm">
-                    <span>{item.product?.name || "Produto"}</span>
-                    <span className="font-mono">{item.quantity} {item.product?.unit || "UN"}</span>
+                  <div key={idx} className="flex justify-between items-center p-2.5 rounded-lg border text-sm">
+                    <div className="flex-1 min-w-0 mr-3">
+                      <p className="font-medium truncate">{item.product?.name || "Produto"}</p>
+                      <p className="text-xs text-muted-foreground font-mono">{item.product?.erpCode || ""}</p>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className="font-mono font-bold">{item.quantity}</span>
+                      <span className="text-xs text-muted-foreground">{item.product?.unit || "UN"}</span>
+                      {item.lot && <Badge variant="outline" className="text-[9px]">L: {item.lot}</Badge>}
+                    </div>
                   </div>
                 ))}
               </div>
 
               <div className="space-y-3 pt-2">
-                <AddressPicker 
+                <AddressPicker
                   availableAddresses={availableAddresses}
                   onAddressSelect={setSelectedAddress}
                   onClear={() => setSelectedAddress("")}
                 />
               </div>
 
+              {selectedAddress && selectedAddressObj && (
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-900">
+                  <MapPin className="h-4 w-4 text-green-600" />
+                  <span className="text-sm">Alocar em:</span>
+                  <span className="font-mono font-bold text-green-700 dark:text-green-400">{selectedAddressObj.code}</span>
+                </div>
+              )}
+
               <div className="flex gap-2">
-                <Button variant="outline" className="flex-1" onClick={() => setSelectedPallet(null)}>
+                <Button variant="outline" className="flex-1" onClick={() => setSelectedPallet(null)} data-testid="button-back-checkin">
                   Voltar
                 </Button>
-                <Button 
+                <Button
                   variant="destructive"
-                  onClick={() => {
-                    if (confirm("Deseja cancelar este pallet?")) {
-                      cancelMutation.mutate(selectedPallet.id);
-                    }
-                  }}
+                  onClick={() => setShowCancelConfirm(selectedPallet.id)}
                   disabled={cancelMutation.isPending}
+                  data-testid="button-cancel-pallet"
                 >
                   <Ban className="h-4 w-4 mr-2" /> Cancelar
                 </Button>
               </div>
 
-              <Button className="w-full" onClick={() => allocateMutation.mutate()}
-                disabled={!selectedAddress || allocateMutation.isPending}>
+              <Button className="w-full" onClick={() => setShowAllocateConfirm(true)}
+                disabled={!selectedAddress || allocateMutation.isPending} data-testid="button-allocate">
                 {allocateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle className="h-4 w-4 mr-2" />}
                 Alocar Pallet
               </Button>
@@ -215,6 +270,43 @@ export default function CheckinPage() {
           </Card>
         )}
       </main>
+
+      <Dialog open={showAllocateConfirm} onOpenChange={setShowAllocateConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirmar Alocação</DialogTitle>
+            <DialogDescription>
+              Confirma a alocação do pallet <span className="font-mono font-semibold">{selectedPallet?.code}</span>
+              {selectedAddressObj && <> no endereço <span className="font-mono font-semibold">{selectedAddressObj.code}</span></>}?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAllocateConfirm(false)}>Cancelar</Button>
+            <Button onClick={() => allocateMutation.mutate()} disabled={allocateMutation.isPending} data-testid="button-confirm-allocate">
+              {allocateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle className="h-4 w-4 mr-2" />}
+              Confirmar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!showCancelConfirm} onOpenChange={(open) => !open && setShowCancelConfirm(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cancelar Pallet</DialogTitle>
+            <DialogDescription>
+              Tem certeza que deseja cancelar este pallet? Os itens serão movidos para a área de picking.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCancelConfirm(null)}>Voltar</Button>
+            <Button variant="destructive" onClick={() => showCancelConfirm && cancelMutation.mutate(showCancelConfirm)} disabled={cancelMutation.isPending} data-testid="button-confirm-cancel-pallet">
+              {cancelMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Trash2 className="h-4 w-4 mr-2" />}
+              Confirmar Cancelamento
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
