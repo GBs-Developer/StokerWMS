@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useAuth, getCompanyLabel } from "@/lib/auth";
+import { useAuth } from "@/lib/auth";
 import { GradientHeader } from "@/components/ui/gradient-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,7 +13,7 @@ import { useLocation } from "wouter";
 
 export default function CheckinPage() {
   const [, navigate] = useLocation();
-  const { companyId } = useAuth();
+  const { user, companyId, companiesData } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [scanInput, setScanInput] = useState("");
@@ -83,7 +83,7 @@ export default function CheckinPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <GradientHeader title="Check-in / Alocação" subtitle={companyId ? getCompanyLabel(companyId) : ""}>
+      <GradientHeader title="Check-in / Alocação" subtitle={companyId ? (companiesData?.find(c => c.id === companyId)?.name || "") : ""}>
         <Button variant="outline" size="sm" onClick={() => navigate("/")} className="bg-white/10 border-white/20 text-white hover:bg-white/20">
           <ArrowLeft className="h-4 w-4 mr-2" /> Voltar
         </Button>

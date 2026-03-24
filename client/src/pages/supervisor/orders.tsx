@@ -483,7 +483,7 @@ small.dim { color: #888; font-size: 8px; }
               <RefreshCw className={`h-4 w-4 mr-2 ${syncMutation.isPending ? "animate-spin" : ""}`} />
               {syncMutation.isPending ? "Sync..." : "Sincronizar"}
             </Button>
-            <Link href="/supervisor">
+            <Link href="/">
               <Button variant="outline" size="sm" className="bg-white/10 text-white border-white/20 hover:bg-white/20">
                 <ArrowLeft className="h-4 w-4 mr-2" /> Voltar
               </Button>

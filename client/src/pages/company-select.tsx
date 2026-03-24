@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
-import { useAuth, getCompanyLabel } from "@/lib/auth";
+import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
@@ -8,7 +8,7 @@ import { Building2, Loader2 } from "lucide-react";
 
 export default function CompanySelectPage() {
   const [, navigate] = useLocation();
-  const { user, companyId, allowedCompanies, selectCompany, logout } = useAuth();
+  const { user, companyId, companiesData, selectCompany, logout } = useAuth();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
 
@@ -25,7 +25,7 @@ export default function CompanySelectPage() {
       if (success) {
         toast({
           title: "Empresa selecionada",
-          description: getCompanyLabel(selectedId),
+          description: companiesData.find(c => c.id === selectedId)?.name || `Empresa ${selectedId}`,
         });
       } else {
         toast({
@@ -54,19 +54,19 @@ export default function CompanySelectPage() {
             <CardTitle className="text-xl font-semibold">Selecionar Empresa</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {allowedCompanies.map((id) => (
+            {companiesData.map((company) => (
               <Button
-                key={id}
+                key={company.id}
                 variant="outline"
                 className="w-full h-16 text-left justify-start gap-4 text-base"
-                onClick={() => handleSelect(id)}
-                data-testid={`button-select-company-${id}`}
+                onClick={() => handleSelect(company.id)}
+                data-testid={`button-select-company-${company.id}`}
                 disabled={isLoading}
               >
                 <Building2 className="h-6 w-6 text-primary flex-shrink-0" />
-                <div>
-                  <div className="font-semibold">{getCompanyLabel(id)}</div>
-                  <div className="text-xs text-muted-foreground">IDEMPRESA {id}</div>
+                <div className="flex-1 text-left">
+                  <div className="font-semibold truncate">{company.name}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">CNPJ: {company.cnpj || "Não cadastrado"} • ID {company.id}</div>
                 </div>
                 {isLoading && <Loader2 className="ml-auto h-4 w-4 animate-spin" />}
               </Button>

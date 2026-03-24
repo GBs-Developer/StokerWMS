@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import type { User } from "@shared/schema";
+import type { User, Company } from "@shared/schema";
 
 const INACTIVITY_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 const INACTIVITY_CHECK_INTERVAL_MS = 60 * 1000;
@@ -11,28 +11,21 @@ interface AuthContextType {
   sessionKey: string | null;
   companyId: number | null;
   allowedCompanies: number[];
+  companiesData: Company[];
   status: "loading" | "authenticated" | "unauthenticated";
-  login: (username: string, password: string, companyId?: number) => Promise<{ success: boolean; requireCompanySelection?: boolean; allowedCompanies?: number[] }>;
+  login: (username: string, password: string, companyId?: number) => Promise<{ success: boolean; requireCompanySelection?: boolean; allowedCompanies?: number[]; companiesData?: Company[] }>;
   selectCompany: (companyId: number) => Promise<boolean>;
   logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-const COMPANY_LABELS: Record<number, string> = {
-  1: "Empresa 1",
-  3: "Empresa 3",
-};
-
-export function getCompanyLabel(id: number): string {
-  return COMPANY_LABELS[id] || `Empresa ${id}`;
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [sessionKey, setSessionKey] = useState<string | null>(null);
   const [companyId, setCompanyId] = useState<number | null>(null);
   const [allowedCompanies, setAllowedCompanies] = useState<number[]>([]);
+  const [companiesData, setCompaniesData] = useState<Company[]>([]);
   const [status, setStatus] = useState<"loading" | "authenticated" | "unauthenticated">("loading");
   const queryClient = useQueryClient();
   const inactivityTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -67,6 +60,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         inactivityTimerRef.current = null;
       }
       clearSession();
+      // Force navigation to login to avoid unhandled protected routes states
+      window.location.href = "/login";
     }
   }, [clearSession]);
 
@@ -97,6 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSessionKey(data.sessionKey);
         setCompanyId(data.companyId || null);
         setAllowedCompanies(data.allowedCompanies || []);
+        setCompaniesData(data.companiesData || []);
         setStatus("authenticated");
       } else {
         clearSession();
@@ -160,10 +156,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSessionKey(data.sessionKey);
         setCompanyId(data.companyId || null);
         setAllowedCompanies(data.allowedCompanies || []);
+        setCompaniesData(data.companiesData || []);
 
         if (data.requireCompanySelection) {
           setStatus("authenticated");
-          return { success: true, requireCompanySelection: true, allowedCompanies: data.allowedCompanies };
+          return { success: true, requireCompanySelection: true, allowedCompanies: data.allowedCompanies, companiesData: data.companiesData };
         }
 
         setStatus("authenticated");
@@ -196,7 +193,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, sessionKey, companyId, allowedCompanies, status, login, selectCompany, logout }}>
+    <AuthContext.Provider value={{ user, sessionKey, companyId, allowedCompanies, companiesData, status, login, selectCompany, logout }}>
       {children}
     </AuthContext.Provider>
   );

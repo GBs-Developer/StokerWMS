@@ -161,7 +161,7 @@ export default function RoutesPage() {
     return (
         <div className="min-h-screen bg-background">
             <GradientHeader title="Gestão de Rotas" subtitle="Cadastre e gerencie as rotas de entrega">
-                <Link href="/supervisor">
+                <Link href="/">
                     <Button
                         variant="outline"
                         size="sm"

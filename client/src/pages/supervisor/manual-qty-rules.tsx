@@ -182,7 +182,7 @@ export default function ManualQtyRulesPage() {
   return (
     <div className="min-h-screen bg-background">
       <GradientHeader title="Regras de Quantidade Manual" subtitle="Configurar produtos com entrada manual de quantidade">
-        <Link href="/supervisor">
+        <Link href="/">
           <Button
             variant="outline"
             size="sm"

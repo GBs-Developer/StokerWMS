@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAuth, getCompanyLabel } from "@/lib/auth";
+import { useAuth } from "@/lib/auth";
 import { GradientHeader } from "@/components/ui/gradient-header";
 import { ActionTile } from "@/components/ui/action-tile";
 import { Button } from "@/components/ui/button";
@@ -46,7 +46,7 @@ interface ModuleSection {
 }
 
 export default function HomePage() {
-  const { user, companyId, logout } = useAuth();
+  const { user, logout, companiesData, companyId } = useAuth();
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     operacao: true,
     logistica: true,
@@ -170,7 +170,7 @@ export default function HomePage() {
         <div className="flex items-center gap-2">
           {companyId && (
             <Badge variant="secondary" className="bg-white/20 text-white border-white/30 text-xs">
-              {getCompanyLabel(companyId)}
+              {companiesData?.find(c => c.id === companyId)?.name || `Empresa ${companyId}`}
             </Badge>
           )}
           <Button

@@ -8,7 +8,7 @@ import {
   type SectionGroup, type InsertSectionGroup, type Section, pickingSessions, type PickingSession, type InsertPickingSession,
   type ManualQtyRule, type InsertManualQtyRule,
   type Db2Mapping, type MappingField, type BatchSyncPayload,
-  type OrderVolume, type InsertOrderVolume,
+  type OrderVolume, type InsertOrderVolume, companies, type Company
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -20,6 +20,10 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   getAllUsers(): Promise<User[]>;
   updateUser(id: string, user: Partial<User>): Promise<User | undefined>;
+
+  // Companies
+  getCompaniesByIds(ids: number[]): Promise<Company[]>;
+  getAllCompanies(): Promise<Company[]>;
 
   // Sections
   getAllSections(): Promise<Section[]>;
@@ -48,7 +52,7 @@ export interface IStorage {
   createProduct(product: InsertProduct): Promise<Product>;
 
   // Orders
-  getAllOrders(): Promise<Order[]>;
+  getAllOrders(companyId?: number): Promise<Order[]>;
   getOrderById(id: string): Promise<Order | undefined>;
   getOrderWithItems(id: string): Promise<(Order & { items: (OrderItem & { product: Product })[] }) | undefined>;
   createOrder(order: InsertOrder): Promise<Order>;
@@ -66,7 +70,7 @@ export interface IStorage {
   relaunchOrder(orderId: string): Promise<void>;
 
   // Work Units
-  getWorkUnits(type?: string): Promise<(WorkUnit & { order: Order; items: (OrderItem & { product: Product; exceptionQty?: number })[]; lockedByName?: string })[]>;
+  getWorkUnits(type?: string, companyId?: number): Promise<(WorkUnit & { order: Order; items: (OrderItem & { product: Product; exceptionQty?: number })[]; lockedByName?: string })[]>;
   getWorkUnitById(id: string): Promise<(WorkUnit & { order: Order; items: (OrderItem & { product: Product; exceptionQty?: number })[] }) | undefined>;
   createWorkUnit(workUnit: InsertWorkUnit): Promise<WorkUnit>;
   updateWorkUnit(id: string, data: Partial<WorkUnit>): Promise<WorkUnit | undefined>;
@@ -94,7 +98,7 @@ export interface IStorage {
   getOrderStats(): Promise<{ pendentes: number; emSeparacao: number; separados: number; conferidos: number; excecoes: number }>;
 
   // Reports
-  getPickingListReportData(filters: { orderIds?: string[]; pickupPoints?: string[]; sections?: string[] }): Promise<{
+  getPickingListReportData(filters: { orderIds?: string[]; pickupPoints?: string[]; sections?: string[] }, companyId?: number): Promise<{
     section: string;
     pickupPoint: number;
     items: (OrderItem & { product: Product; order: Order })[];
@@ -157,6 +161,16 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
+  // Companies
+  async getCompaniesByIds(ids: number[]): Promise<Company[]> {
+    if (!ids || ids.length === 0) return [];
+    return db.select().from(companies).where(inArray(companies.id, ids));
+  }
+
+  async getAllCompanies(): Promise<Company[]> {
+    return db.select().from(companies);
+  }
+
   // Users
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
@@ -296,8 +310,19 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Orders
-  async getAllOrders(): Promise<(Order & { hasExceptions: boolean; totalItems: number; pickedItems: number })[]> {
-    const allOrders = await db.select().from(orders).orderBy(desc(orders.priority), desc(orders.createdAt));
+  async getAllOrders(companyId?: number): Promise<(Order & { hasExceptions: boolean; totalItems: number; pickedItems: number })[]> {
+    const query = companyId 
+      ? db.select().from(orders).where(eq(orders.companyId, companyId)).orderBy(desc(orders.priority), desc(orders.createdAt))
+      : db.select().from(orders).orderBy(desc(orders.priority), desc(orders.createdAt));
+      
+    let allOrders = await query;
+    
+    // Tratativa específica para a Empresa 01: exibir somente pedidos que interceptem os pontos de retirada 4 e 58
+    if (companyId === 1) {
+      allOrders = allOrders.filter(o => 
+        Array.isArray(o.pickupPoints) && o.pickupPoints.some(p => p === 4 || p === 58)
+      );
+    }
 
     // Get Exceptions
     const allExceptions = await db.select({ orderItemId: exceptions.orderItemId }).from(exceptions);
@@ -534,11 +559,20 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Work Units
-  // Retorna unidades de trabalho, opcionalmente filtradas por tipo.
-  // IMPORTANTE: Para 'conferencia', filtra pedidos que ainda n\u00e3o est\u00e3o 'separado' ou adiante.
-  async getWorkUnits(type?: string): Promise<(WorkUnit & { order: Order; items: (OrderItem & { product: Product; exceptionQty?: number })[]; lockedByName?: string })[]> {
-    const query = type
-      ? db.select().from(workUnits).where(eq(workUnits.type, type as any))
+  // Retorna unidades de trabalho, opcionalmente filtradas por tipo e empresa.
+  // IMPORTANTE: Para 'conferencia', filtra pedidos que ainda não estão 'separado' ou adiante.
+  async getWorkUnits(type?: string, companyId?: number): Promise<(WorkUnit & { order: Order; items: (OrderItem & { product: Product; exceptionQty?: number })[]; lockedByName?: string })[]> {
+    let conditions = [];
+    if (type) conditions.push(eq(workUnits.type, type as any));
+    if (companyId) conditions.push(eq(workUnits.companyId, companyId));
+    
+    // Tratativa específica para a Empresa 01: exibir somente pedidos com retirada 4 e 58
+    if (companyId === 1) {
+      conditions.push(inArray(workUnits.pickupPoint, [4, 58]));
+    }
+
+    const query = conditions.length > 0 
+      ? db.select().from(workUnits).where(and(...conditions))
       : db.select().from(workUnits);
 
     const wus = await query;
@@ -996,23 +1030,34 @@ export class DatabaseStorage implements IStorage {
     };
   }
 
-  async getPickingListReportData(filters: { orderIds?: string[]; pickupPoints?: string[]; sections?: string[] }): Promise<{
+  async getPickingListReportData(filters: { orderIds?: string[]; pickupPoints?: string[]; sections?: string[] }, companyId?: number): Promise<{
     section: string;
     pickupPoint: number;
     items: (OrderItem & { product: Product; order: Order })[];
   }[]> {
     const conditions = [];
 
-    if (filters.orderIds && filters.orderIds.length > 0) {
-      conditions.push(inArray(orderItems.orderId, filters.orderIds));
+    let validOrderIds = filters.orderIds || [];
+    
+    if (companyId) {
+      const orderConds: any[] = [eq(orders.companyId, companyId)];
+      if (validOrderIds.length > 0) orderConds.push(inArray(orders.id, validOrderIds));
+      
+      const companyOrders = await db.select({ id: orders.id }).from(orders).where(and(...orderConds));
+      validOrderIds = companyOrders.map(o => o.id);
+      
+      if (validOrderIds.length === 0) return [];
     }
 
-    if (filters.pickupPoints && filters.pickupPoints.length > 0) {
-      // pickupPoint in db is integer
-      const ppInts = filters.pickupPoints.map(p => parseInt(p)).filter(p => !isNaN(p));
-      if (ppInts.length > 0) {
-        conditions.push(inArray(orderItems.pickupPoint, ppInts));
-      }
+    if (validOrderIds.length > 0) {
+      conditions.push(inArray(orderItems.orderId, validOrderIds));
+    }
+
+    let ppFilters = filters.pickupPoints ? filters.pickupPoints.map(p => parseInt(p)).filter(p => !isNaN(p)) : [];
+    if (companyId === 1) ppFilters = [4, 58];
+
+    if (ppFilters.length > 0) {
+      conditions.push(inArray(orderItems.pickupPoint, ppFilters));
     }
 
     if (filters.sections && filters.sections.length > 0) {
@@ -1020,7 +1065,6 @@ export class DatabaseStorage implements IStorage {
     }
 
     const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
-
     const items = await db.select().from(orderItems).where(whereClause);
     const result: any[] = [];
 

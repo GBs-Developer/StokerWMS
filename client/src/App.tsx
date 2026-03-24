@@ -8,7 +8,6 @@ import { AuthProvider, useAuth } from "@/lib/auth";
 import LoginPage from "@/pages/login";
 import CompanySelectPage from "@/pages/company-select";
 import HomePage from "@/pages/home";
-import SupervisorDashboard from "@/pages/supervisor/index";
 import OrdersPage from "@/pages/supervisor/orders";
 import ExceptionsPage from "@/pages/supervisor/exceptions";
 import AuditPage from "@/pages/supervisor/audit";
@@ -104,11 +103,7 @@ function Router() {
         </ProtectedRoute>
       </Route>
 
-      <Route path="/supervisor">
-        <ProtectedRoute allowedRoles={["supervisor", "administrador"]}>
-          <SupervisorDashboard />
-        </ProtectedRoute>
-      </Route>
+
 
       <Route path="/supervisor/orders">
         <ProtectedRoute allowedRoles={["supervisor", "administrador"]}>

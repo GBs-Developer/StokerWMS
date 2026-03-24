@@ -100,7 +100,7 @@ export default function AuditPage() {
     return (
         <div className="min-h-screen bg-background">
             <GradientHeader title="Auditoria" subtitle="Logs de atividades do sistema">
-                <Link href="/supervisor">
+                <Link href="/">
                     <Button
                         variant="outline"
                         size="sm"

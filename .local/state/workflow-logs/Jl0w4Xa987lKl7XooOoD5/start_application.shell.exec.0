@@ -1,0 +1,329 @@
+Seeding database...
+Checking for existing users...
+Existing users count: [33m4[39m
+Database already seeded
+[Routes] Registering routes...
+12:26:03 AM [express] Servidor iniciado na porta 5000
+
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+[Auto-Sync] Triggering DB sync...
+[Auto-Sync] Triggering DB sync...
+Get stats error: LibsqlError: SQLITE_ERROR: no such column: city
+    at mapSqliteError [90m(file:///home/runner/workspace/[39mnode_modules/[4m@libsql/client[24m/lib-esm/sqlite3.js:434:16[90m)[39m
+    at executeStmt [90m(file:///home/runner/workspace/[39mnode_modules/[4m@libsql/client[24m/lib-esm/sqlite3.js:337:15[90m)[39m
+    at Sqlite3Client.execute [90m(file:///home/runner/workspace/[39mnode_modules/[4m@libsql/client[24m/lib-esm/sqlite3.js:82:16[90m)[39m
+[90m    ... 5 lines matching cause stack trace ...[39m
+[90m    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)[39m {
+  code: [32m'SQLITE_ERROR'[39m,
+  extendedCode: [32m'SQLITE_ERROR'[39m,
+  rawCode: [33m1[39m,
+  [cause]: SqliteError: no such column: city
+      at convertError [90m(/home/runner/workspace/[39mnode_modules/[4mlibsql[24m/index.js:59:12[90m)[39m
+      at Database.prepare [90m(/home/runner/workspace/[39mnode_modules/[4mlibsql[24m/index.js:131:13[90m)[39m
+      at executeStmt [90m(file:///home/runner/workspace/[39mnode_modules/[4m@libsql/client[24m/lib-esm/sqlite3.js:308:28[90m)[39m
+      at Sqlite3Client.execute [90m(file:///home/runner/workspace/[39mnode_modules/[4m@libsql/client[24m/lib-esm/sqlite3.js:82:16[90m)[39m
+      at LibSQLPreparedQuery.values [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/libsql/session.ts:262:57[90m)[39m
+      at LibSQLPreparedQuery.all [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/libsql/session.ts:191:27[90m)[39m
+      at SQLiteSelectBase.all [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/sqlite-core/query-builders/select.ts:884:26[90m)[39m
+      at SQLiteSelectBase.execute [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/sqlite-core/query-builders/select.ts:896:15[90m)[39m
+      at SQLiteSelectBase.then [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/query-promise.ts:31:15[90m)[39m
+  [90m    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)[39m {
+    code: [32m'SQLITE_ERROR'[39m,
+    rawCode: [33m1[39m
+  }
+}
+12:44:05 AM [express] GET /api/stats 500 in 9ms :: {"error":"Erro interno"}
+Get orders error: LibsqlError: SQLITE_ERROR: no such column: city
+    at mapSqliteError [90m(file:///home/runner/workspace/[39mnode_modules/[4m@libsql/client[24m/lib-esm/sqlite3.js:434:16[90m)[39m
+    at executeStmt [90m(file:///home/runner/workspace/[39mnode_modules/[4m@libsql/client[24m/lib-esm/sqlite3.js:337:15[90m)[39m
+    at Sqlite3Client.execute [90m(file:///home/runner/workspace/[39mnode_modules/[4m@libsql/client[24m/lib-esm/sqlite3.js:82:16[90m)[39m
+[90m    ... 5 lines matching cause stack trace ...[39m
+[90m    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)[39m {
+  code: [32m'SQLITE_ERROR'[39m,
+  extendedCode: [32m'SQLITE_ERROR'[39m,
+  rawCode: [33m1[39m,
+  [cause]: SqliteError: no such column: city
+      at convertError [90m(/home/runner/workspace/[39mnode_modules/[4mlibsql[24m/index.js:59:12[90m)[39m
+      at Database.prepare [90m(/home/runner/workspace/[39mnode_modules/[4mlibsql[24m/index.js:131:13[90m)[39m
+      at executeStmt [90m(file:///home/runner/workspace/[39mnode_modules/[4m@libsql/client[24m/lib-esm/sqlite3.js:308:28[90m)[39m
+      at Sqlite3Client.execute [90m(file:///home/runner/workspace/[39mnode_modules/[4m@libsql/client[24m/lib-esm/sqlite3.js:82:16[90m)[39m
+      at LibSQLPreparedQuery.values [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/libsql/session.ts:262:57[90m)[39m
+      at LibSQLPreparedQuery.all [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/libsql/session.ts:191:27[90m)[39m
+      at SQLiteSelectBase.all [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/sqlite-core/query-builders/select.ts:884:26[90m)[39m
+      at SQLiteSelectBase.execute [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/sqlite-core/query-builders/select.ts:896:15[90m)[39m
+      at SQLiteSelectBase.then [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/query-promise.ts:31:15[90m)[39m
+  [90m    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)[39m {
+    code: [32m'SQLITE_ERROR'[39m,
+    rawCode: [33m1[39m
+  }
+}
+12:44:05 AM [express] GET /api/orders 500 in 4ms :: {"error":"Erro interno"}
+Get orders error: LibsqlError: SQLITE_ERROR: no such column: city
+    at mapSqliteError [90m(file:///home/runner/workspace/[39mnode_modules/[4m@libsql/client[24m/lib-esm/sqlite3.js:434:16[90m)[39m
+    at executeStmt [90m(file:///home/runner/workspace/[39mnode_modules/[4m@libsql/client[24m/lib-esm/sqlite3.js:337:15[90m)[39m
+    at Sqlite3Client.execute [90m(file:///home/runner/workspace/[39mnode_modules/[4m@libsql/client[24m/lib-esm/sqlite3.js:82:16[90m)[39m
+[90m    ... 5 lines matching cause stack trace ...[39m
+[90m    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)[39m {
+  code: [32m'SQLITE_ERROR'[39m,
+  extendedCode: [32m'SQLITE_ERROR'[39m,
+  rawCode: [33m1[39m,
+  [cause]: SqliteError: no such column: city
+      at convertError [90m(/home/runner/workspace/[39mnode_modules/[4mlibsql[24m/index.js:59:12[90m)[39m
+      at Database.prepare [90m(/home/runner/workspace/[39mnode_modules/[4mlibsql[24m/index.js:131:13[90m)[39m
+      at executeStmt [90m(file:///home/runner/workspace/[39mnode_modules/[4m@libsql/client[24m/lib-esm/sqlite3.js:308:28[90m)[39m
+      at Sqlite3Client.execute [90m(file:///home/runner/workspace/[39mnode_modules/[4m@libsql/client[24m/lib-esm/sqlite3.js:82:16[90m)[39m
+      at LibSQLPreparedQuery.values [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/libsql/session.ts:262:57[90m)[39m
+      at LibSQLPreparedQuery.all [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/libsql/session.ts:191:27[90m)[39m
+      at SQLiteSelectBase.all [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/sqlite-core/query-builders/select.ts:884:26[90m)[39m
+      at SQLiteSelectBase.execute [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/sqlite-core/query-builders/select.ts:896:15[90m)[39m
+      at SQLiteSelectBase.then [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/query-promise.ts:31:15[90m)[39m
+  [90m    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)[39m {
+    code: [32m'SQLITE_ERROR'[39m,
+    rawCode: [33m1[39m
+  }
+}
+12:44:26 AM [express] GET /api/orders 500 in 3ms :: {"error":"Erro interno"}
+Get stats error: LibsqlError: SQLITE_ERROR: no such column: city
+    at mapSqliteError [90m(file:///home/runner/workspace/[39mnode_modules/[4m@libsql/client[24m/lib-esm/sqlite3.js:434:16[90m)[39m
+    at executeStmt [90m(file:///home/runner/workspace/[39mnode_modules/[4m@libsql/client[24m/lib-esm/sqlite3.js:337:15[90m)[39m
+    at Sqlite3Client.execute [90m(file:///home/runner/workspace/[39mnode_modules/[4m@libsql/client[24m/lib-esm/sqlite3.js:82:16[90m)[39m
+[90m    ... 5 lines matching cause stack trace ...[39m
+[90m    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)[39m {
+  code: [32m'SQLITE_ERROR'[39m,
+  extendedCode: [32m'SQLITE_ERROR'[39m,
+  rawCode: [33m1[39m,
+  [cause]: SqliteError: no such column: city
+      at convertError [90m(/home/runner/workspace/[39mnode_modules/[4mlibsql[24m/index.js:59:12[90m)[39m
+      at Database.prepare [90m(/home/runner/workspace/[39mnode_modules/[4mlibsql[24m/index.js:131:13[90m)[39m
+      at executeStmt [90m(file:///home/runner/workspace/[39mnode_modules/[4m@libsql/client[24m/lib-esm/sqlite3.js:308:28[90m)[39m
+      at Sqlite3Client.execute [90m(file:///home/runner/workspace/[39mnode_modules/[4m@libsql/client[24m/lib-esm/sqlite3.js:82:16[90m)[39m
+      at LibSQLPreparedQuery.values [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/libsql/session.ts:262:57[90m)[39m
+      at LibSQLPreparedQuery.all [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/libsql/session.ts:191:27[90m)[39m
+      at SQLiteSelectBase.all [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/sqlite-core/query-builders/select.ts:884:26[90m)[39m
+      at SQLiteSelectBase.execute [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/sqlite-core/query-builders/select.ts:896:15[90m)[39m
+      at SQLiteSelectBase.then [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/query-promise.ts:31:15[90m)[39m
+  [90m    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)[39m {
+    code: [32m'SQLITE_ERROR'[39m,
+    rawCode: [33m1[39m
+  }
+}
+12:44:26 AM [express] GET /api/stats 500 in 2ms :: {"error":"Erro interno"}
+Get orders error: LibsqlError: SQLITE_ERROR: no such column: city
+    at mapSqliteError [90m(file:///home/runner/workspace/[39mnode_modules/[4m@libsql/client[24m/lib-esm/sqlite3.js:434:16[90m)[39m
+    at executeStmt [90m(file:///home/runner/workspace/[39mnode_modules/[4m@libsql/client[24m/lib-esm/sqlite3.js:337:15[90m)[39m
+    at Sqlite3Client.execute [90m(file:///home/runner/workspace/[39mnode_modules/[4m@libsql/client[24m/lib-esm/sqlite3.js:82:16[90m)[39m
+[90m    ... 5 lines matching cause stack trace ...[39m
+[90m    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)[39m {
+  code: [32m'SQLITE_ERROR'[39m,
+  extendedCode: [32m'SQLITE_ERROR'[39m,
+  rawCode: [33m1[39m,
+  [cause]: SqliteError: no such column: city
+      at convertError [90m(/home/runner/workspace/[39mnode_modules/[4mlibsql[24m/index.js:59:12[90m)[39m
+      at Database.prepare [90m(/home/runner/workspace/[39mnode_modules/[4mlibsql[24m/index.js:131:13[90m)[39m
+      at executeStmt [90m(file:///home/runner/workspace/[39mnode_modules/[4m@libsql/client[24m/lib-esm/sqlite3.js:308:28[90m)[39m
+      at Sqlite3Client.execute [90m(file:///home/runner/workspace/[39mnode_modules/[4m@libsql/client[24m/lib-esm/sqlite3.js:82:16[90m)[39m
+      at LibSQLPreparedQuery.values [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/libsql/session.ts:262:57[90m)[39m
+      at LibSQLPreparedQuery.all [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/libsql/session.ts:191:27[90m)[39m
+      at SQLiteSelectBase.all [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/sqlite-core/query-builders/select.ts:884:26[90m)[39m
+      at SQLiteSelectBase.execute [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/sqlite-core/query-builders/select.ts:896:15[90m)[39m
+      at SQLiteSelectBase.then [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/query-promise.ts:31:15[90m)[39m
+  [90m    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)[39m {
+    code: [32m'SQLITE_ERROR'[39m,
+    rawCode: [33m1[39m
+  }
+}
+12:44:41 AM [express] GET /api/orders 500 in 3ms :: {"error":"Erro interno"}
+Get stats error: LibsqlError: SQLITE_ERROR: no such column: city
+    at mapSqliteError [90m(file:///home/runner/workspace/[39mnode_modules/[4m@libsql/client[24m/lib-esm/sqlite3.js:434:16[90m)[39m
+    at executeStmt [90m(file:///home/runner/workspace/[39mnode_modules/[4m@libsql/client[24m/lib-esm/sqlite3.js:337:15[90m)[39m
+    at Sqlite3Client.execute [90m(file:///home/runner/workspace/[39mnode_modules/[4m@libsql/client[24m/lib-esm/sqlite3.js:82:16[90m)[39m
+[90m    ... 5 lines matching cause stack trace ...[39m
+[90m    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)[39m {
+  code: [32m'SQLITE_ERROR'[39m,
+  extendedCode: [32m'SQLITE_ERROR'[39m,
+  rawCode: [33m1[39m,
+  [cause]: SqliteError: no such column: city
+      at convertError [90m(/home/runner/workspace/[39mnode_modules/[4mlibsql[24m/index.js:59:12[90m)[39m
+      at Database.prepare [90m(/home/runner/workspace/[39mnode_modules/[4mlibsql[24m/index.js:131:13[90m)[39m
+      at executeStmt [90m(file:///home/runner/workspace/[39mnode_modules/[4m@libsql/client[24m/lib-esm/sqlite3.js:308:28[90m)[39m
+      at Sqlite3Client.execute [90m(file:///home/runner/workspace/[39mnode_modules/[4m@libsql/client[24m/lib-esm/sqlite3.js:82:16[90m)[39m
+      at LibSQLPreparedQuery.values [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/libsql/session.ts:262:57[90m)[39m
+      at LibSQLPreparedQuery.all [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/libsql/session.ts:191:27[90m)[39m
+      at SQLiteSelectBase.all [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/sqlite-core/query-builders/select.ts:884:26[90m)[39m
+      at SQLiteSelectBase.execute [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/sqlite-core/query-builders/select.ts:896:15[90m)[39m
+      at SQLiteSelectBase.then [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/query-promise.ts:31:15[90m)[39m
+  [90m    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)[39m {
+    code: [32m'SQLITE_ERROR'[39m,
+    rawCode: [33m1[39m
+  }
+}
+12:44:41 AM [express] GET /api/stats 500 in 3ms :: {"error":"Erro interno"}
+[Auto-Sync] Triggering DB sync...
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:47:02 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/company-select.tsx, /src/index.css[22m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:47:07 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/company-select.tsx, /src/index.css[22m [33m(x2)[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:51:54 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/home.tsx, /src/index.css[22m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:52:49 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/index.css[22m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:52:52 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/App.tsx, /src/index.css[22m [33m(x2)[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:53:15 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/login.tsx[22m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:54:03 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/home.tsx, /src/index.css[22m

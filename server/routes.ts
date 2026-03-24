@@ -257,6 +257,8 @@ export async function registerRoutes(
         companyId: companyId ?? undefined,
       });
 
+      const companiesData = allowedCompanies.length > 0 ? await storage.getCompaniesByIds(allowedCompanies) : [];
+
       const { password: _, ...safeUser } = user;
       res.json({
         user: safeUser,
@@ -264,6 +266,7 @@ export async function registerRoutes(
         token,
         companyId: companyId || null,
         allowedCompanies,
+        companiesData,
         requireCompanySelection: !companyId && allowedCompanies.length > 1,
       });
     } catch (error) {
@@ -299,13 +302,16 @@ export async function registerRoutes(
     res.json({ success: true });
   });
 
-  app.get("/api/auth/me", isAuthenticated, (req: Request, res: Response) => {
+  app.get("/api/auth/me", isAuthenticated, async (req: Request, res: Response) => {
     const user = (req as any).user;
     const sessionKey = (req as any).sessionKey;
     const companyId = (req as any).companyId;
     const { password: _, ...safeUser } = user;
     const allowedCompanies: number[] = (user as any).allowedCompanies || [1, 3];
-    res.json({ user: safeUser, sessionKey, companyId, allowedCompanies });
+    const companiesData = allowedCompanies.length > 0 ? await storage.getCompaniesByIds(allowedCompanies) : [];
+    
+    // console.log("[DEBUG /auth/me] user.allowedCompanies typeof:", typeof (user as any).allowedCompanies, "isArray?", Array.isArray((user as any).allowedCompanies), "value:", (user as any).allowedCompanies);
+    res.json({ user: safeUser, sessionKey, companyId, allowedCompanies, companiesData });
   });
 
   app.post("/api/auth/select-company", isAuthenticated, async (req: Request, res: Response) => {
@@ -455,7 +461,8 @@ export async function registerRoutes(
 
   app.get("/api/queue/balcao", isAuthenticated, async (req: Request, res: Response) => {
     try {
-      const wus = await storage.getWorkUnits("balcao");
+      const companyId = (req as any).companyId;
+      const wus = await storage.getWorkUnits("balcao", companyId);
       const activeOrders = new Map<string, {
         orderId: string;
         erpOrderId: string;
@@ -644,7 +651,8 @@ export async function registerRoutes(
   // Orders routes
   app.get("/api/orders", isAuthenticated, async (req: Request, res: Response) => {
     try {
-      const orders = await storage.getAllOrders();
+      const companyId = (req as any).companyId;
+      const orders = await storage.getAllOrders(companyId);
       res.json(orders);
     } catch (error) {
       console.error("Get orders error:", error);
@@ -1071,7 +1079,8 @@ export async function registerRoutes(
   app.post("/api/reports/picking-list", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
     try {
       const { orderIds, pickupPoints, sections } = req.body;
-      const data = await storage.getPickingListReportData({ orderIds, pickupPoints, sections });
+      const companyId = (req as any).companyId;
+      const data = await storage.getPickingListReportData({ orderIds, pickupPoints, sections }, companyId);
       res.json(data);
     } catch (error) {
       console.error("Get picking list report error:", error);
@@ -1097,7 +1106,8 @@ export async function registerRoutes(
   app.get("/api/work-units", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const type = req.query.type as string | undefined;
-      const allWorkUnits = await storage.getWorkUnits(type);
+      const companyId = (req as any).companyId;
+      const allWorkUnits = await storage.getWorkUnits(type, companyId);
 
       // Filter: only return work units belonging to launched orders
       const launched = allWorkUnits.filter(wu => wu.order?.isLaunched === true);
@@ -2186,11 +2196,12 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Selecione pelo menos um pedido" });
       }
 
+      const companyId = (req as any).companyId;
       const reportData = await storage.getPickingListReportData({
         orderIds,
         pickupPoints: pickupPoints?.map(String),
         sections: filterSections,
-      });
+      }, companyId);
 
       const selectedOrders: any[] = [];
       for (const oid of orderIds) {

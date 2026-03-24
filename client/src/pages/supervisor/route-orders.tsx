@@ -270,7 +270,7 @@ td.right { text-align: right; text-transform: capitalize; }
     return (
         <div className="min-h-screen bg-background">
             <GradientHeader title="Gestão de Rotas (Pedidos)" subtitle="Visualize e atribua rotas aos pedidos">
-                <Link href="/supervisor">
+                <Link href="/">
                     <Button
                         variant="outline"
                         size="sm"

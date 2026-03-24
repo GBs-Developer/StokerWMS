@@ -15,7 +15,8 @@ Uso:
 import os
 import sys
 import time
-import sqlite3
+import psycopg2
+import psycopg2.extras
 import argparse
 import subprocess
 import threading
@@ -48,9 +49,9 @@ STRING_CONEXAO_DB2 = (
 
 QUIET = False
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = SCRIPT_DIR
-DATABASE_PATH = os.path.join(PROJECT_ROOT, "database.db")
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+SCRIPT_DIR = PROJECT_ROOT
+DATABASE_PATH = "host=127.0.0.1 port=5435 dbname=data_stoker user=postgres password=1234"
 
 
 def log(msg: str):
@@ -122,15 +123,15 @@ def formatar_hora(valor) -> str:
 
 def inicializar_sqlite():
     """Inicializa o banco SQLite com o schema."""
-    log(f"Inicializando SQLite em {DATABASE_PATH}...")
+    log(f"Inicializando SQLite em {"host=127.0.0.1 port=5435 dbname=data_stoker user=postgres password=1234"}...")
     
     try:
-        conn = sqlite3.connect(DATABASE_PATH, timeout=10.0)
+        conn_sqlite = psycopg2.connect('host=127.0.0.1 port=5435 dbname=data_stoker user=postgres password=1234')
         cursor = conn.cursor()
         
         # Enable WAL mode and set busy timeout for concurrent access
-        cursor.execute("PRAGMA journal_mode = WAL")
-        cursor.execute("PRAGMA busy_timeout = 5000")
+        
+        
         conn.commit()
         
         # 1. Cache Orcamentos
@@ -292,14 +293,14 @@ def inicializar_sqlite():
             """)
             
             # Migration: settings
-            if 'settings' not in columns and 'users' in [t[0] for t in cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")]:
+            if 'settings' not in columns and 'users' in [t[0] for t in cursor.execute("SELECT name FROM pg_tables WHERE type='table'")]:
                  try:
                      cursor.execute("ALTER TABLE users ADD COLUMN settings TEXT")
                  except:
                      pass
 
             # Migration: badge_code
-            if 'badge_code' not in columns and 'users' in [t[0] for t in cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")]:
+            if 'badge_code' not in columns and 'users' in [t[0] for t in cursor.execute("SELECT name FROM pg_tables WHERE type='table'")]:
                  try:
                      cursor.execute("ALTER TABLE users ADD COLUMN badge_code TEXT")
                      log("  Migracao: Coluna badge_code adicionada a users")
@@ -344,7 +345,7 @@ def inicializar_sqlite():
             # Migration: box_barcodes
             cursor.execute("PRAGMA table_info(products)")
             prod_cols = [info[1] for info in cursor.fetchall()]
-            if 'box_barcodes' not in prod_cols and 'products' in [t[0] for t in cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")]:
+            if 'box_barcodes' not in prod_cols and 'products' in [t[0] for t in cursor.execute("SELECT name FROM pg_tables WHERE type='table'")]:
                  try:
                      cursor.execute("ALTER TABLE products ADD COLUMN box_barcodes TEXT")
                      log("  Migracao: Coluna box_barcodes adicionada a products")
@@ -638,7 +639,7 @@ def apply_mapping(row: dict, mapping: list) -> dict:
     return result
 
 
-def transform_data(conn_sqlite: sqlite3.Connection):
+def transform_data(conn_sqlite):
     """
     Transforma dados brutos de cache_orcamentos em orders/products/work_units
     para uso da aplicação. Otimizado com Bulk Insert e Delta Sync.
@@ -876,7 +877,7 @@ def transform_data(conn_sqlite: sqlite3.Connection):
                     SELECT oi.id, oi.quantity, p.erp_code, oi.product_id 
                     FROM order_items oi
                     JOIN products p ON oi.product_id = p.id
-                    WHERE oi.order_id = ?
+                    WHERE oi.order_id = %s
                  """, (order_uuid,))
                  rows_db = cursor.fetchall()
                  for r in rows_db:
@@ -892,10 +893,10 @@ def transform_data(conn_sqlite: sqlite3.Connection):
                 # Exists -> Check for Quantity Change
                 if abs(db_item['qty'] - item_data['qty']) > 0.0001:
                     # Update Quantity
-                    cursor.execute("UPDATE order_items SET quantity = ? WHERE id = ?", (item_data['qty'], db_item['id']))
+                    cursor.execute("UPDATE order_items SET quantity = %s WHERE id = %s", (item_data['qty'], db_item['id']))
             else:
                 # New -> Insert
-                # Avoid inserting if we already queued it in new_items (e.g. duplicate lines in ERP resolved to single item?)
+                # Avoid inserting if we already queued it in new_items (e.g. duplicate lines in ERP resolved to single item%s)
                 # We use set logic above or just trust incoming_items_map keys logic.
                 if (order_uuid, item_data['prod_uuid']) not in existing_items:
                      new_items_to_insert.append((
@@ -908,9 +909,9 @@ def transform_data(conn_sqlite: sqlite3.Connection):
         for erp_code, db_item in current_db_items.items():
             if erp_code not in incoming_items_map:
                 # Deleted from ERP -> Delete from DB
-                cursor.execute("DELETE FROM order_items WHERE id = ?", (db_item['id'],))
+                cursor.execute("DELETE FROM order_items WHERE id = %s", (db_item['id'],))
                 # Also delete related exceptions
-                cursor.execute("DELETE FROM exceptions WHERE order_item_id = ?", (db_item['id'],))
+                cursor.execute("DELETE FROM exceptions WHERE order_item_id = %s", (db_item['id'],))
 
 
         # --- Create Work Units based on Distinct Items ---
@@ -928,10 +929,10 @@ def transform_data(conn_sqlite: sqlite3.Connection):
     # Insert Pickup Points
     try:
         if unique_pickup_points:
-            cursor.executemany("INSERT OR REPLACE INTO pickup_points (id, name, active) VALUES (?, ?, 1)", list(unique_pickup_points))
+            cursor.executemany("INSERT INTO pickup_points (id, name, active) VALUES (%s, %s, true) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, active=true", list(unique_pickup_points))
             
         if unique_sections:
-            cursor.executemany("INSERT OR REPLACE INTO sections (id, name) VALUES (?, ?)", list(unique_sections))
+            cursor.executemany("INSERT INTO sections (id, name) VALUES (%s, %s) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name", list(unique_sections))
             
         conn_sqlite.commit()
     except Exception as e:
@@ -942,7 +943,7 @@ def transform_data(conn_sqlite: sqlite3.Connection):
         if new_products:
             cursor.executemany("""
                 INSERT INTO products (id, erp_code, barcode, box_barcode, name, section, pickup_point, unit, manufacturer, price)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT(erp_code) DO UPDATE SET
                     price = excluded.price,
                     name = excluded.name,
@@ -963,7 +964,7 @@ def transform_data(conn_sqlite: sqlite3.Connection):
                     pickup_points, status, created_at,
                     observation, observation2, city, state, zip_code, address, neighborhood, cnpj_cpf, address_number
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'pendente', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, 'pendente', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT(erp_order_id) DO UPDATE SET
                     financial_status = excluded.financial_status,
                     total_value = excluded.total_value,
@@ -984,13 +985,13 @@ def transform_data(conn_sqlite: sqlite3.Connection):
         if new_items_to_insert:
             cursor.executemany("""
                 INSERT INTO order_items (id, order_id, product_id, quantity, separated_qty, status, pickup_point, section)
-                VALUES (?, ?, ?, ?, 0, 'pendente', ?, ?)
+                VALUES (%s, %s, %s, %s, 0, 'pendente', %s, %s)
             """, new_items_to_insert)
             
         if new_work_units:
             cursor.executemany("""
                 INSERT INTO work_units (id, order_id, status, type, pickup_point, section)
-                VALUES (?, ?, 'pendente', 'separacao', ?, ?)
+                VALUES (%s, %s, 'pendente', 'separacao', %s, %s)
             """, new_work_units)
 
         # 4. ORDER DELETION LOGIC (Hard Delete for Missing Orders)
@@ -1002,12 +1003,12 @@ def transform_data(conn_sqlite: sqlite3.Connection):
             # Find IDs to delete:
             # Created >= 31 days ago (active window)
             # AND NOT IN processed_erp_order_ids
-            # AND status logic? User requested "If diff or not exist, delete/change".
+            # AND status logic%s User requested "If diff or not exist, delete/change".
             # We delete regardless of status if it disappeared from ERP view, assuming ERP is master.
             
             sql_find_deleted = f"""
                 SELECT id, erp_order_id FROM orders 
-                WHERE created_at >= date('now', '-31 days')
+                WHERE created_at::timestamp >= CURRENT_DATE - INTERVAL '31 days'
                 AND erp_order_id NOT IN ({quoted_ids})
             """
             cursor.execute(sql_find_deleted)
@@ -1042,7 +1043,7 @@ def transform_data(conn_sqlite: sqlite3.Connection):
         traceback.print_exc()
 
 
-def sync_orcamentos(conn_db2, conn_sqlite: sqlite3.Connection):
+def sync_orcamentos(conn_db2, conn_sqlite):
     """Sincroniza tabela cache_orcamentos (Janela 31 dias)."""
     cursor = conn_sqlite.cursor()
     
@@ -1065,7 +1066,7 @@ def sync_orcamentos(conn_db2, conn_sqlite: sqlite3.Connection):
     cutoff_date = (datetime.now() - timedelta(days=32)).strftime('%Y-%m-%d')
     deleted_count = 0
     try:
-        cursor.execute("DELETE FROM cache_orcamentos WHERE DTMOVIMENTO >= ?", (cutoff_date,))
+        cursor.execute('DELETE FROM cache_orcamentos WHERE "DTMOVIMENTO" >= %s', (cutoff_date,))
         deleted_count = cursor.rowcount
         # log(f"  {deleted_count} registros removidos da janela local (>= {cutoff_date})")
     except Exception as e:
@@ -1080,16 +1081,30 @@ def sync_orcamentos(conn_db2, conn_sqlite: sqlite3.Connection):
             chave = f"{row.get('IDEMPRESA')}-{row.get('IDORCAMENTO')}-{row.get('IDPRODUTO')}-{row.get('IDSUBPRODUTO')}-{row.get('NUMSEQUENCIA')}"
             
             cursor.execute("""
-                INSERT OR REPLACE INTO cache_orcamentos (
-                    CHAVE, IDEMPRESA, IDORCAMENTO, IDPRODUTO, IDSUBPRODUTO, NUMSEQUENCIA,
-                    QTDPRODUTO, UNIDADE, FABRICANTE, VALUNITBRUTO, VALTOTLIQUIDO, DESCRRESPRODUTO,
-                    IDVENDEDOR, IDLOCALRETIRADA, IDSECAO, DESCRSECAO,
-                    TIPOENTREGA, NOMEVENDEDOR, TIPOENTREGA_DESCR, LOCALRETESTOQUE,
-                    FLAGCANCELADO, IDCLIFOR, DESCLIENTE, DTMOVIMENTO,
-                    IDRECEBIMENTO, DESCRRECEBIMENTO, FLAGPRENOTAPAGA,
-                    CODBARRAS, CODBARRAS_CAIXA,
-                    OBSERVACAO, OBSERVACAO2, DESCRCIDADE, UF, IDCEP, ENDERECO, BAIRRO, CNPJCPF, NUMERO
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO cache_orcamentos (
+                    "CHAVE", "IDEMPRESA", "IDORCAMENTO", "IDPRODUTO", "IDSUBPRODUTO", "NUMSEQUENCIA",
+                    "QTDPRODUTO", "UNIDADE", "FABRICANTE", "VALUNITBRUTO", "VALTOTLIQUIDO", "DESCRRESPRODUTO",
+                    "IDVENDEDOR", "IDLOCALRETIRADA", "IDSECAO", "DESCRSECAO",
+                    "TIPOENTREGA", "NOMEVENDEDOR", "TIPOENTREGA_DESCR", "LOCALRETESTOQUE",
+                    "FLAGCANCELADO", "IDCLIFOR", "DESCLIENTE", "DTMOVIMENTO",
+                    "IDRECEBIMENTO", "DESCRRECEBIMENTO", "FLAGPRENOTAPAGA",
+                    "CODBARRAS", "CODBARRAS_CAIXA",
+                    "OBSERVACAO", "OBSERVACAO2", "DESCRCIDADE", "UF", "IDCEP", "ENDERECO", "BAIRRO", "CNPJCPF", "NUMERO"
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT ("CHAVE") DO UPDATE SET
+                    "IDEMPRESA"=EXCLUDED."IDEMPRESA", "IDORCAMENTO"=EXCLUDED."IDORCAMENTO", "IDPRODUTO"=EXCLUDED."IDPRODUTO",
+                    "IDSUBPRODUTO"=EXCLUDED."IDSUBPRODUTO", "NUMSEQUENCIA"=EXCLUDED."NUMSEQUENCIA", "QTDPRODUTO"=EXCLUDED."QTDPRODUTO",
+                    "UNIDADE"=EXCLUDED."UNIDADE", "FABRICANTE"=EXCLUDED."FABRICANTE", "VALUNITBRUTO"=EXCLUDED."VALUNITBRUTO",
+                    "VALTOTLIQUIDO"=EXCLUDED."VALTOTLIQUIDO", "DESCRRESPRODUTO"=EXCLUDED."DESCRRESPRODUTO",
+                    "IDVENDEDOR"=EXCLUDED."IDVENDEDOR", "IDLOCALRETIRADA"=EXCLUDED."IDLOCALRETIRADA", "IDSECAO"=EXCLUDED."IDSECAO",
+                    "DESCRSECAO"=EXCLUDED."DESCRSECAO", "TIPOENTREGA"=EXCLUDED."TIPOENTREGA", "NOMEVENDEDOR"=EXCLUDED."NOMEVENDEDOR",
+                    "TIPOENTREGA_DESCR"=EXCLUDED."TIPOENTREGA_DESCR", "LOCALRETESTOQUE"=EXCLUDED."LOCALRETESTOQUE",
+                    "FLAGCANCELADO"=EXCLUDED."FLAGCANCELADO", "IDCLIFOR"=EXCLUDED."IDCLIFOR", "DESCLIENTE"=EXCLUDED."DESCLIENTE",
+                    "DTMOVIMENTO"=EXCLUDED."DTMOVIMENTO", "IDRECEBIMENTO"=EXCLUDED."IDRECEBIMENTO", "DESCRRECEBIMENTO"=EXCLUDED."DESCRRECEBIMENTO",
+                    "FLAGPRENOTAPAGA"=EXCLUDED."FLAGPRENOTAPAGA", "CODBARRAS"=EXCLUDED."CODBARRAS", "CODBARRAS_CAIXA"=EXCLUDED."CODBARRAS_CAIXA",
+                    "OBSERVACAO"=EXCLUDED."OBSERVACAO", "OBSERVACAO2"=EXCLUDED."OBSERVACAO2", "DESCRCIDADE"=EXCLUDED."DESCRCIDADE",
+                    "UF"=EXCLUDED."UF", "IDCEP"=EXCLUDED."IDCEP", "ENDERECO"=EXCLUDED."ENDERECO", "BAIRRO"=EXCLUDED."BAIRRO",
+                    "CNPJCPF"=EXCLUDED."CNPJCPF", "NUMERO"=EXCLUDED."NUMERO"
             """, (
                 chave,
                 int(row.get('IDEMPRESA', 0)),
@@ -1141,7 +1156,7 @@ def sync_orcamentos(conn_db2, conn_sqlite: sqlite3.Connection):
     log(f"ORCAMENTOS (31d) | obtidos={len(dados)} | removidos={deleted_count} (>= {cutoff_date}) | inseridos={inseridos} | erros={erros}")
 
 
-def sync_box_barcodes(conn_db2, conn_sqlite: sqlite3.Connection):
+def sync_box_barcodes(conn_db2, conn_sqlite):
     """Sincroniza a tabela PRODUTO_GRADE_CODBARCX localmente (Multiplos códigos de caixa e quantidades)"""
     cursor = conn_sqlite.cursor()
     # Pega apenas produtos que estao na nossa base no momento
@@ -1197,7 +1212,7 @@ def sync_box_barcodes(conn_db2, conn_sqlite: sqlite3.Connection):
                 updates.append((json.dumps(barcodes), prod_id))
                 
         if updates:
-            cursor.executemany("UPDATE products SET box_barcodes = ? WHERE id = ?", updates)
+            cursor.executemany("UPDATE products SET box_barcodes = %s WHERE id = %s", updates)
             conn_sqlite.commit()
             
         log(f"Box Barcodes Sync | {len(updates)} produtos atualizados com múltiplos códigos de caixa")
@@ -1206,7 +1221,7 @@ def sync_box_barcodes(conn_db2, conn_sqlite: sqlite3.Connection):
         log(f"Erro ao sincronizar box_barcodes: {e}")
 
 
-def sync_enderecos_wms(conn_db2, conn_sqlite: sqlite3.Connection):
+def sync_enderecos_wms(conn_db2, conn_sqlite):
     """Sincroniza endereços WMS do DB2 para o SQLite local, por empresa."""
     cursor = conn_sqlite.cursor()
 
@@ -1246,7 +1261,7 @@ def sync_enderecos_wms(conn_db2, conn_sqlite: sqlite3.Connection):
             code = f"{bairro}-{rua}-{bloco}-{nivel}"
 
             cursor.execute(
-                "SELECT id FROM wms_addresses WHERE company_id = ? AND code = ?",
+                "SELECT id FROM wms_addresses WHERE company_id = %s AND code = %s",
                 (empresa, code)
             )
             if cursor.fetchone():
@@ -1256,7 +1271,7 @@ def sync_enderecos_wms(conn_db2, conn_sqlite: sqlite3.Connection):
             addr_id = str(uuid.uuid4())
             cursor.execute("""
                 INSERT INTO wms_addresses (id, company_id, bairro, rua, bloco, nivel, code, type, active, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'standard', 1, datetime('now'))
+                VALUES (%s, %s, %s, %s, %s, %s, %s, 'standard', true, CURRENT_TIMESTAMP)
             """, (addr_id, empresa, bairro, rua, bloco, nivel, code))
             inseridos += 1
 
@@ -1267,7 +1282,7 @@ def sync_enderecos_wms(conn_db2, conn_sqlite: sqlite3.Connection):
     log(f"Endereços WMS | obtidos={len(dados)} | novos={inseridos} | existentes={ignorados}")
 
 
-def sync_notas_recebimento(conn_db2, conn_sqlite: sqlite3.Connection):
+def sync_notas_recebimento(conn_db2, conn_sqlite):
     """Sincroniza notas fiscais de recebimento do DB2 para o SQLite local, por empresa."""
     cursor = conn_sqlite.cursor()
 
@@ -1323,20 +1338,20 @@ def sync_notas_recebimento(conn_db2, conn_sqlite: sqlite3.Connection):
             numnota = nf_data['numnota']
 
             cursor.execute(
-                "SELECT id FROM nf_cache WHERE company_id = ? AND nf_number = ?",
+                "SELECT id FROM nf_cache WHERE company_id = %s AND nf_number = %s",
                 (empresa, numnota)
             )
             existing = cursor.fetchone()
 
             if existing:
                 nf_id = existing[0]
-                cursor.execute("DELETE FROM nf_items WHERE nf_id = ?", (nf_id,))
+                cursor.execute("DELETE FROM nf_items WHERE nf_id = %s", (nf_id,))
                 nf_atualizadas += 1
             else:
                 nf_id = str(uuid.uuid4())
                 cursor.execute("""
                     INSERT INTO nf_cache (id, company_id, nf_number, nf_series, supplier_name, status, synced_at)
-                    VALUES (?, ?, ?, ?, ?, 'pendente', datetime('now'))
+                    VALUES (%s, %s, %s, %s, %s, 'pendente', CURRENT_TIMESTAMP)
                 """, (nf_id, empresa, numnota, nf_data['serie'], nf_data['fornecedor']))
                 nf_inseridas += 1
 
@@ -1344,14 +1359,14 @@ def sync_notas_recebimento(conn_db2, conn_sqlite: sqlite3.Connection):
                 item_id = str(uuid.uuid4())
 
                 prod_id = None
-                cursor.execute("SELECT id FROM products WHERE erp_code = ?", (item['idproduto'],))
+                cursor.execute("SELECT id FROM products WHERE erp_code = %s", (item['idproduto'],))
                 prod_row = cursor.fetchone()
                 if prod_row:
                     prod_id = prod_row[0]
 
                 cursor.execute("""
                     INSERT INTO nf_items (id, nf_id, product_id, erp_code, product_name, quantity, unit, company_id)
-                    VALUES (?, ?, ?, ?, ?, ?, 'UN', ?)
+                    VALUES (%s, %s, %s, %s, %s, %s, 'UN', %s)
                 """, (item_id, nf_id, prod_id, item['idproduto'], item['descricao'], item['quantidade'], empresa))
                 itens_inseridos += 1
 
@@ -1373,7 +1388,8 @@ def sincronizar(data_inicial: Optional[str] = None) -> bool:
         return False
         
     try:
-        conn_sqlite = sqlite3.connect(DATABASE_PATH)
+        conn_sqlite = psycopg2.connect(DATABASE_PATH)
+        conn_sqlite.autocommit = True
         
         sync_orcamentos(conn_db2, conn_sqlite)
         transform_data(conn_sqlite)
@@ -1489,7 +1505,7 @@ Exemplos:
         log(f"Sync iniciado | modo={modo_str} | SO={platform.system()}")
 
     # Garantir que tabelas existam
-    inicializar_sqlite()
+    # inicializar_sqlite() (Handled via Drizzle)
     
     # Passar args para sincronizar
     sucesso = sincronizar(data_inicial=args.desde)

@@ -207,7 +207,7 @@ export default function UsersPage() {
   return (
     <div className="min-h-screen bg-background">
       <GradientHeader title="Usuários" subtitle="Gerenciar operadores do sistema">
-        <Link href="/supervisor">
+        <Link href="/">
           <Button
             variant="outline"
             size="sm"
