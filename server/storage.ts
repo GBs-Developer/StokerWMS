@@ -311,7 +311,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Orders
-  async getAllOrders(companyId?: number): Promise<(Order & { hasExceptions: boolean; totalItems: number; pickedItems: number })[]> {
+  async getAllOrders(companyId?: number, includeReportsPoints: boolean = false): Promise<(Order & { hasExceptions: boolean; totalItems: number; pickedItems: number })[]> {
     const query = companyId 
       ? db.select().from(orders).where(eq(orders.companyId, companyId)).orderBy(desc(orders.priority), desc(orders.createdAt))
       : db.select().from(orders).orderBy(desc(orders.priority), desc(orders.createdAt));
@@ -319,7 +319,10 @@ export class DatabaseStorage implements IStorage {
     let allOrders = await query;
     
     if (companyId) {
-      const allowedPP = getCompanyOperationPickupPoints(companyId);
+      const allowedPP = includeReportsPoints 
+        ? getCompanyReportPickupPoints(companyId)
+        : getCompanyOperationPickupPoints(companyId);
+
       if (allowedPP) {
         allOrders = allOrders.filter(o => 
           Array.isArray(o.pickupPoints) && o.pickupPoints.some(p => allowedPP.includes(p))

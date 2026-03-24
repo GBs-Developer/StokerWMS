@@ -8,8 +8,9 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, QrCode, MapPin, Loader2, Package, CheckCircle } from "lucide-react";
+import { ArrowLeft, QrCode, MapPin, Loader2, Package, CheckCircle, Trash2, Ban } from "lucide-react";
 import { useLocation } from "wouter";
+import { AddressPicker } from "@/components/wms/address-picker";
 
 export default function CheckinPage() {
   const [, navigate] = useLocation();
@@ -81,6 +82,30 @@ export default function CheckinPage() {
     },
   });
 
+  const cancelMutation = useMutation({
+    mutationFn: async (palletId: string) => {
+      const res = await fetch(`/api/pallets/${palletId}/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: "Cancelado pelo operador no Check-in" }),
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Erro ao cancelar");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["pallets-no-address"] });
+      toast({ title: "Pallet cancelado com sucesso!" });
+      setSelectedPallet(null);
+    },
+    onError: (e: Error) => {
+      toast({ title: "Erro", description: e.message, variant: "destructive" });
+    },
+  });
+
   return (
     <div className="min-h-screen bg-background">
       <GradientHeader title="Check-in / Alocação" subtitle={companyId ? (companiesData?.find(c => c.id === companyId)?.name || "") : ""}>
@@ -111,17 +136,32 @@ export default function CheckinPage() {
             <CardContent>
               <div className="space-y-2">
                 {palletsWithoutAddress.map((p: any) => (
-                  <div key={p.id} className="flex items-center justify-between p-3 rounded-lg border cursor-pointer hover:bg-muted/50"
-                    onClick={() => loadPallet(p.code)}>
-                    <div className="flex items-center gap-3">
-                      <Package className="h-5 w-5 text-primary" />
-                      <div>
-                        <div className="font-mono font-semibold">{p.code}</div>
-                        <div className="text-xs text-muted-foreground">{p.items?.length || 0} itens</div>
+                    <div key={p.id} className="group relative">
+                      <div className="flex items-center justify-between p-3 rounded-lg border cursor-pointer hover:bg-muted/50 transition-colors"
+                        onClick={() => loadPallet(p.code)}>
+                        <div className="flex items-center gap-3">
+                          <Package className="h-5 w-5 text-primary" />
+                          <div>
+                            <div className="font-mono font-semibold text-sm">{p.code}</div>
+                            <div className="text-[10px] text-muted-foreground uppercase">{p.items?.length || 0} itens</div>
+                          </div>
+                        </div>
+                        <Badge variant="outline" className="text-[10px] opacity-70">Aguardando Endereço</Badge>
                       </div>
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="absolute -right-2 -top-2 h-6 w-6 rounded-full bg-destructive text-destructive-foreground opacity-0 group-hover:opacity-100 transition-opacity shadow-sm hover:bg-destructive/90"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (confirm("Deseja realmente apagar este pallet?")) {
+                            cancelMutation.mutate(p.id);
+                          }
+                        }}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
                     </div>
-                    <Badge variant="outline">Sem endereço</Badge>
-                  </div>
                 ))}
               </div>
             </CardContent>
@@ -141,23 +181,29 @@ export default function CheckinPage() {
                 ))}
               </div>
 
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Endereço de destino</label>
-                <Select value={selectedAddress} onValueChange={setSelectedAddress}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione um endereço disponível" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableAddresses.map((addr: any) => (
-                      <SelectItem key={addr.id} value={addr.id}>
-                        <div className="flex items-center gap-2">
-                          <MapPin className="h-3 w-3" />
-                          {addr.code}
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="space-y-3 pt-2">
+                <AddressPicker 
+                  availableAddresses={availableAddresses}
+                  onAddressSelect={setSelectedAddress}
+                  onClear={() => setSelectedAddress("")}
+                />
+              </div>
+
+              <div className="flex gap-2">
+                <Button variant="outline" className="flex-1" onClick={() => setSelectedPallet(null)}>
+                  Voltar
+                </Button>
+                <Button 
+                  variant="destructive"
+                  onClick={() => {
+                    if (confirm("Deseja cancelar este pallet?")) {
+                      cancelMutation.mutate(selectedPallet.id);
+                    }
+                  }}
+                  disabled={cancelMutation.isPending}
+                >
+                  <Ban className="h-4 w-4 mr-2" /> Cancelar
+                </Button>
               </div>
 
               <Button className="w-full" onClick={() => allocateMutation.mutate()}

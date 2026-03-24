@@ -758,6 +758,8 @@ def transform_data(conn_sqlite):
     for map_key, data in orders_map.items():
         
         erp_order_id = data['erp_id_display']
+        id_empresa_raw = map_key.split('-')[0]
+        id_empresa = int(id_empresa_raw) if id_empresa_raw.isdigit() else 1
         processed_erp_order_ids.add(erp_order_id)
         
         # --- ORDER ---
@@ -793,6 +795,7 @@ def transform_data(conn_sqlite):
             first_item.get('BAIRRO', ''),
             str(first_item.get('CNPJCPF', '') or ''),
             str(first_item.get('NUMERO', '') or ''),
+            id_empresa
         ))
         
         # Track sections/pickup_points for this order
@@ -921,7 +924,7 @@ def transform_data(conn_sqlite):
             
             if (order_uuid, lookup_sec, lookup_pp) not in existing_work_units:
                 new_work_units.append((
-                    str(uuid.uuid4()), order_uuid, pp, sec
+                    str(uuid.uuid4()), order_uuid, pp, sec, id_empresa
                 ))
                 existing_work_units.add((order_uuid, lookup_sec, lookup_pp))
 
@@ -962,9 +965,10 @@ def transform_data(conn_sqlite):
                 INSERT INTO orders (
                     id, erp_order_id, customer_name, customer_code, total_value, financial_status,
                     pickup_points, status, created_at,
-                    observation, observation2, city, state, zip_code, address, neighborhood, cnpj_cpf, address_number
+                    observation, observation2, city, state, zip_code, address, neighborhood, cnpj_cpf, address_number,
+                    company_id
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, 'pendente', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, 'pendente', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT(erp_order_id) DO UPDATE SET
                     financial_status = excluded.financial_status,
                     total_value = excluded.total_value,
@@ -979,6 +983,7 @@ def transform_data(conn_sqlite):
                     neighborhood = excluded.neighborhood,
                     cnpj_cpf = excluded.cnpj_cpf,
                     address_number = excluded.address_number,
+                    company_id = excluded.company_id,
                     updated_at = CURRENT_TIMESTAMP
             """, upsert_orders)
             
@@ -990,8 +995,8 @@ def transform_data(conn_sqlite):
             
         if new_work_units:
             cursor.executemany("""
-                INSERT INTO work_units (id, order_id, status, type, pickup_point, section)
-                VALUES (%s, %s, 'pendente', 'separacao', %s, %s)
+                INSERT INTO work_units (id, order_id, status, type, pickup_point, section, company_id)
+                VALUES (%s, %s, 'pendente', 'separacao', %s, %s, %s)
             """, new_work_units)
 
         # 4. ORDER DELETION LOGIC (Hard Delete for Missing Orders)

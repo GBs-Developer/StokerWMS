@@ -2,7 +2,7 @@ import type { Express, Request, Response } from "express";
 import { isAuthenticated, requireRole, requireCompany, getTokenFromRequest } from "./auth";
 import { storage } from "./storage";
 import { db } from "./db";
-import { eq, and, sql, desc, isNull } from "drizzle-orm";
+import { eq, and, sql, desc, isNull, ilike, or } from "drizzle-orm";
 import {
   wmsAddresses, pallets, palletItems, palletMovements, nfCache, nfItems,
   countingCycles, countingCycleItems, productCompanyStock, products,
@@ -683,7 +683,7 @@ export function registerWmsRoutes(app: Express) {
       let conditions = [eq(nfCache.companyId, companyId)];
       if (q) {
         conditions.push(
-          sql`(${nfCache.nfNumber} LIKE ${'%' + q + '%'} OR ${nfCache.supplierName} LIKE ${'%' + q + '%'} COLLATE NOCASE)`
+          sql`(${nfCache.nfNumber} ILIKE ${'%' + q + '%'} OR ${nfCache.supplierName} ILIKE ${'%' + q + '%'})`
         );
       }
 
@@ -1071,26 +1071,89 @@ export function registerWmsRoutes(app: Express) {
       }
 
       const companyId = getCompanyId(req);
-      const searchPattern = `%${q}%`;
+      const searchType = req.query.type as string || "all";
+      
+      console.log(`[DEBUG] Search query: "${q}", company: ${companyId}, type: ${searchType}`);
+      // Intelligent search handling
+      // If user types Tubo%sold%100, Postgres ILIKE will handle it.
+      // We also want to support spaces as % for easier searching.
+      const searchPattern = `%${q.replace(/\s+/g, "%")}%`;
 
-      const results = await db.select().from(products)
-        .where(
-          sql`(${products.name} LIKE ${searchPattern} COLLATE NOCASE
-            OR ${products.erpCode} LIKE ${searchPattern} COLLATE NOCASE
-            OR ${products.barcode} LIKE ${searchPattern} COLLATE NOCASE)`
-        )
-        .limit(50);
+      const conditions = [];
+      
+      if (searchType === "code") {
+        conditions.push(or(
+          ilike(products.erpCode, `%${q}%`),
+          ilike(products.barcode, `%${q}%`)
+        ));
+      } else if (searchType === "description") {
+        conditions.push(ilike(products.name, searchPattern));
+      } else {
+        conditions.push(or(
+          ilike(products.name, searchPattern),
+          ilike(products.erpCode, `%${q}%`),
+          ilike(products.barcode, `%${q}%`)
+        ));
+      }
+
+      let query = db.select().from(products);
+      
+      if (conditions.length > 0) {
+        query = query.where(and(...conditions)) as any;
+      }
+      
+      const sqlQuery = (query as any).toSQL();
+      console.log(`[DEBUG] Final SQL:`, sqlQuery);
+      
+      const results = await query.limit(50);
+
+      console.log(`[DEBUG] Found ${results.length} products`);
 
       const withStock = await Promise.all(results.map(async (p) => {
         const [cs] = await db.select().from(productCompanyStock)
           .where(and(eq(productCompanyStock.productId, p.id), eq(productCompanyStock.companyId, companyId)));
+        
+        const totalStock = Number(cs?.stockQty ?? p.stockQty ?? 0);
+        console.log(`[DEBUG] Product: ${p.name}, ERP: ${p.erpCode}, totalStock: ${totalStock} (from CS: ${cs?.stockQty}, from P: ${p.stockQty})`);
+
+        // Get addresses with stock for this product in WMS
+        const addressStock = await db.select({
+          addressCode: wmsAddresses.code,
+          quantity: sql<number>`SUM(${palletItems.quantity})`
+        })
+        .from(palletItems)
+        .innerJoin(pallets, eq(palletItems.palletId, pallets.id))
+        .innerJoin(wmsAddresses, eq(pallets.addressId, wmsAddresses.id))
+        .where(and(
+          eq(palletItems.productId, p.id),
+          eq(palletItems.companyId, companyId),
+          sql`${pallets.status} != 'cancelado'`
+        ))
+        .groupBy(wmsAddresses.code);
+
+        const totalInAddresses = addressStock.reduce((acc, curr) => acc + (curr.quantity ? Number(curr.quantity) : 0), 0);
+        const pickingStock = Math.max(0, totalStock - totalInAddresses);
+
         return {
           ...p,
-          companyStockQty: cs?.stockQty ?? p.stockQty,
+          companyStockQty: totalStock, // legacy field
+          totalStock,
+          pickingStock,
+          addresses: addressStock.map(a => ({
+            code: a.addressCode,
+            quantity: Number(a.quantity)
+          }))
         };
       }));
 
-      res.json(withStock);
+      // Sort: if q is an exact match for ERP code, put it first
+      const sorted = [...withStock].sort((a, b) => {
+        if (a.erpCode === q) return -1;
+        if (b.erpCode === q) return 1;
+        return 0;
+      });
+
+      res.json(sorted);
     } catch (error) {
       console.error("Product search error:", error);
       res.status(500).json({ error: "Erro ao buscar produtos" });

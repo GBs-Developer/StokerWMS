@@ -62,7 +62,7 @@ import { ptBR } from "date-fns/locale";
 import { useSSE } from "@/hooks/use-sse";
 
 export default function OrdersPage() {
-  const { user } = useAuth();
+  const { user, companyId } = useAuth();
   const isAdmin = user?.role === "administrador";
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -412,9 +412,14 @@ small.dim { color: #888; font-size: 8px; }
         if (launchedFilter === "no" && isLaunched) return false;
       }
 
+
+      return true;
+
+
+
       return true;
     });
-  }, [orders, searchOrderId, filterDateRange, financialStatusFilter, pickingStatusFilter, routeFilter, priorityFilter, launchedFilter]);
+  }, [orders, searchOrderId, filterDateRange, financialStatusFilter, pickingStatusFilter, routeFilter, priorityFilter, launchedFilter, companyId]);
 
   // Pagination logic
   const totalPages = Math.ceil(filteredOrders.length / pageSize);

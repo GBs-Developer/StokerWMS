@@ -61,7 +61,7 @@ interface SectionGroup {
 export default function PickingListReport() {
     const { toast } = useToast();
     const queryClient = useQueryClient();
-    const { user } = useAuth();
+    const { user, companyId } = useAuth();
 
     // Flow state
     const [currentStep, setCurrentStep] = useState<FlowStep>("initial");
@@ -99,10 +99,19 @@ export default function PickingListReport() {
     const { data: pickupPointsData } = useQuery({
         queryKey: ["/api/pickup-points"],
     });
-    const pickupPoints: any[] = (pickupPointsData as any[]) || [];
+    const allPickupPoints: any[] = (pickupPointsData as any[]) || [];
+    // Pontos de retirada permitidos por empresa no Romaneio (mantemos aqui para filtro visual no dropdown)
+    const COMPANY_PICKUP_POINTS: Record<number, number[]> = {
+        1: [1, 2, 4, 58],
+        3: [52, 54, 60, 61],
+    };
+    const allowedPoints = companyId ? COMPANY_PICKUP_POINTS[companyId] : null;
+    const pickupPoints = allowedPoints
+        ? allPickupPoints.filter(pp => allowedPoints.includes(pp.id))
+        : allPickupPoints;
 
     const { data: ordersData, refetch: refetchOrders, isFetching: isLoadingOrders } = useQuery({
-        queryKey: ["/api/orders"],
+        queryKey: ["/api/orders?type=report"],
         enabled: ordersLoaded,
     });
     const orders = (ordersData as any[]) || [];

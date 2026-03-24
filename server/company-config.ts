@@ -6,7 +6,11 @@ interface CompanyPickupPointConfig {
 const companyPickupPointConfigs: Record<number, CompanyPickupPointConfig> = {
   1: {
     operations: [4, 58],
-    reports: [58, 4, 1, 2],
+    reports: [1, 2, 4, 58],
+  },
+  3: {
+    operations: [60, 61],
+    reports: [52, 54, 60, 61],
   },
 };
 

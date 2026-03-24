@@ -653,7 +653,8 @@ export async function registerRoutes(
   app.get("/api/orders", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const companyId = (req as any).companyId;
-      const orders = await storage.getAllOrders(companyId);
+      const isReport = req.query.type === "report";
+      const orders = await storage.getAllOrders(companyId, isReport);
       res.json(orders);
     } catch (error) {
       console.error("Get orders error:", error);

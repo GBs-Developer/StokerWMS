@@ -99,7 +99,7 @@ export const sectionGroups = pgTable("section_groups", {
 
 export const cacheOrcamentos = pgTable("cache_orcamentos", {
   id: serial("id").primaryKey(),
-  chave: text("CHAVE").notNull(),
+  chave: text("CHAVE").notNull().unique(),
   idEmpresa: integer("IDEMPRESA"),
   idOrcamento: integer("IDORCAMENTO"),
   idProduto: text("IDPRODUTO"),
@@ -129,11 +129,20 @@ export const cacheOrcamentos = pgTable("cache_orcamentos", {
   syncAt: text("sync_at"),
   codBarras: text("CODBARRAS"),
   codBarrasCaixa: text("CODBARRAS_CAIXA"),
+  observacao: text("OBSERVACAO"),
+  observacao2: text("OBSERVACAO2"),
+  descrCidade: text("DESCRCIDADE"),
+  uf: text("UF"),
+  idCep: text("IDCEP"),
+  endereco: text("ENDERECO"),
+  bairro: text("BAIRRO"),
+  cnpjCpf: text("CNPJCPF"),
+  numero: text("NUMERO"),
 });
 
 export const products = pgTable("products", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  erpCode: text("erp_code").notNull(),
+  erpCode: text("erp_code").notNull().unique(),
   barcode: text("barcode"),
   boxBarcode: text("box_barcode"),
   boxBarcodes: jsonb("box_barcodes").$type<{ code: string, qty: number }[]>(),

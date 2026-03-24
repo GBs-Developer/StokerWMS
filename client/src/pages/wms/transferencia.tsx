@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, ArrowRightLeft, MapPin, Loader2, Ban, QrCode, Package } from "lucide-react";
 import { useLocation } from "wouter";
+import { AddressPicker } from "@/components/wms/address-picker";
 
 export default function TransferenciaPage() {
   const [, navigate] = useLocation();
@@ -178,23 +179,12 @@ export default function TransferenciaPage() {
                 </div>
               )}
 
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Transferir para</label>
-                <Select value={toAddressId} onValueChange={setToAddressId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione o endereço destino" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableAddresses.map((addr: any) => (
-                      <SelectItem key={addr.id} value={addr.id}>
-                        <div className="flex items-center gap-2">
-                          <MapPin className="h-3 w-3" />
-                          {addr.code}
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="space-y-3 pt-2">
+                <AddressPicker 
+                  availableAddresses={availableAddresses}
+                  onAddressSelect={setToAddressId}
+                  onClear={() => setToAddressId("")}
+                />
               </div>
 
               <div className="flex gap-2">
