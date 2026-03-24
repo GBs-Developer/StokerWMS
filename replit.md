@@ -51,14 +51,18 @@ Routes are registered in `server/routes.ts` (legacy + auth) and `server/wms-rout
 
 ### Multi-Company Architecture
 - Companies: ID 1 ("Empresa 1"), ID 3 ("Empresa 3")
-- `companyId` flows from login → session → all WMS requests via `requireCompany` middleware
-- All WMS data (addresses, pallets, movements, counting cycles) is scoped by company
+- `companyId` flows from login → session → all requests via `requireCompany` middleware
+- **All routes** (WMS and legacy) enforce company context via `requireCompany`
+- Company-specific pickup point rules centralized in `server/company-config.ts`
+- SSE connections require authentication and store `companyId`; all SSE broadcasts are company-scoped
 - Company selection page shown after login when user has access to multiple companies
 - `getCompanyLabel()` utility maps company IDs to display names
 
-### Work Unit and Locking System (Legacy)
-- Work units represent atomic tasks derived from orders
-- Lock mechanism with TTL (15 minutes default) prevents concurrent operations
+### Work Unit and Locking System
+- **Separation**: ONE work unit per order with `pickupPoint: 0`, containing ALL order items (not filtered by section)
+- **Conference**: ONE work unit per order, created automatically when separation completes
+- Separator sees all items across all sections for the order; route-based filtering is the primary filter
+- Lock mechanism with TTL (15 minutes default) prevents concurrent operations at the order level
 - Heartbeat system extends locks for active sessions
 - Force unlock capability for supervisors
 - State machine: `pendente` → `em_andamento` → `concluido` (with `recontagem` and `excecao` branches)

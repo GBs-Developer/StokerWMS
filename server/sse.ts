@@ -1,56 +1,58 @@
 import { Response, Request, Express } from 'express';
+import { getTokenFromRequest, getUserFromToken } from './auth';
 
-// Store active connections
-let clients: { id: number; res: Response; userId?: string }[] = [];
+let clients: { id: number; res: Response; userId?: string; companyId?: number }[] = [];
 
-/**
- * Setup Server-Sent Events (SSE) endpoint
- */
 export function setupSSE(app: Express) {
-    app.get('/api/sse', (req: Request, res: Response) => {
-        // Set headers for SSE
+    app.get('/api/sse', async (req: Request, res: Response) => {
+        const token = getTokenFromRequest(req);
+        if (!token) {
+            return res.status(401).json({ error: 'Não autenticado' });
+        }
+        const result = await getUserFromToken(token);
+        if (!result) {
+            return res.status(401).json({ error: 'Token inválido' });
+        }
+        (req as any).user = result.user;
+        (req as any).companyId = result.companyId;
+
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
         res.flushHeaders();
 
         const clientId = Date.now();
-        const userId = (req as any).user?.id; // Optional: identify user if auth middleware runs before
+        const userId = result.user.id;
+        const companyId = result.companyId;
 
         const newClient = {
             id: clientId,
             res,
-            userId
+            userId,
+            companyId
         };
 
         clients.push(newClient);
-        // console.log(`[SSE] Client connected: ${clientId} (User: ${userId || 'anonymous'})`);
 
-        // Send initial connection message
         res.write(`data: ${JSON.stringify({ type: 'connected', clientId })}\n\n`);
 
-        // Remove client on close
         req.on('close', () => {
-            // console.log(`[SSE] Client disconnected: ${clientId}`);
             clients = clients.filter(client => client.id !== clientId);
         });
     });
 }
 
-/**
- * Broadcast an event to all connected clients
- */
-export function broadcastSSE(type: string, data: any) {
+export function broadcastSSE(type: string, data: any, companyId?: number) {
     const message = `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
 
     clients.forEach(client => {
+        if (companyId) {
+            if (client.companyId !== companyId) return;
+        }
         client.res.write(message);
     });
 }
 
-/**
- * Send an event to specific user(s)
- */
 export function sendToUserSSE(userId: string, type: string, data: any) {
     const message = `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
 

@@ -91,7 +91,7 @@ export async function registerRoutes(
   });
 
   // Handheld: Picking Submit
-  app.post("/api/picking/submit", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/picking/submit", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const { orderId, sectionId, items } = req.body;
       const userId = (req as any).user.id;
@@ -124,18 +124,19 @@ export async function registerRoutes(
       }
 
       // Broadcast update
+      const reqCompanyId = (req as any).companyId;
       broadcastSSE("picking_update", {
         orderId,
         sectionId,
         userId,
         items: updates
-      });
+      }, reqCompanyId);
 
       // Check if order is fully picked and update status
       const conferenceUnit = await storage.checkAndUpdateOrderStatus(orderId);
 
       if (conferenceUnit) {
-        broadcastSSE("work_unit_created", conferenceUnit);
+        broadcastSSE("work_unit_created", conferenceUnit, reqCompanyId);
       }
 
       res.json({ success: true });
@@ -146,7 +147,7 @@ export async function registerRoutes(
   });
 
   // Handheld: Locking Routes
-  app.post("/api/lock", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/lock", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const { orderId, sectionId } = req.body;
       const userId = (req as any).user.id;
@@ -181,7 +182,7 @@ export async function registerRoutes(
         sectionId,
       });
 
-      broadcastSSE("lock_acquired", { orderId, sectionId, userId });
+      broadcastSSE("lock_acquired", { orderId, sectionId, userId }, (req as any).companyId);
 
       res.json({ success: true, sessionId: session.id });
     } catch (error) {
@@ -190,7 +191,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/heartbeat", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/heartbeat", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const { sessionId } = req.body;
       await storage.updatePickingSessionHeartbeat(sessionId);
@@ -200,12 +201,12 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/unlock", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/unlock", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const { orderId, sectionId } = req.body;
       await storage.deletePickingSession(orderId, sectionId);
 
-      broadcastSSE("lock_released", { orderId, sectionId });
+      broadcastSSE("lock_released", { orderId, sectionId }, (req as any).companyId);
 
       res.json({ success: true });
     } catch (error) {
@@ -459,7 +460,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/queue/balcao", isAuthenticated, async (req: Request, res: Response) => {
+  app.get("/api/queue/balcao", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const companyId = (req as any).companyId;
       const wus = await storage.getWorkUnits("balcao", companyId);
@@ -623,7 +624,7 @@ export async function registerRoutes(
       const route = await storage.updateRoute(id, data);
 
       if (!route) return res.status(404).json({ error: "Rota não encontrada" });
-      broadcastSSE("route_updated", { routeId: id, active: route.active });
+      broadcastSSE("route_updated", { routeId: id, active: route.active }, (req as any).companyId);
       res.json(route);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -649,7 +650,7 @@ export async function registerRoutes(
   });
 
   // Orders routes
-  app.get("/api/orders", isAuthenticated, async (req: Request, res: Response) => {
+  app.get("/api/orders", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const companyId = (req as any).companyId;
       const orders = await storage.getAllOrders(companyId);
@@ -660,7 +661,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/orders/by-erp/:erpOrderId", isAuthenticated, async (req: Request, res: Response) => {
+  app.get("/api/orders/by-erp/:erpOrderId", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const { db: database } = await import("./db");
       const { orders: ordersTable } = await import("@shared/schema");
@@ -675,7 +676,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/orders/:id", isAuthenticated, async (req: Request, res: Response) => {
+  app.get("/api/orders/:id", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const order = await storage.getOrderWithItems(req.params.id as string);
       if (!order) {
@@ -688,7 +689,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/orders/assign-route", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+  app.post("/api/orders/assign-route", isAuthenticated, requireCompany, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
     try {
       const { orderIds, routeId } = req.body;
 
@@ -730,7 +731,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/orders/relaunch", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+  app.post("/api/orders/relaunch", isAuthenticated, requireCompany, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
     try {
       const { orderIds } = req.body;
 
@@ -751,7 +752,7 @@ export async function registerRoutes(
         userAgent: getUserAgent(req),
       });
 
-      broadcastSSE("orders_relaunched", { orderIds });
+      broadcastSSE("orders_relaunched", { orderIds }, (req as any).companyId);
 
       res.json({ success: true });
     } catch (error) {
@@ -760,7 +761,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/orders/set-priority", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+  app.post("/api/orders/set-priority", isAuthenticated, requireCompany, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
     try {
       const { orderIds, priority } = req.body;
       await storage.setOrderPriority(orderIds, priority);
@@ -781,7 +782,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/orders/launch", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+  app.post("/api/orders/launch", isAuthenticated, requireCompany, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
     try {
       const { orderIds, loadCode: requestedLoadCode } = req.body;
 
@@ -827,14 +828,14 @@ export async function registerRoutes(
 
       if (toLaunch.length > 0) {
         await storage.launchOrders(toLaunch, loadCode);
-        broadcastSSE("orders_launched", { orderIds: toLaunch });
+        broadcastSSE("orders_launched", { orderIds: toLaunch }, (req as any).companyId);
       }
 
       for (const id of toRelaunch) {
         await storage.relaunchOrder(id);
       }
       if (toRelaunch.length > 0) {
-        broadcastSSE("orders_relaunched", { orderIds: toRelaunch });
+        broadcastSSE("orders_relaunched", { orderIds: toRelaunch }, (req as any).companyId);
       }
 
       await storage.createAuditLog({
@@ -853,7 +854,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/orders/cancel-launch", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+  app.post("/api/orders/cancel-launch", isAuthenticated, requireCompany, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
     try {
       const { orderIds } = req.body;
 
@@ -921,7 +922,7 @@ export async function registerRoutes(
       }
 
       // Broadcast SSE notification
-      broadcastSSE("orders_launch_cancelled", { orderIds });
+      broadcastSSE("orders_launch_cancelled", { orderIds }, (req as any).companyId);
 
       res.json({ success: true, message: "Lançamento cancelado com sucesso" });
     } catch (error) {
@@ -931,7 +932,7 @@ export async function registerRoutes(
   });
 
   // POST /api/orders/force-status — admin only: force order status (e.g. 'separado', 'conferido')
-  app.post("/api/orders/force-status", isAuthenticated, requireRole("administrador"), async (req: Request, res: Response) => {
+  app.post("/api/orders/force-status", isAuthenticated, requireCompany, requireRole("administrador"), async (req: Request, res: Response) => {
     try {
       const { orderIds, status } = req.body;
       const allowedStatuses = ["separado", "conferido"];
@@ -990,11 +991,13 @@ export async function registerRoutes(
             .limit(1);
 
           if (existingConf.length === 0) {
+            const order = await storage.getOrderById(orderId);
             await database.insert(workUnitsTable).values({
               orderId,
               type: "conferencia",
               status: "pendente",
               pickupPoint: 0,
+              companyId: order?.companyId || undefined,
             });
           }
         }
@@ -1012,7 +1015,7 @@ export async function registerRoutes(
       }
 
       if (updated.length > 0) {
-        broadcastSSE("orders_status_forced", { orderIds: updated, status });
+        broadcastSSE("orders_status_forced", { orderIds: updated, status }, (req as any).companyId);
       }
 
       if (skipped.length > 0 && updated.length === 0) {
@@ -1034,7 +1037,7 @@ export async function registerRoutes(
   });
 
   // Bug 7: Get order IDs that have at least one item matching the given pickup points
-  app.get("/api/orders/ids-by-pickup-points", isAuthenticated, async (req: Request, res: Response) => {
+  app.get("/api/orders/ids-by-pickup-points", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const ppParam = req.query.pp;
       const ppList = Array.isArray(ppParam) ? ppParam : ppParam ? [ppParam] : [];
@@ -1065,7 +1068,7 @@ export async function registerRoutes(
   });
 
   // Stats
-  app.get("/api/stats", isAuthenticated, async (req: Request, res: Response) => {
+  app.get("/api/stats", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const stats = await storage.getOrderStats();
       res.json(stats);
@@ -1076,7 +1079,7 @@ export async function registerRoutes(
   });
 
   // Reports
-  app.post("/api/reports/picking-list", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+  app.post("/api/reports/picking-list", isAuthenticated, requireCompany, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
     try {
       const { orderIds, pickupPoints, sections } = req.body;
       const companyId = (req as any).companyId;
@@ -1088,7 +1091,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/reports/loading-map/:loadCode", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+  app.get("/api/reports/loading-map/:loadCode", isAuthenticated, requireCompany, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
     try {
       const loadCode = req.params.loadCode;
       if (!loadCode) {
@@ -1103,7 +1106,7 @@ export async function registerRoutes(
   });
 
   // Work Units routes
-  app.get("/api/work-units", isAuthenticated, async (req: Request, res: Response) => {
+  app.get("/api/work-units", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const type = req.query.type as string | undefined;
       const companyId = (req as any).companyId;
@@ -1122,7 +1125,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/work-units/unlock", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/work-units/unlock", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const { workUnitIds, reset } = req.body;
       const userId = (req as any).user.id;
@@ -1177,7 +1180,7 @@ export async function registerRoutes(
         userAgent: getUserAgent(req),
       });
 
-      broadcastSSE("work_units_unlocked", { workUnitIds, affectedOrderIds: [...affectedOrderIds] });
+      broadcastSSE("work_units_unlocked", { workUnitIds, affectedOrderIds: [...affectedOrderIds] }, (req as any).companyId);
 
       res.json({ success: true });
     } catch (error) {
@@ -1186,7 +1189,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/work-units/lock", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/work-units/lock", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const { workUnitIds } = req.body;
       const userId = (req as any).user.id;
@@ -1210,7 +1213,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/work-units/batch/scan-cart", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/work-units/batch/scan-cart", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const { workUnitIds, qrCode } = req.body;
 
@@ -1249,7 +1252,7 @@ export async function registerRoutes(
           });
         }
         // Broadcast genérico por pedido para evitar spam de SSE
-        broadcastSSE("picking_started", { orderId, userId: (req as any).user.id });
+        broadcastSSE("picking_started", { orderId, userId: (req as any).user.id }, (req as any).companyId);
       }
 
 
@@ -1262,7 +1265,7 @@ export async function registerRoutes(
   });
 
 
-  app.post("/api/orders/batch/start-conference", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/orders/batch/start-conference", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const { workUnitIds } = req.body;
 
@@ -1301,7 +1304,7 @@ export async function registerRoutes(
           });
         }
         // Broadcast generic event
-        broadcastSSE("conference_started", { orderId, userId: (req as any).user.id });
+        broadcastSSE("conference_started", { orderId, userId: (req as any).user.id }, (req as any).companyId);
       }
 
       res.json({ success: true, updatedCount: results.length });
@@ -1311,7 +1314,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/work-units/:id/scan-cart", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/work-units/:id/scan-cart", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const { qrCode } = req.body;
       const workUnit = await storage.getWorkUnitById(req.params.id as string);
@@ -1337,7 +1340,7 @@ export async function registerRoutes(
         }
       }
 
-      broadcastSSE("picking_started", { workUnitId: req.params.id, orderId: workUnit.orderId, userId: (req as any).user.id });
+      broadcastSSE("picking_started", { workUnitId: req.params.id, orderId: workUnit.orderId, userId: (req as any).user.id }, (req as any).companyId);
 
       const updated = await storage.getWorkUnitById(req.params.id as string);
 
@@ -1348,7 +1351,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/work-units/:id/scan-pallet", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/work-units/:id/scan-pallet", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const { qrCode } = req.body;
       const workUnit = await storage.getWorkUnitById(req.params.id as string);
@@ -1366,7 +1369,7 @@ export async function registerRoutes(
         }
       }
 
-      broadcastSSE("conference_started", { workUnitId: req.params.id, orderId: workUnit.orderId, userId: (req as any).user.id });
+      broadcastSSE("conference_started", { workUnitId: req.params.id, orderId: workUnit.orderId, userId: (req as any).user.id }, (req as any).companyId);
 
       const updated = await storage.getWorkUnitById(req.params.id as string);
 
@@ -1377,7 +1380,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/work-units/:id/scan-item", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/work-units/:id/scan-item", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const { barcode } = req.body;
       const workUnit = await storage.getWorkUnitById(req.params.id as string);
@@ -1502,7 +1505,7 @@ export async function registerRoutes(
 
       const updated = await storage.getWorkUnitById(req.params.id as string);
 
-      broadcastSSE("item_picked", { workUnitId: req.params.id, orderId: workUnit.orderId, productId: product.id, userId: (req as any).user.id });
+      broadcastSSE("item_picked", { workUnitId: req.params.id, orderId: workUnit.orderId, productId: product.id, userId: (req as any).user.id }, (req as any).companyId);
 
       const unitComplete = await storage.checkAndCompleteWorkUnit(req.params.id as string, false);
 
@@ -1532,7 +1535,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/work-units/:id/check-item", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/work-units/:id/check-item", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const { barcode } = req.body;
       const workUnit = await storage.getWorkUnitById(req.params.id as string);
@@ -1632,7 +1635,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/work-units/:id/reset-item-check", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/work-units/:id/reset-item-check", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const { itemIds } = req.body;
       const workUnit = await storage.getWorkUnitById(req.params.id as string);
@@ -1674,7 +1677,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/work-units/:id/balcao-item", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/work-units/:id/balcao-item", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const { barcode } = req.body;
       const workUnit = await storage.getWorkUnitById(req.params.id as string);
@@ -1777,7 +1780,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/work-units/:id/complete-balcao", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/work-units/:id/complete-balcao", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const { elapsedTime } = req.body;
 
@@ -1809,7 +1812,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/work-units/:id/batch-sync", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/work-units/:id/batch-sync", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const id = req.params.id as string;
       const { items, exceptions } = req.body;
@@ -1833,7 +1836,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/work-units/:id/heartbeat", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/work-units/:id/heartbeat", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const id = req.params.id as string;
       const { items } = req.body;
@@ -1841,7 +1844,7 @@ export async function registerRoutes(
       // We don't save to database here! This is just to broadcast SSE to the web dashboard
       // so the manager sees the progress bar moving while the operator works offline.
       if (items && Array.isArray(items)) {
-        broadcastSSE("work_unit_heartbeat", { workUnitId: id, items });
+        broadcastSSE("work_unit_heartbeat", { workUnitId: id, items }, (req as any).companyId);
       }
 
       res.json({ success: true });
@@ -1851,7 +1854,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/work-units/:id/complete", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/work-units/:id/complete", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const id = req.params.id as string;
       const isComplete = await storage.checkAndCompleteWorkUnit(id);
@@ -1859,13 +1862,13 @@ export async function registerRoutes(
       if (isComplete) {
         const wu = await storage.getWorkUnitById(id);
         if (wu) {
-          broadcastSSE("picking_finished", { workUnitId: id, orderId: wu.orderId });
+          broadcastSSE("picking_finished", { workUnitId: id, orderId: wu.orderId }, (req as any).companyId);
 
           // Verificar se agora TODAS as unidades do pedido est\u00e3o prontas
           // E criar unidade de confer\u00eancia se necess\u00e1rio
           const conferenceUnit = await storage.checkAndUpdateOrderStatus(wu.orderId);
           if (conferenceUnit) {
-            broadcastSSE("work_unit_created", conferenceUnit);
+            broadcastSSE("work_unit_created", conferenceUnit, (req as any).companyId);
           }
         }
         res.json({ success: true });
@@ -1878,7 +1881,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/work-units/:id/complete-conference", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/work-units/:id/complete-conference", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const id = req.params.id as string;
       const isComplete = await storage.checkAndCompleteConference(id);
@@ -1887,7 +1890,7 @@ export async function registerRoutes(
         const wu = await storage.getWorkUnitById(id);
         if (wu) {
           await storage.updateOrder(wu.orderId, { status: "conferido" });
-          broadcastSSE("conference_finished", { workUnitId: id, orderId: wu.orderId });
+          broadcastSSE("conference_finished", { workUnitId: id, orderId: wu.orderId }, (req as any).companyId);
         }
         res.json({ success: true });
       } else {
@@ -1900,7 +1903,7 @@ export async function registerRoutes(
   });
 
   // Audit Logs
-  app.get("/api/audit-logs", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+  app.get("/api/audit-logs", isAuthenticated, requireCompany, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
     try {
       const logs = await storage.getAllAuditLogs();
       res.json(logs);
@@ -1910,7 +1913,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/audit-logs", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/audit-logs", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const { action, entityType, entityId, details, previousValue, newValue } = req.body;
 
@@ -1938,7 +1941,7 @@ export async function registerRoutes(
   });
 
   // Exceptions
-  app.get("/api/exceptions", isAuthenticated, async (req: Request, res: Response) => {
+  app.get("/api/exceptions", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const exceptions = await storage.getAllExceptions();
       res.json(exceptions);
@@ -1948,7 +1951,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/exceptions", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/exceptions", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const { workUnitId, orderItemId, type, quantity, observation } = req.body;
 
@@ -1975,7 +1978,7 @@ export async function registerRoutes(
       // Auto-complete must be false so the frontend handles authorization before manual completion.
       await storage.checkAndCompleteWorkUnit(workUnitId, false);
 
-      broadcastSSE("exception_created", { workUnitId, orderItemId, type, quantity, exceptionId: exception.id });
+      broadcastSSE("exception_created", { workUnitId, orderItemId, type, quantity, exceptionId: exception.id }, (req as any).companyId);
 
       await storage.createAuditLog({
         userId: (req as any).user.id,
@@ -1995,7 +1998,7 @@ export async function registerRoutes(
   });
 
   // DELETE /api/exceptions/:id — admin deletes a pending exception and resets item status
-  app.delete("/api/exceptions/:id", isAuthenticated, requireRole("administrador"), async (req: Request, res: Response) => {
+  app.delete("/api/exceptions/:id", isAuthenticated, requireCompany, requireRole("administrador"), async (req: Request, res: Response) => {
     try {
       const exceptionId = req.params.id as string;
       // Get exception details before deleting to know the orderItemId
@@ -2055,7 +2058,7 @@ export async function registerRoutes(
         ipAddress: getClientIp(req),
         userAgent: getUserAgent(req),
       });
-      broadcastSSE("exception_deleted", { exceptionId });
+      broadcastSSE("exception_deleted", { exceptionId }, (req as any).companyId);
       res.json({ ok: true });
     } catch (error) {
       console.error("Delete exception error:", error);
@@ -2161,7 +2164,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/reports/route-orders-print", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/reports/route-orders-print", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const { orderIds } = req.body;
       if (!Array.isArray(orderIds) || orderIds.length === 0) {
@@ -2177,7 +2180,7 @@ export async function registerRoutes(
   });
 
   // Report PDF generation endpoint
-  app.get("/api/reports/loading-map-by-product/:loadCode", isAuthenticated, async (req: Request, res: Response) => {
+  app.get("/api/reports/loading-map-by-product/:loadCode", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const loadCode = Array.isArray(req.params.loadCode) ? req.params.loadCode[0] : String(req.params.loadCode);
       const results = await storage.getLoadingMapProductCentricReportData(loadCode);
@@ -2188,7 +2191,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/reports/picking-list/generate", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/reports/picking-list/generate", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const { orderIds, pickupPoints, mode, sections: filterSections, groupId } = req.body;
 
@@ -2221,7 +2224,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/exceptions/item/:orderItemId", isAuthenticated, async (req: Request, res: Response) => {
+  app.delete("/api/exceptions/item/:orderItemId", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const orderItemId = req.params.orderItemId as string;
 
@@ -2249,7 +2252,7 @@ export async function registerRoutes(
   });
 
   // Authorize exceptions (supervisor/admin only)
-  app.post("/api/exceptions/authorize", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/exceptions/authorize", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const { username, password, exceptionIds } = req.body;
 
@@ -2305,7 +2308,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/exceptions/authorize-by-badge", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/exceptions/authorize-by-badge", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const { badge, exceptionIds } = req.body;
 
@@ -2358,7 +2361,7 @@ export async function registerRoutes(
   });
 
   // Auto-authorize exceptions (for users with permission)
-  app.post("/api/exceptions/auto-authorize", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/exceptions/auto-authorize", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const { exceptionIds } = req.body;
       const user = (req as any).user;
@@ -2830,7 +2833,7 @@ export async function registerRoutes(
 
   // ── Order Volumes ─────────────────────────────────────────────────────
   // GET /api/order-volumes — lista todos (supervisor/admin)
-  app.get("/api/order-volumes", isAuthenticated, async (req: Request, res: Response) => {
+  app.get("/api/order-volumes", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const volumes = await storage.getAllOrderVolumes();
       res.json(volumes);
@@ -2852,7 +2855,7 @@ export async function registerRoutes(
   });
 
   // POST /api/order-volumes — cria ou atualiza volumes de um pedido
-  app.post("/api/order-volumes", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/order-volumes", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const user = (req as any).user;
       const { orderId, erpOrderId, sacola, caixa, saco, avulso } = req.body;

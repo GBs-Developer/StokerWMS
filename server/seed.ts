@@ -202,18 +202,13 @@ export async function seedDatabase() {
   }
   console.log("Created order items");
 
-  // Create work units for separation
   for (const order of createdOrders.slice(0, 5)) {
-    const pickupPoints = order.pickupPoints as number[];
-    for (const point of pickupPoints) {
-      await db.insert(workUnits).values({
-        orderId: order.id,
-        pickupPoint: point,
-        section: "Mercearia", // Default simplification
-        type: "separacao" as any,
-        status: "pendente" as any,
-      });
-    }
+    await db.insert(workUnits).values({
+      orderId: order.id,
+      pickupPoint: 0,
+      type: "separacao" as any,
+      status: "pendente" as any,
+    });
   }
 
   // Create work units for balcão

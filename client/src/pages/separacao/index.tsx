@@ -253,10 +253,7 @@ export default function SeparacaoPage() {
   const aggregatedProducts = useMemo((): AggregatedProduct[] => {
     const units = allMyUnits.length > 0 ? allMyUnits : [];
     const allItems: ItemWithProduct[] = units.flatMap(wu => (wu.items as ItemWithProduct[]) || []);
-    const userSections = (user?.sections as string[]) || [];
-    const filteredItems = allItems.filter(item =>
-      userSections.length === 0 || userSections.includes(item.section)
-    );
+    const filteredItems = allItems;
 
     const seenItemIds = new Set<string>();
     const map: Record<string, AggregatedProduct> = {};
@@ -526,13 +523,6 @@ export default function SeparacaoPage() {
     return workUnits?.filter((wu) => {
       if (wu.status !== "pendente" || (wu.lockedBy && wu.lockedBy !== user?.id)) return false;
       if (!wu.order.isLaunched) return false;
-
-      const userSections = (user?.sections as string[]) || [];
-      if (userSections.length > 0) {
-        if (wu.section && !userSections.includes(wu.section)) return false;
-        const hasRelevantItems = wu.items.some(item => userSections.includes(item.section));
-        if (!wu.section && !hasRelevantItems) return false;
-      }
 
       if (filterOrderId && !processMultipleOrderSearch(filterOrderId, wu.order.erpOrderId)) return false;
 
@@ -1088,12 +1078,8 @@ export default function SeparacaoPage() {
                     const groupIds = group.map(g => g.id);
                     const isSelected = groupIds.every(id => selectedWorkUnits.includes(id));
 
-                    const userSections = (user?.sections as string[]) || [];
                     const distinctProductCount = group.reduce((acc, wu) => {
-                      const filtered = wu.items?.filter(item =>
-                        userSections.length === 0 || userSections.includes(item.section)
-                      ) || [];
-                      const productIds = new Set(filtered.map(item => item.productId));
+                      const productIds = new Set((wu.items || []).map(item => item.productId));
                       return new Set([...acc, ...productIds]);
                     }, new Set<string>()).size;
 

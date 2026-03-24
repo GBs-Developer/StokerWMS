@@ -11,6 +11,7 @@ import {
   type OrderVolume, type InsertOrderVolume, companies, type Company
 } from "@shared/schema";
 import { randomUUID } from "crypto";
+import { getCompanyOperationPickupPoints, getCompanyReportPickupPoints } from "./company-config";
 
 export interface IStorage {
   // Users
@@ -317,11 +318,13 @@ export class DatabaseStorage implements IStorage {
       
     let allOrders = await query;
     
-    // Tratativa específica para a Empresa 01: exibir somente pedidos que interceptem os pontos de retirada 4 e 58
-    if (companyId === 1) {
-      allOrders = allOrders.filter(o => 
-        Array.isArray(o.pickupPoints) && o.pickupPoints.some(p => p === 4 || p === 58)
-      );
+    if (companyId) {
+      const allowedPP = getCompanyOperationPickupPoints(companyId);
+      if (allowedPP) {
+        allOrders = allOrders.filter(o => 
+          Array.isArray(o.pickupPoints) && o.pickupPoints.some(p => allowedPP.includes(p))
+        );
+      }
     }
 
     // Get Exceptions
@@ -432,11 +435,13 @@ export class DatabaseStorage implements IStorage {
         .limit(1);
 
       if (existing.length === 0) {
+        const order = await this.getOrderById(orderId);
         [createdWorkUnit] = await db.insert(workUnits).values({
           orderId,
           type: "conferencia",
           status: "pendente",
           pickupPoint: 0,
+          companyId: order?.companyId || undefined,
         }).returning();
       }
     }
@@ -566,16 +571,34 @@ export class DatabaseStorage implements IStorage {
     if (type) conditions.push(eq(workUnits.type, type as any));
     if (companyId) conditions.push(eq(workUnits.companyId, companyId));
     
-    // Tratativa específica para a Empresa 01: exibir somente pedidos com retirada 4 e 58
-    if (companyId === 1) {
-      conditions.push(inArray(workUnits.pickupPoint, [4, 58]));
+    if (companyId && type !== "separacao" && type !== "conferencia") {
+      const allowedPP = getCompanyOperationPickupPoints(companyId);
+      if (allowedPP) {
+        conditions.push(inArray(workUnits.pickupPoint, allowedPP));
+      }
     }
 
     const query = conditions.length > 0 
       ? db.select().from(workUnits).where(and(...conditions))
       : db.select().from(workUnits);
 
-    const wus = await query;
+    let wus = await query;
+    
+    if (companyId && (type === "separacao" || type === "conferencia")) {
+      const allowedPP = getCompanyOperationPickupPoints(companyId);
+      if (allowedPP) {
+        const orderIdsForType = [...new Set(wus.map(wu => wu.orderId))];
+        if (orderIdsForType.length > 0) {
+          const ordersForFilter = await db.select().from(orders).where(inArray(orders.id, orderIdsForType));
+          const validOrderIds = new Set(
+            ordersForFilter
+              .filter(o => Array.isArray(o.pickupPoints) && o.pickupPoints.some(p => allowedPP.includes(p)))
+              .map(o => o.id)
+          );
+          wus = wus.filter(wu => validOrderIds.has(wu.orderId));
+        }
+      }
+    }
     if (wus.length === 0) return [];
 
     const orderIds = [...new Set(wus.map(wu => wu.orderId))];
@@ -654,8 +677,7 @@ export class DatabaseStorage implements IStorage {
         const allItems = itemsByOrder.get(wu.orderId) || [];
         let filteredItems = allItems;
 
-        if (wu.type === "conferencia") {
-          // Conference units (pickupPoint=0) should see ALL items regardless of their pickup point
+        if (wu.type === "conferencia" || wu.type === "separacao") {
           filteredItems = allItems;
         } else {
           filteredItems = wu.section
@@ -689,7 +711,7 @@ export class DatabaseStorage implements IStorage {
     const items = await this.getOrderItemsByOrderId(wu.orderId);
     let filteredItems = items;
 
-    if (wu.type === "conferencia") {
+    if (wu.type === "conferencia" || wu.type === "separacao") {
       filteredItems = items;
     } else {
       filteredItems = wu.section
@@ -740,14 +762,19 @@ export class DatabaseStorage implements IStorage {
     const [wu] = await db.select().from(workUnits).where(eq(workUnits.id, id));
     if (!wu) return;
 
-    // Reset items separatedQty
-    await db.update(orderItems)
-      .set({ separatedQty: 0, status: "pendente" })
-      .where(and(
-        eq(orderItems.orderId, wu.orderId),
-        eq(orderItems.pickupPoint, wu.pickupPoint),
-        wu.section ? eq(orderItems.section, wu.section) : undefined
-      ));
+    if (wu.type === "separacao") {
+      await db.update(orderItems)
+        .set({ separatedQty: 0, status: "pendente" })
+        .where(eq(orderItems.orderId, wu.orderId));
+    } else {
+      await db.update(orderItems)
+        .set({ separatedQty: 0, status: "pendente" })
+        .where(and(
+          eq(orderItems.orderId, wu.orderId),
+          eq(orderItems.pickupPoint, wu.pickupPoint),
+          wu.section ? eq(orderItems.section, wu.section) : undefined
+        ));
+    }
 
     // Reset work unit status
     await db.update(workUnits)
@@ -774,13 +801,17 @@ export class DatabaseStorage implements IStorage {
     const [workUnit] = await db.select().from(workUnits).where(eq(workUnits.id, id));
     if (!workUnit) return false;
 
-    // Manual items fetch matching reset logic
-    const whereClause = and(
-      eq(orderItems.orderId, workUnit.orderId),
-      eq(orderItems.pickupPoint, workUnit.pickupPoint),
-      workUnit.section ? eq(orderItems.section, workUnit.section) : undefined
-    );
-    const items = await db.select().from(orderItems).where(whereClause);
+    let items;
+    if (workUnit.type === "separacao" || workUnit.type === "conferencia") {
+      items = await db.select().from(orderItems).where(eq(orderItems.orderId, workUnit.orderId));
+    } else {
+      const whereClause = and(
+        eq(orderItems.orderId, workUnit.orderId),
+        eq(orderItems.pickupPoint, workUnit.pickupPoint),
+        workUnit.section ? eq(orderItems.section, workUnit.section) : undefined
+      );
+      items = await db.select().from(orderItems).where(whereClause);
+    }
 
     // Get exceptions for this work unit
     const unitExceptions = await db.select().from(exceptions).where(eq(exceptions.workUnitId, id));
@@ -1054,7 +1085,10 @@ export class DatabaseStorage implements IStorage {
     }
 
     let ppFilters = filters.pickupPoints ? filters.pickupPoints.map(p => parseInt(p)).filter(p => !isNaN(p)) : [];
-    if (companyId === 1) ppFilters = [4, 58];
+    if (companyId) {
+      const reportPP = getCompanyReportPickupPoints(companyId);
+      if (reportPP) ppFilters = reportPP;
+    }
 
     if (ppFilters.length > 0) {
       conditions.push(inArray(orderItems.pickupPoint, ppFilters));
