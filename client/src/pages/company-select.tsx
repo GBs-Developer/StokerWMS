@@ -43,7 +43,7 @@ export default function CompanySelectPage() {
     <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-[hsl(213,67%,22%)] via-[hsl(207,62%,35%)] to-[hsl(157,50%,28%)] p-4">
       <div className="w-full max-w-md">
         <div className="flex flex-col items-center mb-8">
-          <h1 className="text-5xl font-bold text-white mb-2 drop-shadow-xl tracking-tight">Stokar</h1>
+          <h1 className="text-5xl font-bold text-white mb-2 drop-shadow-xl tracking-tight">Stoker</h1>
           <p className="text-white/70 mt-2 text-sm">
             Olá, {user?.name || "Operador"}! Selecione a empresa.
           </p>

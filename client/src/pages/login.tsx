@@ -73,7 +73,7 @@ export default function LoginPage() {
         }
         toast({
           title: "Login realizado",
-          description: "Bem-vindo ao Stokar!",
+          description: "Bem-vindo ao Stoker!",
         });
         navigate("/");
       } else {
@@ -98,7 +98,7 @@ export default function LoginPage() {
     <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-[hsl(213,67%,22%)] via-[hsl(207,62%,35%)] to-[hsl(157,50%,28%)] p-4">
       <div className="w-full max-w-md">
         <div className="flex flex-col items-center mb-8">
-          <h1 className="text-5xl font-bold text-white mb-2 drop-shadow-xl tracking-tight">Stokar</h1>
+          <h1 className="text-5xl font-bold text-white mb-2 drop-shadow-xl tracking-tight">Stoker</h1>
           <p className="text-white/70 mt-2 text-sm italic">Warehouse Management System</p>
         </div>
 
@@ -182,12 +182,12 @@ export default function LoginPage() {
             className="w-full mt-4 flex items-center justify-center gap-2 py-3 px-4 rounded-lg bg-white/15 hover:bg-white/25 border border-white/30 text-white text-sm font-medium transition-colors"
           >
             <Download className="h-4 w-4" />
-            Instalar App Stokar
+            Instalar App Stoker
           </button>
         )}
 
         <p className="text-center text-white/50 text-sm mt-6">
-          Stokar v2.0 — por Gusttavo Batista
+          Stoker v2.0 — por Gusttavo Batista
         </p>
       </div>
     </div>

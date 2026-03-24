@@ -4,7 +4,7 @@ import type { User, Company } from "@shared/schema";
 
 const INACTIVITY_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 const INACTIVITY_CHECK_INTERVAL_MS = 60 * 1000;
-const LAST_ACTIVITY_KEY = "stokar:lastActivity";
+const LAST_ACTIVITY_KEY = "stoker:lastActivity";
 
 interface AuthContextType {
   user: User | null;
@@ -35,7 +35,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const keysToRemove: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (key?.startsWith("wms:") || key?.startsWith("stokar:")) {
+      if (key?.startsWith("wms:") || key?.startsWith("stoker:")) {
         keysToRemove.push(key);
       }
     }

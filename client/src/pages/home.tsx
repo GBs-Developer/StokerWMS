@@ -164,7 +164,7 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-background">
       <GradientHeader
-        title="Stokar"
+        title="Stoker"
         subtitle={`${user?.name || "Operador"} — ${userRoleLabel}`}
       >
         <div className="flex items-center gap-2">

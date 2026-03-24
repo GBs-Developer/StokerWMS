@@ -235,7 +235,7 @@ export default function MappingStudioPage() {
             <div className="px-4 pb-4 text-sm text-blue-900 space-y-3 border-t border-blue-200 pt-3">
               <div>
                 <p className="font-semibold mb-1">O que é o Mapping Studio?</p>
-                <p>O Mapping Studio permite configurar como os dados do ERP (DB2) são mapeados para o sistema Stokar, sem precisar alterar o código. Sempre que a sincronização rodar, ela usará o mapeamento ativo para transformar os dados.</p>
+                <p>O Mapping Studio permite configurar como os dados do ERP (DB2) são mapeados para o sistema Stoker, sem precisar alterar o código. Sempre que a sincronização rodar, ela usará o mapeamento ativo para transformar os dados.</p>
               </div>
               <div>
                 <p className="font-semibold mb-1">Passo a passo:</p>

@@ -13,8 +13,8 @@ export default defineConfig({
       includeAssets: ["favicon.ico", "apple-touch-icon.png", "offline.html"],
       manifest: {
         id: "/",
-        name: "Stokar WMS",
-        short_name: "Stokar",
+        name: "Stoker WMS",
+        short_name: "Stoker",
         description: "Sistema de Gestão de Armazém — Separação, Conferência e Balcão",
         start_url: "/",
         display: "standalone",
@@ -45,7 +45,7 @@ export default defineConfig({
             sizes: "1024x1820",
             type: "image/png",
             form_factor: "narrow",
-            label: "Tela de login do Stokar WMS",
+            label: "Tela de login do Stoker WMS",
           },
           {
             src: "/screenshot-mobile-2.png",

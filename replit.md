@@ -1,8 +1,8 @@
-# Stokar WMS - Warehouse Management System
+# Stoker WMS - Warehouse Management System
 
 ## Overview
 
-Stokar WMS is a warehouse management system designed for logistics operations in Brazil (Portuguese UI). The application handles order picking (separação), verification (conferência), counter service (balcão) workflows, plus new WMS modules: addressing, pallet receiving, check-in/allocation, transfer, and counting cycles. It features multi-company support (companies 1 and 3), role-based access control with distinct interfaces for supervisors and operators, real-time work unit locking, and barcode scanning integration for mobile collector devices.
+Stoker WMS is a warehouse management system designed for logistics operations in Brazil (Portuguese UI). The application handles order picking (separação), verification (conferência), counter service (balcão) workflows, plus new WMS modules: addressing, pallet receiving, check-in/allocation, transfer, and counting cycles. It features multi-company support (companies 1 and 3), role-based access control with distinct interfaces for supervisors and operators, real-time work unit locking, and barcode scanning integration for mobile collector devices.
 
 The system uses SQLite (libsql) as the operational database, supporting ERP synchronization via a staging layer concept. Work units represent atomic tasks that can be locked, tracked through state machines, and audited for accountability.
 
