@@ -1157,10 +1157,7 @@ export function registerWmsRoutes(app: Express) {
       const conditions = [];
 
       if (searchType === "code") {
-        conditions.push(or(
-          ilike(products.erpCode, `%${q}%`),
-          ilike(products.barcode, `%${q}%`)
-        ));
+        conditions.push(ilike(products.erpCode, `%${q}%`));
       } else if (searchType === "description") {
         conditions.push(ilike(products.name, searchPattern));
       } else {
@@ -1296,6 +1293,291 @@ export function registerWmsRoutes(app: Express) {
     } catch (error) {
       console.error("Get product stock error:", error);
       res.status(500).json({ error: "Erro ao buscar estoque" });
+    }
+  });
+
+  app.get("/api/reports/counting-cycles", ...authMiddleware, supervisorRoles, async (req: Request, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const statusFilter = req.query.status as string | undefined;
+      const dateFrom = req.query.dateFrom as string | undefined;
+      const dateTo = req.query.dateTo as string | undefined;
+
+      const conditions = [eq(countingCycles.companyId, companyId)];
+      if (statusFilter && statusFilter !== "all") {
+        conditions.push(eq(countingCycles.status, statusFilter as any));
+      }
+      if (dateFrom) {
+        conditions.push(sql`${countingCycles.createdAt} >= ${dateFrom}`);
+      }
+      if (dateTo) {
+        conditions.push(sql`${countingCycles.createdAt} <= ${dateTo + "T23:59:59"}`);
+      }
+
+      const cycles = await db.select().from(countingCycles)
+        .where(and(...conditions))
+        .orderBy(desc(countingCycles.createdAt));
+
+      const cycleIds = cycles.map(c => c.id);
+      const allItems = cycleIds.length > 0
+        ? await db.select().from(countingCycleItems)
+            .where(sql`${countingCycleItems.cycleId} IN (${sql.join(cycleIds.map(id => sql`${id}`), sql`, `)})`)
+        : [];
+
+      const itemsByCycle = new Map<string, typeof allItems>();
+      for (const item of allItems) {
+        const list = itemsByCycle.get(item.cycleId) || [];
+        list.push(item);
+        itemsByCycle.set(item.cycleId, list);
+      }
+
+      const userIds = new Set<string>();
+      cycles.forEach(c => { if (c.createdBy) userIds.add(c.createdBy); if (c.approvedBy) userIds.add(c.approvedBy); });
+      allItems.forEach(i => { if (i.countedBy) userIds.add(i.countedBy); });
+
+      const userList = userIds.size > 0
+        ? await db.select({ id: users.id, name: users.name }).from(users)
+            .where(sql`${users.id} IN (${sql.join([...userIds].map(id => sql`${id}`), sql`, `)})`)
+        : [];
+      const userMap = new Map<string, string>();
+      for (const u of userList) userMap.set(u.id, u.name);
+
+      const productIds = new Set<string>();
+      const addressIds = new Set<string>();
+      allItems.forEach(i => {
+        if (i.productId) productIds.add(i.productId);
+        if (i.addressId) addressIds.add(i.addressId);
+      });
+
+      const productList = productIds.size > 0
+        ? await db.select({ id: products.id, name: products.name, erpCode: products.erpCode }).from(products)
+            .where(sql`${products.id} IN (${sql.join([...productIds].map(id => sql`${id}`), sql`, `)})`)
+        : [];
+      const productMap = new Map<string, { name: string; erpCode: string }>();
+      for (const p of productList) productMap.set(p.id, { name: p.name, erpCode: p.erpCode });
+
+      const addressList = addressIds.size > 0
+        ? await db.select({ id: wmsAddresses.id, code: wmsAddresses.code }).from(wmsAddresses)
+            .where(sql`${wmsAddresses.id} IN (${sql.join([...addressIds].map(id => sql`${id}`), sql`, `)})`)
+        : [];
+      const addressMap = new Map<string, string>();
+      for (const a of addressList) addressMap.set(a.id, a.code);
+
+      const enriched = cycles.map(c => {
+        const items = itemsByCycle.get(c.id) || [];
+        const totalItems = items.length;
+        const countedItems = items.filter(i => i.status === "contado" || i.status === "divergente").length;
+        const divergentItems = items.filter(i => i.status === "divergente").length;
+        const avgDivergence = divergentItems > 0
+          ? items.filter(i => i.divergencePct !== null).reduce((sum, i) => sum + Math.abs(Number(i.divergencePct || 0)), 0) / Math.max(1, items.filter(i => i.divergencePct !== null).length)
+          : 0;
+
+        return {
+          ...c,
+          createdByName: c.createdBy ? userMap.get(c.createdBy) || "—" : "—",
+          approvedByName: c.approvedBy ? userMap.get(c.approvedBy) || "—" : "—",
+          totalItems,
+          countedItems,
+          divergentItems,
+          avgDivergencePct: Math.round(avgDivergence * 100) / 100,
+          items: items.map(i => ({
+            ...i,
+            productName: i.productId ? productMap.get(i.productId)?.name || "—" : "—",
+            productErpCode: i.productId ? productMap.get(i.productId)?.erpCode || "—" : "—",
+            addressCode: i.addressId ? addressMap.get(i.addressId) || "—" : "—",
+            countedByName: i.countedBy ? userMap.get(i.countedBy) || "—" : "—",
+          })),
+        };
+      });
+
+      const summary = {
+        totalCycles: cycles.length,
+        byStatus: {
+          pendente: cycles.filter(c => c.status === "pendente").length,
+          em_andamento: cycles.filter(c => c.status === "em_andamento").length,
+          concluido: cycles.filter(c => c.status === "concluido").length,
+          aprovado: cycles.filter(c => c.status === "aprovado").length,
+          rejeitado: cycles.filter(c => c.status === "rejeitado").length,
+        },
+        totalItemsCounted: allItems.filter(i => i.countedQty !== null).length,
+        totalDivergent: allItems.filter(i => i.status === "divergente").length,
+      };
+
+      res.json({ cycles: enriched, summary });
+    } catch (error) {
+      console.error("Counting cycles report error:", error);
+      res.status(500).json({ error: "Erro ao gerar relatório de contagens" });
+    }
+  });
+
+  app.get("/api/reports/wms-addresses", ...authMiddleware, supervisorRoles, async (req: Request, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const typeFilter = req.query.type as string | undefined;
+
+      const conditions = [eq(wmsAddresses.companyId, companyId)];
+      if (typeFilter && typeFilter !== "all") {
+        conditions.push(eq(wmsAddresses.type, typeFilter));
+      }
+
+      const allAddresses = await db.select().from(wmsAddresses)
+        .where(and(...conditions))
+        .orderBy(wmsAddresses.code);
+
+      const occupiedPallets = await db.select({
+        addressId: pallets.addressId,
+        palletId: pallets.id,
+        palletCode: pallets.code,
+        palletStatus: pallets.status,
+      }).from(pallets)
+        .where(and(
+          eq(pallets.companyId, companyId),
+          sql`${pallets.status} != 'cancelado'`,
+          sql`${pallets.addressId} IS NOT NULL`,
+        ));
+
+      const occupancyMap = new Map<string, { palletId: string; palletCode: string; palletStatus: string }>();
+      for (const p of occupiedPallets) {
+        if (p.addressId) occupancyMap.set(p.addressId, { palletId: p.palletId, palletCode: p.palletCode, palletStatus: p.palletStatus });
+      }
+
+      const palletIds = occupiedPallets.map(p => p.palletId);
+      const palletItemsData = palletIds.length > 0
+        ? await db.select({
+            palletId: palletItems.palletId,
+            productId: palletItems.productId,
+            quantity: palletItems.quantity,
+          }).from(palletItems)
+            .where(sql`${palletItems.palletId} IN (${sql.join(palletIds.map(id => sql`${id}`), sql`, `)})`)
+        : [];
+
+      const itemsByPallet = new Map<string, number>();
+      for (const item of palletItemsData) {
+        itemsByPallet.set(item.palletId, (itemsByPallet.get(item.palletId) || 0) + Number(item.quantity));
+      }
+
+      const enriched = allAddresses.map(addr => {
+        const pallet = occupancyMap.get(addr.id);
+        return {
+          ...addr,
+          occupied: !!pallet,
+          palletCode: pallet?.palletCode || null,
+          palletStatus: pallet?.palletStatus || null,
+          palletItemCount: pallet ? (itemsByPallet.get(pallet.palletId) || 0) : 0,
+        };
+      });
+
+      const typeLabels: Record<string, string> = { standard: "Padrão", picking: "Picking", recebimento: "Recebimento", expedicao: "Expedição" };
+      const summary = {
+        total: allAddresses.length,
+        active: allAddresses.filter(a => a.active).length,
+        inactive: allAddresses.filter(a => !a.active).length,
+        occupied: enriched.filter(a => a.occupied).length,
+        empty: enriched.filter(a => a.active && !a.occupied).length,
+        byType: Object.entries(
+          allAddresses.reduce((acc, a) => { acc[a.type] = (acc[a.type] || 0) + 1; return acc; }, {} as Record<string, number>)
+        ).map(([type, count]) => ({ type, label: typeLabels[type] || type, count })),
+        occupancyRate: allAddresses.filter(a => a.active).length > 0
+          ? Math.round((enriched.filter(a => a.occupied).length / allAddresses.filter(a => a.active).length) * 100)
+          : 0,
+      };
+
+      res.json({ addresses: enriched, summary });
+    } catch (error) {
+      console.error("WMS addresses report error:", error);
+      res.status(500).json({ error: "Erro ao gerar relatório de endereços" });
+    }
+  });
+
+  app.get("/api/reports/pallet-movements", ...authMiddleware, supervisorRoles, async (req: Request, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const dateFrom = req.query.dateFrom as string | undefined;
+      const dateTo = req.query.dateTo as string | undefined;
+      const movType = req.query.type as string | undefined;
+
+      const conditions = [eq(palletMovements.companyId, companyId)];
+      if (dateFrom) {
+        conditions.push(sql`${palletMovements.createdAt} >= ${dateFrom}`);
+      }
+      if (dateTo) {
+        conditions.push(sql`${palletMovements.createdAt} <= ${dateTo + "T23:59:59"}`);
+      }
+      if (movType && movType !== "all") {
+        conditions.push(eq(palletMovements.movementType, movType as any));
+      }
+
+      const movements = await db.select().from(palletMovements)
+        .where(and(...conditions))
+        .orderBy(desc(palletMovements.createdAt))
+        .limit(500);
+
+      const palletIdsSet = new Set(movements.map(m => m.palletId));
+      const addressIdsSet = new Set<string>();
+      movements.forEach(m => {
+        if (m.fromAddressId) addressIdsSet.add(m.fromAddressId);
+        if (m.toAddressId) addressIdsSet.add(m.toAddressId);
+      });
+      const userIdsSet = new Set(movements.map(m => m.performedBy).filter(Boolean) as string[]);
+
+      const palletList = palletIdsSet.size > 0
+        ? await db.select({ id: pallets.id, code: pallets.code }).from(pallets)
+            .where(sql`${pallets.id} IN (${sql.join([...palletIdsSet].map(id => sql`${id}`), sql`, `)})`)
+        : [];
+      const palletMap = new Map<string, string>();
+      for (const p of palletList) palletMap.set(p.id, p.code);
+
+      const addrList = addressIdsSet.size > 0
+        ? await db.select({ id: wmsAddresses.id, code: wmsAddresses.code }).from(wmsAddresses)
+            .where(sql`${wmsAddresses.id} IN (${sql.join([...addressIdsSet].map(id => sql`${id}`), sql`, `)})`)
+        : [];
+      const addrMap = new Map<string, string>();
+      for (const a of addrList) addrMap.set(a.id, a.code);
+
+      const uList = userIdsSet.size > 0
+        ? await db.select({ id: users.id, name: users.name }).from(users)
+            .where(sql`${users.id} IN (${sql.join([...userIdsSet].map(id => sql`${id}`), sql`, `)})`)
+        : [];
+      const uMap = new Map<string, string>();
+      for (const u of uList) uMap.set(u.id, u.name);
+
+      const enriched = movements.map(m => ({
+        ...m,
+        palletCode: palletMap.get(m.palletId) || "—",
+        fromAddressCode: m.fromAddressId ? addrMap.get(m.fromAddressId) || "—" : "—",
+        toAddressCode: m.toAddressId ? addrMap.get(m.toAddressId) || "—" : "—",
+        performedByName: m.performedBy ? uMap.get(m.performedBy) || "—" : "—",
+      }));
+
+      const movementTypeLabels: Record<string, string> = {
+        recebimento: "Recebimento",
+        alocacao: "Alocação",
+        transferencia: "Transferência",
+        cancelamento: "Cancelamento",
+        contagem: "Contagem",
+      };
+
+      const byType = movements.reduce((acc, m) => {
+        acc[m.movementType] = (acc[m.movementType] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+
+      const byDay = movements.reduce((acc, m) => {
+        const day = m.createdAt.split("T")[0];
+        acc[day] = (acc[day] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+
+      const summary = {
+        totalMovements: movements.length,
+        byType: Object.entries(byType).map(([type, count]) => ({ type, label: movementTypeLabels[type] || type, count })),
+        byDay: Object.entries(byDay).sort(([a], [b]) => b.localeCompare(a)).slice(0, 30).map(([date, count]) => ({ date, count })),
+      };
+
+      res.json({ movements: enriched, summary });
+    } catch (error) {
+      console.error("Pallet movements report error:", error);
+      res.status(500).json({ error: "Erro ao gerar relatório de movimentações" });
     }
   });
 }

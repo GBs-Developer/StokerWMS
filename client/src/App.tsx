@@ -21,6 +21,9 @@ import BadgeGeneration from "@/pages/supervisor/reports/badge-generation";
 import LoadingMapReportPage from "@/pages/supervisor/reports/loading-map";
 import LoadingMapProductsReportPage from "@/pages/supervisor/reports/loading-map-products";
 import OrderVolumesReportPage from "@/pages/supervisor/reports/order-volumes";
+import CountingCyclesReportPage from "@/pages/supervisor/reports/counting-cycles";
+import WmsAddressesReportPage from "@/pages/supervisor/reports/wms-addresses";
+import PalletMovementsReportPage from "@/pages/supervisor/reports/pallet-movements";
 import MappingStudioPage from "@/pages/supervisor/mapping-studio";
 import SeparacaoPage from "@/pages/separacao/index";
 import ConferenciaPage from "@/pages/conferencia/index";
@@ -180,6 +183,24 @@ function Router() {
       <Route path="/supervisor/reports/order-volumes">
         <ProtectedRoute allowedRoles={["supervisor", "administrador"]}>
           <OrderVolumesReportPage />
+        </ProtectedRoute>
+      </Route>
+
+      <Route path="/supervisor/reports/counting-cycles">
+        <ProtectedRoute allowedRoles={["supervisor", "administrador"]}>
+          <CountingCyclesReportPage />
+        </ProtectedRoute>
+      </Route>
+
+      <Route path="/supervisor/reports/wms-addresses">
+        <ProtectedRoute allowedRoles={["supervisor", "administrador"]}>
+          <WmsAddressesReportPage />
+        </ProtectedRoute>
+      </Route>
+
+      <Route path="/supervisor/reports/pallet-movements">
+        <ProtectedRoute allowedRoles={["supervisor", "administrador"]}>
+          <PalletMovementsReportPage />
         </ProtectedRoute>
       </Route>
 
