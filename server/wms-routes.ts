@@ -319,9 +319,46 @@ export function registerWmsRoutes(app: Express) {
 
   app.post("/api/pallets", ...authMiddleware, receiverRoles, async (req: Request, res: Response) => {
     try {
+      const { items, nfIds } = req.body;
       const companyId = getCompanyId(req);
       const userId = getUserId(req);
-      const { items, nfIds } = req.body;
+
+      // Validação de estoque real do ERP
+      if (Array.isArray(items)) {
+        for (const item of items) {
+          const [stockRecord] = await db.select()
+            .from(productCompanyStock)
+            .where(and(
+              eq(productCompanyStock.productId, item.productId),
+              eq(productCompanyStock.companyId, companyId)
+            ));
+
+          const erpStock = Number(stockRecord?.stockQty || 0);
+
+          const otherPalletsItems = await db.select({
+            quantity: sql<number>`SUM(${palletItems.quantity})`
+          })
+          .from(palletItems)
+          .innerJoin(pallets, eq(palletItems.palletId, pallets.id))
+          .where(and(
+            eq(palletItems.productId, item.productId),
+            eq(palletItems.companyId, companyId),
+            sql`${pallets.status} != 'cancelado'`
+          ));
+
+          const alreadyInPallets = Number(otherPalletsItems[0]?.quantity || 0);
+          const currentPalletRequestTotal = items
+            .filter(i => i.productId === item.productId)
+            .reduce((acc, curr) => acc + Number(curr.quantity), 0);
+
+          if (alreadyInPallets + currentPalletRequestTotal > erpStock) {
+            const [product] = await db.select().from(products).where(eq(products.id, item.productId));
+            return res.status(400).json({ 
+              error: `Estoque insuficiente para o produto ${product?.erpCode || item.productId}. ERP: ${erpStock.toLocaleString()}, Já em pallets: ${alreadyInPallets.toLocaleString()}, Solicitado: ${currentPalletRequestTotal.toLocaleString()}` 
+            });
+          }
+        }
+      }
 
       const code = `PLT-${companyId}-${Date.now().toString(36).toUpperCase()}`;
 
@@ -417,6 +454,44 @@ export function registerWmsRoutes(app: Express) {
 
       if (pallet.status === "cancelado") {
         return res.status(400).json({ error: "Pallet cancelado não pode ser editado" });
+      }
+
+      // Validação de estoque real do ERP
+      if (Array.isArray(items)) {
+        for (const item of items) {
+          const [stockRecord] = await db.select()
+            .from(productCompanyStock)
+            .where(and(
+              eq(productCompanyStock.productId, item.productId),
+              eq(productCompanyStock.companyId, companyId)
+            ));
+
+          const erpStock = Number(stockRecord?.stockQty || 0);
+
+          const otherPalletsItems = await db.select({
+            quantity: sql<number>`SUM(${palletItems.quantity})`
+          })
+          .from(palletItems)
+          .innerJoin(pallets, eq(palletItems.palletId, pallets.id))
+          .where(and(
+            eq(palletItems.productId, item.productId),
+            eq(palletItems.companyId, companyId),
+            sql`${pallets.status} != 'cancelado'`,
+            sql`${pallets.id} != ${id}`
+          ));
+
+          const alreadyInPallets = Number(otherPalletsItems[0]?.quantity || 0);
+          const currentPalletRequestTotal = items
+            .filter(i => i.productId === item.productId)
+            .reduce((acc, curr) => acc + Number(curr.quantity), 0);
+
+          if (alreadyInPallets + currentPalletRequestTotal > erpStock) {
+            const [product] = await db.select().from(products).where(eq(products.id, item.productId));
+            return res.status(400).json({ 
+              error: `Estoque insuficiente para o produto ${product?.erpCode || item.productId}. ERP: ${erpStock.toLocaleString()}, Já em outros pallets: ${alreadyInPallets.toLocaleString()}, Solicitado: ${currentPalletRequestTotal.toLocaleString()}` 
+            });
+          }
+        }
       }
 
       if (Array.isArray(items)) {

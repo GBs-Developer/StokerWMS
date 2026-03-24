@@ -1157,8 +1157,68 @@ def sync_orcamentos(conn_db2, conn_sqlite):
             erros += 1
     
     conn_sqlite.commit()
-    conn_sqlite.commit()
     log(f"ORCAMENTOS (31d) | obtidos={len(dados)} | removidos={deleted_count} (>= {cutoff_date}) | inseridos={inseridos} | erros={erros}")
+
+
+def sync_products_stock(conn_db2, conn_sqlite):
+    """Sincroniza estoque real do ERP para product_company_stock e products.stock_qty"""
+    cursor = conn_sqlite.cursor()
+    
+    # log(f"Sincronizando ESTOQUE GERAL do ERP...")
+    sql_path = os.path.join(PROJECT_ROOT, "sql", "estoque_geral.sql")
+    if not os.path.exists(sql_path):
+        log("WARN: sql/estoque_geral.sql nao encontrado. Pulando sync de estoque.")
+        return
+
+    with open(sql_path, 'r', encoding='utf-8') as f:
+        query = f.read()
+
+    try:
+        dados = executar_sql_db2(conn_db2, query)
+    except Exception as e:
+        log(f"  ERRO ao executar query estoque_geral: {e}")
+        return
+
+    if not dados:
+        log("Estoque Geral | nenhum registro do DB2")
+        return
+
+    # Map products erp_code to UUID
+    cursor.execute("SELECT id, erp_code FROM products")
+    products_db = cursor.fetchall()
+    erp_to_uuid = {str(r[1]).strip(): str(r[0]) for r in products_db}
+
+    atualizados = 0
+    erros = 0
+
+    for row in dados:
+        try:
+            empresa = int(row.get('IDEMPRESA', 0))
+            erp_code = str(row.get('IDPRODUTO', '')).strip()
+            qtd = float(row.get('QTDESTOQUE', 0) or 0)
+            
+            if erp_code in erp_to_uuid:
+                prod_uuid = erp_to_uuid[erp_code]
+                
+                # Upsert product_company_stock
+                cursor.execute("""
+                    INSERT INTO product_company_stock (id, product_id, company_id, stock_qty, erp_updated_at)
+                    VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (product_id, company_id) DO UPDATE SET
+                        stock_qty = EXCLUDED.stock_qty,
+                        erp_updated_at = CURRENT_TIMESTAMP
+                """, (str(uuid.uuid4()), prod_uuid, empresa, qtd))
+                
+                # Update products.stock_qty (legacy/fallback)
+                cursor.execute("UPDATE products SET stock_qty = %s WHERE id = %s", (qtd, prod_uuid))
+                
+                atualizados += 1
+        except Exception as e:
+            log(f"  Erro ao atualizar estoque para {row.get('IDPRODUTO')}: {e}")
+            erros += 1
+
+    conn_sqlite.commit()
+    log(f"ESTOQUE GERAL | obtidos={len(dados)} | atualizados={atualizados} | erros={erros}")
 
 
 def sync_box_barcodes(conn_db2, conn_sqlite):
@@ -1398,6 +1458,7 @@ def sincronizar(data_inicial: Optional[str] = None) -> bool:
         
         sync_orcamentos(conn_db2, conn_sqlite)
         transform_data(conn_sqlite)
+        sync_products_stock(conn_db2, conn_sqlite)
         sync_box_barcodes(conn_db2, conn_sqlite)
         sync_enderecos_wms(conn_db2, conn_sqlite)
         sync_notas_recebimento(conn_db2, conn_sqlite)
