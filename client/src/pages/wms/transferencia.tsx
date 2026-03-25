@@ -228,8 +228,8 @@ export default function TransferenciaPage() {
           <CardContent>
             <div className="flex gap-2">
               <Input placeholder="Escaneie ou digite o código do pallet" value={scanInput} onChange={e => setScanInput(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && loadPallet(scanInput)} autoFocus data-testid="input-scan-pallet" />
-              <Button onClick={() => loadPallet(scanInput)} disabled={!scanInput.trim()} data-testid="button-search-pallet">
+                onKeyDown={e => e.key === "Enter" && loadPallet(scanInput)} className="h-12" autoFocus data-testid="input-scan-pallet" />
+              <Button className="h-12 shrink-0" onClick={() => loadPallet(scanInput)} disabled={!scanInput.trim()} data-testid="button-search-pallet">
                 <QrCode className="h-4 w-4 mr-2" /> Buscar
               </Button>
             </div>
@@ -257,16 +257,18 @@ export default function TransferenciaPage() {
                 {filteredPallets.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-6">Nenhum pallet encontrado</p>
                 ) : filteredPallets.map((p: any) => (
-                  <div key={p.id} className="flex items-center justify-between p-3 rounded-lg border cursor-pointer hover:bg-muted/50 transition-colors"
+                  <div key={p.id} className="flex items-center justify-between gap-2 p-3 rounded-lg border cursor-pointer hover:bg-muted/50 transition-colors min-h-[56px]"
                     onClick={() => loadPalletDetail(p)} data-testid={`pallet-row-${p.id}`}>
-                    <div className="flex items-center gap-3">
-                      <Package className="h-5 w-5 text-primary" />
-                      <div>
-                        <div className="font-mono font-semibold">{p.code}</div>
-                        <div className="text-xs text-muted-foreground">{p.address?.code || "Sem endereço"} · {p.items?.length || 0} itens</div>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <Package className="h-5 w-5 text-primary shrink-0" />
+                      <div className="min-w-0">
+                        <div className="font-mono font-semibold truncate">{p.code}</div>
+                        <div className="text-xs text-muted-foreground truncate">
+                          {p.address?.code || "Sem endereço"} · {p.items?.length || 0} itens
+                        </div>
                       </div>
                     </div>
-                    <Badge className={statusColors[p.status] || ""}>{statusLabels[p.status] || p.status}</Badge>
+                    <Badge className={`${statusColors[p.status] || ""} shrink-0`}>{statusLabels[p.status] || p.status}</Badge>
                   </div>
                 ))}
               </div>
@@ -389,7 +391,7 @@ export default function TransferenciaPage() {
                     </div>
                   )}
 
-                  <Button className="w-full" onClick={() => setShowTransferConfirm(true)}
+                  <Button className="w-full h-14 text-base" onClick={() => setShowTransferConfirm(true)}
                     disabled={!canTransfer || transferMutation.isPending} data-testid="button-transfer">
                     {transferMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <ArrowRightLeft className="h-4 w-4 mr-2" />}
                     {transferMode === "partial" ? `Transferir ${totalSelected} un` : "Transferir Pallet"}
@@ -404,11 +406,11 @@ export default function TransferenciaPage() {
               )}
 
               <div className="flex gap-2">
-                <Button variant="outline" className="flex-1" onClick={() => { setSelectedPallet(null); setPalletDetail(null); }} data-testid="button-back-list">
+                <Button variant="outline" className="flex-1 h-12" onClick={() => { setSelectedPallet(null); setPalletDetail(null); }} data-testid="button-back-list">
                   Voltar à lista
                 </Button>
                 {isSupervisor && selectedPallet.status !== "cancelado" && (
-                  <Button variant="destructive" onClick={() => setShowCancel(!showCancel)} data-testid="button-show-cancel">
+                  <Button variant="destructive" className="h-12" onClick={() => setShowCancel(!showCancel)} data-testid="button-show-cancel">
                     <Ban className="h-4 w-4 mr-2" /> Cancelar
                   </Button>
                 )}

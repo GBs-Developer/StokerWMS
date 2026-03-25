@@ -443,17 +443,19 @@ export default function RecebimentoPage() {
         <div className="flex rounded-lg border bg-muted/30 p-1 gap-1">
           <button
             onClick={() => setActiveTab("scan")}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-md text-sm font-medium transition-all ${activeTab === "scan" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+            className={`flex-1 flex items-center justify-center gap-2 py-3 px-3 rounded-md text-sm font-medium transition-all min-h-[48px] ${activeTab === "scan" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
             data-testid="tab-scan"
           >
-            <ScanBarcode className="h-4 w-4" /> Leitura
+            <ScanBarcode className="h-4 w-4 shrink-0" />
+            <span className="truncate">Leitura de Código</span>
           </button>
           <button
             onClick={() => setActiveTab("nf")}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-md text-sm font-medium transition-all ${activeTab === "nf" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+            className={`flex-1 flex items-center justify-center gap-2 py-3 px-3 rounded-md text-sm font-medium transition-all min-h-[48px] ${activeTab === "nf" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
             data-testid="tab-nf"
           >
-            <FileText className="h-4 w-4" /> Importar NF
+            <FileText className="h-4 w-4 shrink-0" />
+            <span className="truncate">Importar da NF</span>
           </button>
         </div>
 
@@ -574,12 +576,17 @@ export default function RecebimentoPage() {
                         className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all ${nfData?.nfNumber === nf.nfNumber ? "bg-primary/5 border-primary/30 ring-1 ring-primary/20" : "hover:bg-muted/50"}`}
                         data-testid={`nf-list-${nf.id}`}
                       >
-                        <div>
+                        <div className="min-w-0 flex-1">
                           <span className="font-mono font-semibold text-sm">NF {nf.nfNumber}</span>
-                          {nf.supplierName && <p className="text-xs text-muted-foreground mt-0.5">{nf.supplierName}</p>}
+                          {nf.nfSeries && <span className="text-xs text-muted-foreground ml-1">Série {nf.nfSeries}</span>}
+                          {nf.supplierName && (
+                            <p className="text-xs text-muted-foreground mt-0.5 truncate">Fornecedor: {nf.supplierName}</p>
+                          )}
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Badge variant="secondary">{nf.status}</Badge>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Badge variant={nf.status === "pendente" ? "secondary" : nf.status === "recebida" ? "default" : "outline"}>
+                            {nf.status}
+                          </Badge>
                           <ArrowRight className="h-4 w-4 text-muted-foreground" />
                         </div>
                       </div>
@@ -594,12 +601,16 @@ export default function RecebimentoPage() {
             {nfData && !nfLoading && (
               <Card className="border-2 border-blue-200 dark:border-blue-900">
                 <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-base">
+                  <div className="flex items-center justify-between gap-2">
+                    <CardTitle className="text-base min-w-0">
                       <span className="font-mono">NF {nfData.nfNumber}</span>
-                      {nfData.supplierName && <span className="text-sm text-muted-foreground font-normal ml-2">— {nfData.supplierName}</span>}
+                      {nfData.supplierName && (
+                        <span className="text-sm text-muted-foreground font-normal ml-2 truncate">— {nfData.supplierName}</span>
+                      )}
                     </CardTitle>
-                    <Button variant="ghost" size="sm" onClick={() => { setNfData(null); setSelectedNfItems(new Set()); }}>Fechar</Button>
+                    <Button variant="ghost" size="sm" className="shrink-0 h-10" onClick={() => { setNfData(null); setSelectedNfItems(new Set()); }}>
+                      Fechar
+                    </Button>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3">
@@ -616,17 +627,18 @@ export default function RecebimentoPage() {
 
                   {nfData.items?.length > 0 ? (
                     <>
-                      <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                         <p className="text-sm text-muted-foreground">
                           {selectedNfItems.size > 0 ? `${selectedNfItems.size} selecionado(s)` : `${nfData.items.length} itens`}
                         </p>
-                        <div className="flex gap-2">
-                          <Button variant="outline" size="sm" onClick={addAllNfItems} disabled={!!nfImportProgress} data-testid="button-add-all-nf">
+                        <div className="flex gap-2 shrink-0">
+                          <Button variant="outline" size="sm" className="h-10 flex-1 sm:flex-none" onClick={addAllNfItems} disabled={!!nfImportProgress} data-testid="button-add-all-nf">
                             Adicionar Todos
                           </Button>
                           {selectedNfItems.size > 0 && (
-                            <Button size="sm" onClick={addSelectedNfItems} disabled={!!nfImportProgress} data-testid="button-add-selected-nf">
-                              <Plus className="h-4 w-4 mr-1" />Adicionar {selectedNfItems.size}
+                            <Button size="sm" className="h-10 flex-1 sm:flex-none" onClick={addSelectedNfItems} disabled={!!nfImportProgress} data-testid="button-add-selected-nf">
+                              <Plus className="h-4 w-4 mr-1" />
+                              Adicionar {selectedNfItems.size}
                             </Button>
                           )}
                         </div>
@@ -738,7 +750,7 @@ export default function RecebimentoPage() {
                   <Button
                     onClick={() => setShowCreateConfirm(true)}
                     disabled={createPalletMutation.isPending || palletItems.length === 0}
-                    className="gap-2"
+                    className="gap-2 h-12 shrink-0"
                     data-testid="button-create-pallet"
                   >
                     {createPalletMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Package className="h-4 w-4" />}
@@ -765,24 +777,25 @@ export default function RecebimentoPage() {
             ) : (
               <div className="space-y-2">
                 {pallets.map((p: any) => (
-                  <div key={p.id} className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/20 transition-colors" data-testid={`pallet-row-${p.id}`}>
+                  <div key={p.id} className="flex items-center justify-between gap-2 p-3 rounded-lg border hover:bg-muted/30 transition-colors" data-testid={`pallet-row-${p.id}`}>
                     <div className="flex items-center gap-3 min-w-0">
-                      <QrCode className="h-5 w-5 text-primary flex-shrink-0" />
+                      <QrCode className="h-5 w-5 text-primary shrink-0" />
                       <div className="min-w-0">
-                        <span className="font-mono font-semibold">{p.code}</span>
-                        <div className="text-xs text-muted-foreground">
+                        <span className="font-mono font-semibold truncate block">{p.code}</span>
+                        <div className="text-xs text-muted-foreground truncate">
                           {p.items?.length || 0} itens · {new Date(p.createdAt).toLocaleString("pt-BR")}
                         </div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => openEditPallet(p)} title="Editar pallet" data-testid={`button-edit-${p.id}`}>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Badge variant="secondary" className="hidden sm:inline-flex">Sem endereço</Badge>
+                      <Button variant="outline" size="sm" className="h-10 w-10 p-0" onClick={() => openEditPallet(p)} title="Editar pallet" data-testid={`button-edit-${p.id}`}>
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
-                      <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => fetchLabel(p.id)} disabled={labelLoading} title="Imprimir etiqueta" data-testid={`button-print-${p.id}`}>
-                        <Printer className="h-3.5 w-3.5" />
+                      <Button variant="outline" size="sm" className="h-10 w-10 p-0" onClick={() => fetchLabel(p.id)} disabled={labelLoading} title="Imprimir etiqueta" data-testid={`button-print-${p.id}`}>
+                        <Printer className="h-4 w-4" />
                       </Button>
-                      <Button variant="outline" size="sm" className="h-8 w-8 p-0 text-destructive hover:bg-destructive hover:text-destructive-foreground" onClick={() => setCancelPalletTarget(p)} title="Cancelar pallet" data-testid={`button-cancel-${p.id}`}>
+                      <Button variant="outline" size="sm" className="h-10 w-10 p-0 text-destructive hover:bg-destructive hover:text-destructive-foreground" onClick={() => setCancelPalletTarget(p)} title="Cancelar pallet" data-testid={`button-cancel-${p.id}`}>
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>

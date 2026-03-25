@@ -14,27 +14,26 @@ interface ItemCardProps {
 
 export function ItemCard({ item, onConfirm, onSkip, onIssue }: ItemCardProps) {
     return (
-        <Card className="w-full max-w-md mx-auto shadow-lg border-2">
+        <Card className="w-full max-w-full mx-0 shadow-lg border-2 overflow-hidden">
             <CardHeader className="pb-2">
-                <div className="flex justify-between items-start">
-                    <Badge variant="outline" className="text-sm">
+                <div className="flex justify-between items-start gap-2">
+                    <Badge variant="outline" className="text-sm shrink-0 max-w-[50%] truncate">
                         {item.section}
                     </Badge>
-                    <Badge variant={item.statusLocal === 'picked' ? "default" : "secondary"}>
+                    <Badge variant={item.statusLocal === 'picked' ? "default" : "secondary"} className="shrink-0">
                         {item.statusLocal === 'picked' ? 'Separado' : 'Pendente'}
                     </Badge>
                 </div>
-                <CardTitle className="text-xl mt-2 line-clamp-2 leading-tight">
+                <CardTitle className="text-xl mt-2 line-clamp-2 leading-tight break-words">
                     {item.product.name}
                 </CardTitle>
-                <div className="text-muted-foreground text-sm font-mono mt-1">
+                <div className="text-muted-foreground text-sm font-mono mt-1 truncate">
                     EAN: {item.product.barcode || "SEM CÓDIGO"}
                 </div>
             </CardHeader>
 
             <CardContent className="py-4 flex flex-col items-center space-y-4">
-                {/* Placeholder for Product Image */}
-                <div className="w-32 h-32 bg-muted rounded-md flex items-center justify-center text-muted-foreground">
+                <div className="w-28 h-28 bg-muted rounded-md flex items-center justify-center text-muted-foreground shrink-0">
                     <span className="text-xs">Sem Imagem</span>
                 </div>
 
@@ -52,7 +51,7 @@ export function ItemCard({ item, onConfirm, onSkip, onIssue }: ItemCardProps) {
             <CardFooter className="flex flex-col gap-3 pt-2">
                 <Button
                     className="w-full h-14 text-lg font-bold bg-green-600 hover:bg-green-700"
-                    onClick={() => onConfirm(item.quantity)} // Separar tudo por padrão
+                    onClick={() => onConfirm(item.quantity)}
                 >
                     <Check className="mr-2 h-6 w-6" />
                     CONFIRMAR

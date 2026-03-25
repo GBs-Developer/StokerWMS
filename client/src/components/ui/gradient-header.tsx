@@ -19,14 +19,14 @@ export function GradientHeader({ title, subtitle, children, className }: Gradien
     >
       <div className="max-w-7xl mx-auto">
         {title ? (
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div>
-              <h1 className="text-2xl md:text-3xl font-bold tracking-tight">{title}</h1>
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 min-w-0 overflow-hidden">
+            <div className="min-w-0">
+              <h1 className="text-2xl md:text-3xl font-bold tracking-tight truncate">{title}</h1>
               {subtitle && (
-                <p className="text-white/80 mt-1 text-sm md:text-base">{subtitle}</p>
+                <p className="text-white/80 mt-1 text-sm md:text-base truncate">{subtitle}</p>
               )}
             </div>
-            {children && <div className="flex items-center gap-3">{children}</div>}
+            {children && <div className="flex items-center gap-3 shrink-0">{children}</div>}
           </div>
         ) : (
           children

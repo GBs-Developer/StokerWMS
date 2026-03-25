@@ -108,7 +108,7 @@ export function PickingSession() {
                 <CheckCircle2 className="h-24 w-24 text-green-500" />
                 <h2 className="text-3xl font-bold">Seção Finalizada!</h2>
                 <p className="text-muted-foreground">Todos os itens desta seção foram separados.</p>
-                <Button size="lg" className="w-full" onClick={handleUnlock}>
+                <Button size="lg" className="w-full h-14" onClick={handleUnlock}>
                     Finalizar Sessão
                 </Button>
             </div>
@@ -116,20 +116,20 @@ export function PickingSession() {
     }
 
     return (
-        <div className="flex flex-col h-full">
+        <div className="flex flex-col h-full min-w-0 overflow-hidden">
             {/* Header with Exit button */}
-            <div className="flex justify-between items-center mb-4">
-                <Button variant="ghost" onClick={handleUnlock}>
+            <div className="flex justify-between items-center mb-4 shrink-0">
+                <Button variant="ghost" className="h-12 px-4" onClick={handleUnlock}>
                     <ArrowLeft className="mr-2 h-4 w-4" /> Sair
                 </Button>
-                <span className="font-mono text-sm">
+                <span className="font-mono text-sm shrink-0">
                     {items.length - pendingItems.length} / {items.length}
                 </span>
             </div>
 
             <ScannerHandler onScan={handleScan} />
 
-            <div className="flex-1 flex items-center justify-center">
+            <div className="flex-1 flex items-center justify-center overflow-hidden min-w-0 w-full">
                 <ItemCard
                     item={currentItem}
                     onConfirm={handleConfirm}

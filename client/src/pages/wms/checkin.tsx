@@ -198,10 +198,11 @@ export default function CheckinPage() {
                 value={scanInput}
                 onChange={e => setScanInput(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && loadPallet(scanInput)}
+                className="h-12"
                 autoFocus
                 data-testid="input-scan-checkin"
               />
-              <Button onClick={() => loadPallet(scanInput)} disabled={!scanInput.trim()} data-testid="button-search-checkin">
+              <Button className="h-12 shrink-0" onClick={() => loadPallet(scanInput)} disabled={!scanInput.trim()} data-testid="button-search-checkin">
                 <QrCode className="h-4 w-4 mr-2" /> Buscar
               </Button>
             </div>
@@ -229,20 +230,25 @@ export default function CheckinPage() {
             <CardContent>
               <div className="space-y-2">
                 {filteredPallets.map((p: any) => (
-                  <div key={p.id} className="flex items-center justify-between p-3 rounded-lg border cursor-pointer hover:bg-muted/50 transition-colors"
-                    onClick={() => loadPallet(p.code)} data-testid={`checkin-pallet-${p.id}`}>
-                    <div className="flex items-center gap-3">
-                      <Package className="h-5 w-5 text-primary" />
-                      <div>
-                        <div className="font-mono font-semibold">{p.code}</div>
-                        <div className="text-xs text-muted-foreground flex items-center gap-2">
-                          <span>{p.items?.length || 0} itens</span>
-                          <Clock className="h-3 w-3" />
-                          <span>{new Date(p.createdAt).toLocaleString("pt-BR")}</span>
+                  <div key={p.id} className="group relative">
+                    <div className="flex items-center justify-between gap-2 p-3 rounded-lg border cursor-pointer hover:bg-muted/50 transition-colors min-h-[56px]"
+                      onClick={() => loadPallet(p.code)} data-testid={`checkin-pallet-${p.id}`}>
+                      <div className="flex items-center gap-3 min-w-0">
+                        <Package className="h-5 w-5 text-primary shrink-0" />
+                        <div className="min-w-0">
+                          <div className="font-mono font-semibold text-sm truncate">{p.code}</div>
+                          <div className="flex items-center gap-2 text-[10px] text-muted-foreground uppercase flex-wrap">
+                            <span>{p.items?.length || 0} itens</span>
+                            <span className="flex items-center gap-1">
+                              <Clock className="h-2.5 w-2.5" />
+                              {new Date(p.createdAt).toLocaleString("pt-BR")}
+                            </span>
+                          </div>
                         </div>
                       </div>
+                      <Badge variant="outline" className="text-[10px] opacity-70 shrink-0 hidden sm:inline-flex">Aguardando Endereço</Badge>
+                      <Badge variant="outline" className="text-xs">Aguardando</Badge>
                     </div>
-                    <Badge variant="outline" className="text-xs">Aguardando</Badge>
                   </div>
                 ))}
               </div>
@@ -312,20 +318,20 @@ export default function CheckinPage() {
                 </div>
               )}
 
-              <Button className="w-full" onClick={() => setShowAllocateConfirm(true)}
+              <div className="flex gap-2">
+                <Button variant="outline" className="flex-1 h-12" onClick={() => { setSelectedPallet(null); setEditableItems([]); }} data-testid="button-back-checkin">
+                  Voltar
+                </Button>
+                <Button variant="destructive" className="h-12" onClick={() => setShowCancelConfirm(selectedPallet.id)} disabled={cancelMutation.isPending} data-testid="button-cancel-pallet">
+                  <Ban className="h-4 w-4 mr-2" /> Cancelar
+                </Button>
+              </div>
+
+              <Button className="w-full h-14 text-base" onClick={() => setShowAllocateConfirm(true)}
                 disabled={!selectedAddress || allocateMutation.isPending || itemsChanged} data-testid="button-allocate">
                 {allocateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle className="h-4 w-4 mr-2" />}
                 {itemsChanged ? "Salve as alterações primeiro" : "Alocar Pallet"}
               </Button>
-
-              <div className="flex gap-2">
-                <Button variant="outline" className="flex-1" onClick={() => { setSelectedPallet(null); setEditableItems([]); }} data-testid="button-back-checkin">
-                  Voltar
-                </Button>
-                <Button variant="destructive" onClick={() => setShowCancelConfirm(selectedPallet.id)} disabled={cancelMutation.isPending} data-testid="button-cancel-pallet">
-                  <Ban className="h-4 w-4 mr-2" /> Cancelar
-                </Button>
-              </div>
             </CardContent>
           </Card>
         )}

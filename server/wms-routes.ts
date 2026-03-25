@@ -1166,6 +1166,7 @@ export function registerWmsRoutes(app: Express) {
       }
 
       const [newItem] = await db.insert(countingCycleItems).values({
+        id: `cci-${Date.now()}-${Math.random().toString(36).slice(2)}`,
         cycleId: id,
         companyId,
         productId: resolvedProductId,

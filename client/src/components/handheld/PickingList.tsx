@@ -96,22 +96,22 @@ export function PickingList() {
     }
 
     return (
-        <div className="space-y-4">
-            <h2 className="text-xl font-bold mb-4">Pedidos Disponíveis</h2>
+        <div className="space-y-4 min-w-0 overflow-hidden">
+            <h2 className="text-xl font-bold mb-4 truncate">Pedidos Disponíveis</h2>
             {orders?.length === 0 && <p className="text-muted-foreground text-center">Nenhum pedido pendente.</p>}
 
             <Accordion type="single" collapsible onValueChange={setExpandedOrder}>
                 {orders?.map(order => (
                     <AccordionItem key={order.id} value={order.id}>
-                        <AccordionTrigger className="hover:no-underline px-4 border rounded-lg mb-2 bg-card hover:bg-accent">
-                            <div className="flex flex-col items-start text-left w-full">
-                                <div className="flex justify-between w-full">
-                                    <span className="font-bold">Pedido #{order.erpOrderId}</span>
-                                    <Badge variant={order.priority > 0 ? "destructive" : "outline"}>
+                        <AccordionTrigger className="hover:no-underline px-4 border rounded-lg mb-2 bg-card hover:bg-accent min-h-[48px]">
+                            <div className="flex flex-col items-start text-left w-full min-w-0">
+                                <div className="flex justify-between w-full min-w-0 gap-2">
+                                    <span className="font-bold truncate">Pedido #{order.erpOrderId}</span>
+                                    <Badge variant={order.priority > 0 ? "destructive" : "outline"} className="shrink-0">
                                         {order.priority > 0 ? "Prioridade" : "Normal"}
                                     </Badge>
                                 </div>
-                                <span className="text-sm text-muted-foreground">{order.customerName}</span>
+                                <span className="text-sm text-muted-foreground truncate w-full">{order.customerName}</span>
                             </div>
                         </AccordionTrigger>
 
@@ -125,15 +125,15 @@ export function PickingList() {
                                         {getSections(orderDetails.items).map(([sectionName, items]) => (
                                             <Card key={sectionName} className="cursor-pointer hover:bg-accent transition-colors"
                                                 onClick={() => handleStartPicking(order, sectionName, items)}>
-                                                <CardContent className="flex items-center justify-between p-4">
-                                                    <div className="flex items-center space-x-3">
-                                                        <MapPin className="h-5 w-5 text-primary" />
-                                                        <div>
-                                                            <p className="font-bold text-lg">{sectionName}</p>
+                                                <CardContent className="flex items-center justify-between p-4 min-h-[48px]">
+                                                    <div className="flex items-center space-x-3 min-w-0">
+                                                        <MapPin className="h-5 w-5 text-primary shrink-0" />
+                                                        <div className="min-w-0">
+                                                            <p className="font-bold text-lg truncate">{sectionName}</p>
                                                             <p className="text-xs text-muted-foreground">{items.length} itens</p>
                                                         </div>
                                                     </div>
-                                                    <Button size="sm">Iniciar</Button>
+                                                    <Button size="sm" className="shrink-0 h-10">Iniciar</Button>
                                                 </CardContent>
                                             </Card>
                                         ))}

@@ -1104,9 +1104,9 @@ export default function SeparacaoPage() {
                           data-testid={`checkbox-order-${firstWU.orderId}`}
                         />
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-mono text-sm font-semibold">{firstWU.order.erpOrderId}</span>
-                            {routeName && <span className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded font-medium">Rota: {routeName}</span>}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-mono text-sm font-semibold shrink-0">{firstWU.order.erpOrderId}</span>
+                            {routeName && <span className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded font-medium truncate max-w-[100px]">Rota: {routeName}</span>}
                           </div>
                           <p className="text-xs text-muted-foreground truncate">{firstWU.order.customerName}</p>
                         </div>
@@ -1122,7 +1122,7 @@ export default function SeparacaoPage() {
 
               {/* Botão fixo no rodapé */}
               <Button
-                className="w-full h-11 text-sm shrink-0"
+                className="w-full h-12 text-sm shrink-0"
                 onClick={handleStartSeparation}
                 disabled={selectedWorkUnits.length === 0 || lockMutation.isPending}
                 data-testid="button-start-separation"
@@ -1173,19 +1173,19 @@ export default function SeparacaoPage() {
                       ))}
                     </div>
 
-                    <p className="text-sm font-medium leading-tight">{currentProduct.product.name}</p>
+                    <p className="text-sm font-medium leading-tight break-words">{currentProduct.product.name}</p>
                     {currentProduct.product.manufacturer && (
-                      <p className="text-xs text-muted-foreground mt-0.5">{"Fabricante:"} {currentProduct.product.manufacturer}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5 truncate">{"Fabricante:"} {currentProduct.product.manufacturer}</p>
                     )}
 
                     <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
-                      <div>
+                      <div className="min-w-0 overflow-hidden">
                         <span className="text-muted-foreground">{"Código:"}</span>
-                        <span className="ml-1 font-mono font-medium">{currentProduct.product.erpCode}</span>
+                        <span className="ml-1 font-mono font-medium truncate block">{currentProduct.product.erpCode}</span>
                       </div>
-                      <div>
+                      <div className="min-w-0 overflow-hidden">
                         <span className="text-muted-foreground">{"Cód. Barras:"}</span>
-                        <span className="ml-1 font-mono">{currentProduct.product.barcode || "—"}</span>
+                        <span className="ml-1 font-mono truncate block">{currentProduct.product.barcode || "—"}</span>
                       </div>
                     </div>
 
@@ -1243,7 +1243,7 @@ export default function SeparacaoPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      className="flex-1 h-9 text-xs"
+                      className="flex-1 h-12 text-xs"
                       onClick={() => {
                         const firstIncompleteItem = currentProduct.items.find(i =>
                           Number(i.quantity) > Number(i.separatedQty) + Number(i.exceptionQty || 0)
@@ -1257,7 +1257,7 @@ export default function SeparacaoPage() {
                     </Button>
                     <Button
                       size="sm"
-                      className="flex-1 h-9 text-xs"
+                      className="flex-1 h-12 text-xs"
                       onClick={handleNextProduct}
                     >
                       {"Próximo"}
@@ -1268,7 +1268,7 @@ export default function SeparacaoPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      className="flex-1 h-9 text-xs text-destructive border-destructive/30 hover:bg-destructive/10"
+                      className="flex-1 h-12 text-xs text-destructive border-destructive/30 hover:bg-destructive/10"
                       onClick={handleCancelPicking}
                       disabled={unlockMutation.isPending}
                       data-testid="button-cancel-picking"
@@ -1277,7 +1277,7 @@ export default function SeparacaoPage() {
                     </Button>
                     <Button
                       size="sm"
-                      className="flex-1 h-9 text-xs bg-green-600 hover:bg-green-700"
+                      className="flex-1 h-12 text-xs bg-green-600 hover:bg-green-700"
                       onClick={handleCompleteAll}
                       disabled={!allItemsComplete || completeWorkUnitMutation.isPending}
                       data-testid="button-complete-picking"
@@ -1389,7 +1389,7 @@ export default function SeparacaoPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      className="flex-1 h-9 text-xs text-destructive border-destructive/30 hover:bg-destructive/10"
+                      className="flex-1 h-12 text-xs text-destructive border-destructive/30 hover:bg-destructive/10"
                       onClick={handleCancelPicking}
                       disabled={unlockMutation.isPending}
                     >
@@ -1397,7 +1397,7 @@ export default function SeparacaoPage() {
                     </Button>
                     <Button
                       size="sm"
-                      className="flex-1 h-9 text-xs bg-green-600 hover:bg-green-700"
+                      className="flex-1 h-12 text-xs bg-green-600 hover:bg-green-700"
                       onClick={handleCompleteAll}
                       disabled={!allItemsComplete || completeWorkUnitMutation.isPending}
                     >
@@ -1412,7 +1412,7 @@ export default function SeparacaoPage() {
 
           <nav className="flex border-t border-border bg-card shrink-0">
             <button
-              className={`flex-1 flex flex-col items-center py-2 gap-0.5 transition-colors ${pickingTab === "product" ? "text-primary bg-primary/5" : "text-muted-foreground"
+              className={`flex-1 flex flex-col items-center py-3 gap-0.5 min-h-[48px] transition-colors ${pickingTab === "product" ? "text-primary bg-primary/5" : "text-muted-foreground"
                 }`}
               onClick={() => setPickingTab("product")}
             >
@@ -1420,7 +1420,7 @@ export default function SeparacaoPage() {
               <span className="text-[10px] font-medium">Produto</span>
             </button>
             <button
-              className={`flex-1 flex flex-col items-center py-2 gap-0.5 transition-colors ${pickingTab === "list" ? "text-primary bg-primary/5" : "text-muted-foreground"
+              className={`flex-1 flex flex-col items-center py-3 gap-0.5 min-h-[48px] transition-colors ${pickingTab === "list" ? "text-primary bg-primary/5" : "text-muted-foreground"
                 }`}
               onClick={() => setPickingTab("list")}
             >
