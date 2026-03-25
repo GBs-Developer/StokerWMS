@@ -17,6 +17,12 @@ Preferred communication style: Simple, everyday language.
 - **Routing**: Wouter (lightweight alternative to React Router)
 - **State Management**: TanStack React Query for server state with controlled caching per session
 - **UI Components**: shadcn/ui (Radix primitives) with Tailwind CSS and CSS custom properties for theming
+- **Design System**: Premium mobile-first UI with Inter font (Google Fonts), glassmorphism effects, `rounded-2xl` cards, `rounded-xl` inputs/buttons, subtle animations (fade-in, slide-up, scale-in)
+- **Layout Pattern**: `max-w-lg mx-auto px-4 py-4 space-y-3 safe-bottom` for WMS operational pages
+- **Header**: `GradientHeader` component with dark gradient (`hsl(222,47%,14%)` → `hsl(199,89%,30%)`) + radial overlays, `compact` prop
+- **Cards**: `rounded-2xl border border-border/50 bg-card` with `divide-y divide-border/30` item lists
+- **CTA Buttons**: `h-14 rounded-xl font-semibold shadow-lg shadow-primary/15 active:scale-[0.98]`
+- **Status Badges**: Named `statusStyles` Record with light/dark border+text+bg Tailwind classes per status
 - **Form Handling**: React Hook Form with Zod validation
 - **Date Utilities**: date-fns
 

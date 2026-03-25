@@ -5,7 +5,6 @@ import { GradientHeader } from "@/components/ui/gradient-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -15,7 +14,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, ArrowRightLeft, MapPin, Loader2, Ban, QrCode, Package, Search, X, Clock, ArrowRight, Minus, Plus } from "lucide-react";
+import { ArrowLeft, ArrowRightLeft, MapPin, Loader2, Ban, QrCode, Package, Search, X, ArrowRight, Minus, Plus } from "lucide-react";
 import { useLocation } from "wouter";
 import { AddressPicker } from "@/components/wms/address-picker";
 
@@ -91,7 +90,7 @@ export default function TransferenciaPage() {
       loadPalletDetail(pallet);
       setScanInput("");
     } else {
-      toast({ title: "Pallet não encontrado", description: "Verifique o código e tente novamente", variant: "destructive" });
+      toast({ title: "Pallet nao encontrado", variant: "destructive" });
     }
   };
 
@@ -125,10 +124,7 @@ export default function TransferenciaPage() {
           body: JSON.stringify({ toAddressId }),
           credentials: "include",
         });
-        if (!res.ok) {
-          const data = await res.json();
-          throw new Error(data.error || "Erro");
-        }
+        if (!res.ok) { const data = await res.json(); throw new Error(data.error || "Erro"); }
         return res.json();
       } else {
         const items = Array.from(selectedItems.entries())
@@ -141,10 +137,7 @@ export default function TransferenciaPage() {
           body: JSON.stringify({ items, toAddressId }),
           credentials: "include",
         });
-        if (!res.ok) {
-          const data = await res.json();
-          throw new Error(data.error || "Erro");
-        }
+        if (!res.ok) { const data = await res.json(); throw new Error(data.error || "Erro"); }
         return res.json();
       }
     },
@@ -152,14 +145,14 @@ export default function TransferenciaPage() {
       queryClient.invalidateQueries({ queryKey: ["pallets"] });
       queryClient.invalidateQueries({ queryKey: ["available-addresses"] });
       queryClient.invalidateQueries({ queryKey: ["pallets-all"] });
-      toast({ title: "Transferência realizada com sucesso!" });
+      toast({ title: "Transferencia realizada!" });
       setSelectedPallet(null);
       setPalletDetail(null);
       setToAddressId("");
       setShowTransferConfirm(false);
     },
     onError: (e: Error) => {
-      toast({ title: "Erro na transferência", description: e.message, variant: "destructive" });
+      toast({ title: "Erro", description: e.message, variant: "destructive" });
       setShowTransferConfirm(false);
     },
   });
@@ -172,10 +165,7 @@ export default function TransferenciaPage() {
         body: JSON.stringify({ reason: cancelReason }),
         credentials: "include",
       });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "Erro");
-      }
+      if (!res.ok) { const data = await res.json(); throw new Error(data.error || "Erro"); }
       return res.json();
     },
     onSuccess: () => {
@@ -192,14 +182,14 @@ export default function TransferenciaPage() {
 
   const isSupervisor = user?.role === "supervisor" || user?.role === "administrador";
   const statusLabels: Record<string, string> = {
-    sem_endereco: "Sem Endereço", alocado: "Alocado",
-    em_transferencia: "Em Transferência", cancelado: "Cancelado",
+    sem_endereco: "Sem Endereco", alocado: "Alocado",
+    em_transferencia: "Em Transferencia", cancelado: "Cancelado",
   };
-  const statusColors: Record<string, string> = {
-    sem_endereco: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
-    alocado: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
-    em_transferencia: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
-    cancelado: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
+  const statusStyles: Record<string, string> = {
+    sem_endereco: "border-amber-200 text-amber-700 bg-amber-50 dark:border-amber-800 dark:text-amber-400 dark:bg-amber-950/30",
+    alocado: "border-emerald-200 text-emerald-700 bg-emerald-50 dark:border-emerald-800 dark:text-emerald-400 dark:bg-emerald-950/30",
+    em_transferencia: "border-blue-200 text-blue-700 bg-blue-50 dark:border-blue-800 dark:text-blue-400 dark:bg-blue-950/30",
+    cancelado: "border-red-200 text-red-700 bg-red-50 dark:border-red-800 dark:text-red-400 dark:bg-red-950/30",
   };
 
   const activePallets = allPallets.filter((p: any) => p.status !== "cancelado");
@@ -215,242 +205,250 @@ export default function TransferenciaPage() {
   const canTransfer = !!toAddressId && (transferMode === "full" || totalSelected > 0);
 
   return (
-    <div className="min-h-screen bg-background">
-      <GradientHeader title="Transferência" subtitle={companyId ? (companiesData?.find(c => c.id === companyId)?.name || "") : ""}>
-        <Button variant="outline" size="sm" onClick={() => navigate("/")} className="bg-white/10 border-white/20 text-white hover:bg-white/20" data-testid="button-back">
-          <ArrowLeft className="h-4 w-4 mr-2" /> Voltar
+    <div className="min-h-[100dvh] bg-background">
+      <GradientHeader title="Transferencia" subtitle={companyId ? (companiesData?.find(c => c.id === companyId)?.name || "") : ""} compact>
+        <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="text-white/70 hover:text-white hover:bg-white/10 h-9" data-testid="button-back">
+          <ArrowLeft className="h-4 w-4 mr-1.5" /> Voltar
         </Button>
       </GradientHeader>
 
-      <main className="max-w-4xl mx-auto px-3 py-4 space-y-4">
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-base">Buscar Pallet</CardTitle></CardHeader>
-          <CardContent>
-            <div className="flex gap-2">
-              <Input placeholder="Escaneie ou digite o código do pallet" value={scanInput} onChange={e => setScanInput(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && loadPallet(scanInput)} className="h-12" autoFocus data-testid="input-scan-pallet" />
-              <Button className="h-12 shrink-0" onClick={() => loadPallet(scanInput)} disabled={!scanInput.trim()} data-testid="button-search-pallet">
-                <QrCode className="h-4 w-4 mr-2" /> Buscar
-              </Button>
+      <main className="max-w-lg mx-auto px-4 py-4 space-y-3 safe-bottom">
+        <div className="rounded-2xl border border-border/50 bg-card p-4 animate-fade-in">
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <QrCode className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/50" />
+              <Input placeholder="Escanear pallet..." value={scanInput} onChange={e => setScanInput(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && loadPallet(scanInput)} className="pl-10 h-12 rounded-xl text-sm" autoFocus data-testid="input-scan-pallet" />
             </div>
-          </CardContent>
-        </Card>
+            <Button className="h-12 px-4 rounded-xl shrink-0" onClick={() => loadPallet(scanInput)} disabled={!scanInput.trim()} data-testid="button-search-pallet">
+              <Search className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
 
         {!selectedPallet && (
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base">Pallets Ativos ({activePallets.length})</CardTitle>
-                <div className="relative w-44">
-                  <Search className="absolute left-2.5 top-2 h-4 w-4 text-muted-foreground" />
-                  <Input placeholder="Filtrar..." value={filterText} onChange={e => setFilterText(e.target.value)} className="pl-8 h-8 text-sm" data-testid="input-filter-pallets" />
-                  {filterText && (
-                    <Button variant="ghost" size="sm" className="absolute right-0.5 top-0.5 h-7 w-7 p-0" onClick={() => setFilterText("")}>
-                      <X className="h-3 w-3" />
-                    </Button>
-                  )}
-                </div>
+          <div className="rounded-2xl border border-border/50 bg-card overflow-hidden animate-slide-up">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border/30">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold">Pallets Ativos</span>
+                <Badge variant="secondary" className="text-[10px] font-bold h-5 px-1.5">{activePallets.length}</Badge>
               </div>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2 max-h-96 overflow-y-auto">
-                {filteredPallets.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-6">Nenhum pallet encontrado</p>
-                ) : filteredPallets.map((p: any) => (
-                  <div key={p.id} className="flex items-center justify-between gap-2 p-3 rounded-lg border cursor-pointer hover:bg-muted/50 transition-colors min-h-[56px]"
-                    onClick={() => loadPalletDetail(p)} data-testid={`pallet-row-${p.id}`}>
-                    <div className="flex items-center gap-3 min-w-0">
-                      <Package className="h-5 w-5 text-primary shrink-0" />
-                      <div className="min-w-0">
-                        <div className="font-mono font-semibold truncate">{p.code}</div>
-                        <div className="text-xs text-muted-foreground truncate">
-                          {p.address?.code || "Sem endereço"} · {p.items?.length || 0} itens
-                        </div>
-                      </div>
-                    </div>
-                    <Badge className={`${statusColors[p.status] || ""} shrink-0`}>{statusLabels[p.status] || p.status}</Badge>
+              <div className="relative w-32">
+                <Input placeholder="Filtrar..." value={filterText} onChange={e => setFilterText(e.target.value)} className="h-7 text-xs rounded-lg pl-2 pr-6" data-testid="input-filter-pallets" />
+                {filterText && (
+                  <button className="absolute right-1 top-1/2 -translate-y-1/2" onClick={() => setFilterText("")}>
+                    <X className="h-3 w-3 text-muted-foreground" />
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="divide-y divide-border/30 max-h-[50vh] overflow-y-auto">
+              {filteredPallets.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-8">Nenhum pallet encontrado</p>
+              ) : filteredPallets.map((p: any) => (
+                <button
+                  key={p.id}
+                  className="w-full flex items-center gap-3 px-4 py-3 active:bg-muted/50 transition-colors text-left"
+                  onClick={() => loadPalletDetail(p)}
+                  data-testid={`pallet-row-${p.id}`}
+                >
+                  <div className="w-9 h-9 rounded-xl bg-primary/8 flex items-center justify-center shrink-0">
+                    <Package className="h-4 w-4 text-primary" />
                   </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-mono font-semibold text-sm truncate">{p.code}</p>
+                    <p className="text-[10px] text-muted-foreground truncate mt-0.5">
+                      {p.address?.code || "Sem endereco"} · {p.items?.length || 0} itens
+                    </p>
+                  </div>
+                  <Badge variant="outline" className={`text-[10px] shrink-0 ${statusStyles[p.status] || ""}`}>
+                    {statusLabels[p.status] || p.status}
+                  </Badge>
+                </button>
+              ))}
+            </div>
+          </div>
         )}
 
         {selectedPallet && (
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base">Pallet: {selectedPallet.code}</CardTitle>
-                <Badge className={statusColors[selectedPallet.status] || ""}>{statusLabels[selectedPallet.status] || selectedPallet.status}</Badge>
+          <div className="space-y-3 animate-slide-up">
+            <div className="rounded-2xl border border-border/50 bg-card overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-border/30">
+                <div className="flex items-center gap-2">
+                  <Package className="h-4 w-4 text-primary" />
+                  <span className="font-mono font-bold text-sm">{selectedPallet.code}</span>
+                </div>
+                <Badge variant="outline" className={`text-[10px] ${statusStyles[selectedPallet.status] || ""}`}>
+                  {statusLabels[selectedPallet.status] || selectedPallet.status}
+                </Badge>
               </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
+
               {selectedPallet.address && (
-                <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/30 border">
-                  <MapPin className="h-4 w-4 text-primary" />
-                  <span className="text-sm">Endereço atual:</span>
-                  <span className="font-mono font-bold text-primary">{selectedPallet.address.code}</span>
+                <div className="flex items-center gap-2 px-4 py-2.5 bg-muted/20 border-b border-border/30">
+                  <MapPin className="h-3.5 w-3.5 text-primary shrink-0" />
+                  <span className="text-xs text-muted-foreground">Atual:</span>
+                  <span className="font-mono font-bold text-xs text-primary">{selectedPallet.address.code}</span>
                 </div>
               )}
 
               {detailLoading ? (
-                <div className="text-center py-4"><Loader2 className="h-6 w-6 mx-auto animate-spin text-muted-foreground" /></div>
+                <div className="text-center py-8"><Loader2 className="h-5 w-5 mx-auto animate-spin text-muted-foreground" /></div>
               ) : palletDetail?.items && palletDetail.items.length > 0 && selectedPallet.status === "alocado" && (
                 <>
-                  <div className="flex rounded-lg border bg-muted/30 p-1 gap-1">
+                  <div className="flex mx-3 mt-3 rounded-xl border bg-muted/30 p-1 gap-1">
                     <button
                       onClick={() => { setTransferMode("full"); setSelectedItems(new Map(palletDetail.items.map((i: any) => [i.productId, i.quantity]))); }}
-                      className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-all ${transferMode === "full" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                      className={`flex-1 py-2 px-3 rounded-lg text-xs font-semibold transition-all ${transferMode === "full" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground"}`}
                       data-testid="tab-full-transfer"
                     >
-                      Transferir Tudo
+                      Tudo
                     </button>
                     <button
                       onClick={() => { setTransferMode("partial"); setSelectedItems(new Map()); }}
-                      className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-all ${transferMode === "partial" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                      className={`flex-1 py-2 px-3 rounded-lg text-xs font-semibold transition-all ${transferMode === "partial" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground"}`}
                       data-testid="tab-partial-transfer"
                     >
                       Parcial
                     </button>
                   </div>
 
-                  <div className="space-y-1">
-                    <p className="text-xs font-bold text-muted-foreground uppercase">Itens ({palletDetail.items.length})</p>
+                  <div className="divide-y divide-border/30 mt-1">
                     {palletDetail.items.map((item: any, idx: number) => {
                       const maxQty = Number(item.quantity);
                       const selectedQty = selectedItems.get(item.productId) || 0;
                       return (
-                        <div key={idx} className="flex items-center gap-2 p-2.5 rounded-lg border text-sm">
+                        <div key={idx} className="flex items-center gap-2 px-4 py-2.5">
                           <div className="flex-1 min-w-0">
-                            <p className="font-medium truncate">{item.product?.name || "Produto"}</p>
-                            <p className="text-xs text-muted-foreground font-mono">
-                              {item.product?.erpCode || ""} · Total: {maxQty} {item.product?.unit || "UN"}
+                            <p className="text-sm font-medium truncate">{item.product?.name || "Produto"}</p>
+                            <p className="text-[10px] text-muted-foreground font-mono truncate">
+                              {item.product?.erpCode || ""} · {maxQty} {item.product?.unit || "UN"}
                               {item.lot && ` · L:${item.lot}`}
                             </p>
                           </div>
                           {transferMode === "partial" ? (
-                            <div className="flex items-center gap-1 flex-shrink-0">
-                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => updateSelectedQty(item.productId, -1, maxQty)}>
-                                <Minus className="h-3 w-3" />
+                            <div className="flex items-center gap-0.5 shrink-0">
+                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg" onClick={() => updateSelectedQty(item.productId, -1, maxQty)}>
+                                <Minus className="h-3.5 w-3.5" />
                               </Button>
                               <Input
                                 value={selectedQty}
                                 onChange={e => setSelectedQty(item.productId, parseInt(e.target.value.replace(/\D/g, "")) || 0, maxQty)}
-                                className="h-7 w-14 text-center font-mono font-bold text-sm p-0"
+                                className="h-8 w-12 text-center font-mono font-bold text-sm p-0 rounded-lg"
                               />
-                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => updateSelectedQty(item.productId, 1, maxQty)}>
-                                <Plus className="h-3 w-3" />
+                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg" onClick={() => updateSelectedQty(item.productId, 1, maxQty)}>
+                                <Plus className="h-3.5 w-3.5" />
                               </Button>
-                              <span className="text-xs text-muted-foreground">/ {maxQty}</span>
+                              <span className="text-[10px] text-muted-foreground w-7 text-right">/{maxQty}</span>
                             </div>
                           ) : (
-                            <span className="font-mono font-bold flex-shrink-0">{maxQty} {item.product?.unit || "UN"}</span>
+                            <span className="font-mono font-bold text-sm shrink-0">{maxQty}</span>
                           )}
                         </div>
                       );
                     })}
-                    {transferMode === "partial" && totalSelected > 0 && (
-                      <p className="text-xs text-blue-600 font-semibold text-right pt-1">{totalSelected} un selecionadas para transferir</p>
-                    )}
                   </div>
+
+                  {transferMode === "partial" && totalSelected > 0 && (
+                    <div className="px-4 py-2 bg-primary/5 border-t border-border/30">
+                      <p className="text-xs text-primary font-semibold text-right">{totalSelected} un selecionadas</p>
+                    </div>
+                  )}
                 </>
               )}
 
               {palletDetail?.items && palletDetail.items.length > 0 && selectedPallet.status !== "alocado" && (
-                <div className="space-y-1">
-                  <p className="text-xs font-bold text-muted-foreground uppercase">Itens ({palletDetail.items.length})</p>
+                <div className="divide-y divide-border/30">
                   {palletDetail.items.map((item: any, idx: number) => (
-                    <div key={idx} className="flex justify-between items-center p-2.5 rounded-lg border text-sm">
+                    <div key={idx} className="flex items-center justify-between px-4 py-2.5">
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium truncate">{item.product?.name || "Produto"}</p>
-                        <p className="text-xs text-muted-foreground font-mono">{item.product?.erpCode || ""}</p>
+                        <p className="text-sm font-medium truncate">{item.product?.name || "Produto"}</p>
+                        <p className="text-[10px] text-muted-foreground font-mono">{item.product?.erpCode || ""}</p>
                       </div>
-                      <div className="flex items-center gap-1 flex-shrink-0">
-                        <span className="font-mono font-bold">{item.quantity}</span>
-                        <span className="text-xs text-muted-foreground">{item.product?.unit || "UN"}</span>
-                        {item.lot && <Badge variant="outline" className="text-[9px]">L: {item.lot}</Badge>}
-                      </div>
+                      <span className="font-mono font-bold text-sm shrink-0">{item.quantity} {item.product?.unit || "UN"}</span>
                     </div>
                   ))}
                 </div>
               )}
+            </div>
 
-              {selectedPallet.status === "alocado" && (
-                <>
-                  <AddressPicker
-                    availableAddresses={availableAddresses}
-                    onAddressSelect={setToAddressId}
-                    onClear={() => setToAddressId("")}
-                  />
+            {selectedPallet.status === "alocado" && (
+              <div className="rounded-2xl border border-border/50 bg-card p-4 space-y-3">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Destino</p>
+                <AddressPicker
+                  availableAddresses={availableAddresses}
+                  onAddressSelect={setToAddressId}
+                  onClear={() => setToAddressId("")}
+                />
 
-                  {toAddressId && destinationAddress && (
-                    <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900">
-                      <ArrowRight className="h-4 w-4 text-blue-600" />
-                      <span className="text-sm">Transferir para:</span>
-                      <span className="font-mono font-bold text-blue-700 dark:text-blue-400">{destinationAddress.code}</span>
-                    </div>
-                  )}
-
-                  <Button className="w-full h-14 text-base" onClick={() => setShowTransferConfirm(true)}
-                    disabled={!canTransfer || transferMutation.isPending} data-testid="button-transfer">
-                    {transferMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <ArrowRightLeft className="h-4 w-4 mr-2" />}
-                    {transferMode === "partial" ? `Transferir ${totalSelected} un` : "Transferir Pallet"}
-                  </Button>
-                </>
-              )}
-
-              {selectedPallet.status === "sem_endereco" && (
-                <div className="p-3 rounded-lg bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-900 text-sm text-yellow-800 dark:text-yellow-400">
-                  Este pallet não foi alocado. Use o módulo de Check-in primeiro.
-                </div>
-              )}
-
-              <div className="flex gap-2">
-                <Button variant="outline" className="flex-1 h-12" onClick={() => { setSelectedPallet(null); setPalletDetail(null); }} data-testid="button-back-list">
-                  Voltar à lista
-                </Button>
-                {isSupervisor && selectedPallet.status !== "cancelado" && (
-                  <Button variant="destructive" className="h-12" onClick={() => setShowCancel(!showCancel)} data-testid="button-show-cancel">
-                    <Ban className="h-4 w-4 mr-2" /> Cancelar
-                  </Button>
+                {toAddressId && destinationAddress && (
+                  <div className="flex items-center gap-2 p-3 rounded-xl bg-blue-50 dark:bg-blue-950/30 border border-blue-200/60 dark:border-blue-800/40">
+                    <ArrowRight className="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                    <span className="text-sm text-blue-700 dark:text-blue-300">Transferir para</span>
+                    <span className="font-mono font-bold text-blue-700 dark:text-blue-300">{destinationAddress.code}</span>
+                  </div>
                 )}
-              </div>
 
-              {showCancel && (
-                <div className="space-y-2 p-3 rounded-lg border border-destructive/30 bg-destructive/5">
-                  <p className="text-sm font-medium text-destructive">Cancelar Pallet</p>
-                  <Input placeholder="Motivo do cancelamento (obrigatório)" value={cancelReason} onChange={e => setCancelReason(e.target.value)} data-testid="input-cancel-reason" />
-                  <Button variant="destructive" className="w-full" onClick={() => cancelMutation.mutate()}
-                    disabled={cancelMutation.isPending || cancelReason.trim().length < 3} data-testid="button-confirm-cancel">
-                    {cancelMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                    Confirmar Cancelamento
-                  </Button>
-                  {cancelReason.length > 0 && cancelReason.trim().length < 3 && (
-                    <p className="text-xs text-destructive">Mínimo 3 caracteres</p>
-                  )}
-                </div>
+                <Button
+                  className="w-full h-14 text-sm font-semibold rounded-xl shadow-lg shadow-primary/15 active:scale-[0.98] transition-all"
+                  onClick={() => setShowTransferConfirm(true)}
+                  disabled={!canTransfer || transferMutation.isPending}
+                  data-testid="button-transfer"
+                >
+                  {transferMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <ArrowRightLeft className="h-4 w-4 mr-2" />}
+                  {transferMode === "partial" ? `Transferir ${totalSelected} un` : "Transferir Pallet"}
+                </Button>
+              </div>
+            )}
+
+            {selectedPallet.status === "sem_endereco" && (
+              <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40 text-sm text-amber-700 dark:text-amber-400">
+                Este pallet nao foi alocado. Use o Check-in primeiro.
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1 h-12 rounded-xl" onClick={() => { setSelectedPallet(null); setPalletDetail(null); }} data-testid="button-back-list">
+                Voltar
+              </Button>
+              {isSupervisor && selectedPallet.status !== "cancelado" && (
+                <Button variant="destructive" className="h-12 rounded-xl px-4" onClick={() => setShowCancel(!showCancel)} data-testid="button-show-cancel">
+                  <Ban className="h-4 w-4" />
+                </Button>
               )}
-            </CardContent>
-          </Card>
+            </div>
+
+            {showCancel && (
+              <div className="space-y-2 p-4 rounded-2xl border border-destructive/20 bg-destructive/5">
+                <p className="text-sm font-semibold text-destructive">Cancelar Pallet</p>
+                <Input placeholder="Motivo (min. 3 caracteres)" value={cancelReason} onChange={e => setCancelReason(e.target.value)}
+                  className="h-11 rounded-xl" data-testid="input-cancel-reason" />
+                <Button variant="destructive" className="w-full h-11 rounded-xl" onClick={() => cancelMutation.mutate()}
+                  disabled={cancelMutation.isPending || cancelReason.trim().length < 3} data-testid="button-confirm-cancel">
+                  {cancelMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                  Confirmar Cancelamento
+                </Button>
+              </div>
+            )}
+          </div>
         )}
       </main>
 
       <Dialog open={showTransferConfirm} onOpenChange={setShowTransferConfirm}>
-        <DialogContent>
+        <DialogContent className="rounded-2xl">
           <DialogHeader>
-            <DialogTitle>Confirmar Transferência</DialogTitle>
+            <DialogTitle>Confirmar Transferencia</DialogTitle>
             <DialogDescription>
               {transferMode === "full"
                 ? <>Transferir pallet <span className="font-mono font-semibold">{selectedPallet?.code}</span></>
-                : <>Transferir <span className="font-semibold">{totalSelected} unidades</span> do pallet <span className="font-mono font-semibold">{selectedPallet?.code}</span></>
+                : <>Transferir <span className="font-semibold">{totalSelected} un</span> do pallet <span className="font-mono font-semibold">{selectedPallet?.code}</span></>
               }
               {selectedPallet?.address?.code && <> de <span className="font-mono font-semibold">{selectedPallet.address.code}</span></>}
               {destinationAddress && <> para <span className="font-mono font-semibold">{destinationAddress.code}</span></>}?
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowTransferConfirm(false)} data-testid="button-cancel-transfer">Cancelar</Button>
-            <Button onClick={() => transferMutation.mutate()} disabled={transferMutation.isPending} data-testid="button-confirm-transfer">
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setShowTransferConfirm(false)} className="rounded-xl" data-testid="button-cancel-transfer">Cancelar</Button>
+            <Button onClick={() => transferMutation.mutate()} disabled={transferMutation.isPending} className="rounded-xl" data-testid="button-confirm-transfer">
               {transferMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <ArrowRightLeft className="h-4 w-4 mr-2" />}
               Confirmar
             </Button>

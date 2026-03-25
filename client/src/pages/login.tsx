@@ -6,10 +6,9 @@ import { loginSchema, type LoginInput } from "@shared/schema";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Form, FormControl, FormField, FormItem, FormMessage } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
-import { User, Lock, Loader2, Download } from "lucide-react";
+import { User, Lock, Loader2, Download, Warehouse } from "lucide-react";
 
 interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
@@ -79,14 +78,14 @@ export default function LoginPage() {
       } else {
         toast({
           title: "Erro no login",
-          description: "Usuário ou senha incorretos",
+          description: "Credenciais incorretas",
           variant: "destructive",
         });
       }
     } catch {
       toast({
         title: "Erro",
-        description: "Falha na conexão com o servidor",
+        description: "Falha na conexao com o servidor",
         variant: "destructive",
       });
     } finally {
@@ -95,99 +94,106 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-[hsl(213,67%,22%)] via-[hsl(207,62%,35%)] to-[hsl(157,50%,28%)] p-4">
-      <div className="w-full max-w-md">
-        <div className="flex flex-col items-center mb-8">
-          <h1 className="text-5xl font-bold text-white mb-2 drop-shadow-xl tracking-tight">Stoker</h1>
-          <p className="text-white/70 mt-2 text-sm italic">Warehouse Management System</p>
+    <div className="min-h-[100dvh] flex flex-col items-center justify-center relative overflow-hidden">
+      <div className="absolute inset-0 bg-gradient-to-br from-[hsl(222,47%,11%)] via-[hsl(217,50%,22%)] to-[hsl(199,70%,18%)]" />
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_rgba(99,179,237,0.12),_transparent_50%)]" />
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,_rgba(56,178,172,0.08),_transparent_50%)]" />
+
+      <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none">
+        <div className="absolute -top-1/4 -right-1/4 w-[600px] h-[600px] rounded-full bg-blue-500/5 blur-3xl" />
+        <div className="absolute -bottom-1/4 -left-1/4 w-[500px] h-[500px] rounded-full bg-teal-500/5 blur-3xl" />
+      </div>
+
+      <div className="relative w-full max-w-sm px-6 animate-fade-in">
+        <div className="flex flex-col items-center mb-10">
+          <div className="w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/10 flex items-center justify-center mb-5 shadow-2xl">
+            <Warehouse className="h-8 w-8 text-white" />
+          </div>
+          <h1 className="text-4xl font-extrabold text-white tracking-tight">Stoker</h1>
+          <p className="text-white/40 mt-1.5 text-sm font-medium tracking-wider uppercase">Warehouse Management</p>
         </div>
 
-        <Card className="shadow-2xl border-0 bg-white/95 backdrop-blur-sm">
-          <CardHeader className="text-center pb-4">
-            <CardTitle className="text-xl font-semibold">Entrar no Sistema</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                <FormField
-                  control={form.control}
-                  name="username"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Usuário</FormLabel>
-                      <FormControl>
-                        <div className="relative">
-                          <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                          <Input
-                            {...field}
-                            placeholder="Digite seu usuário"
-                            className="pl-10 h-11"
-                            disabled={isLoading}
-                            data-testid="input-username"
-                          />
-                        </div>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+        <div className="glass-card rounded-2xl p-6 shadow-2xl">
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
+              <FormField
+                control={form.control}
+                name="username"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormControl>
+                      <div className="relative">
+                        <User className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/60" />
+                        <Input
+                          {...field}
+                          placeholder="Seu usuario"
+                          autoComplete="username"
+                          className="pl-11 h-12 rounded-xl bg-background/60 border-border/40 text-sm placeholder:text-muted-foreground/50 focus:bg-background focus:border-primary/40 transition-all"
+                          disabled={isLoading}
+                          data-testid="input-username"
+                        />
+                      </div>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-                <FormField
-                  control={form.control}
-                  name="password"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Senha</FormLabel>
-                      <FormControl>
-                        <div className="relative">
-                          <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                          <Input
-                            {...field}
-                            type="password"
-                            placeholder="Digite sua senha"
-                            className="pl-10 h-11"
-                            disabled={isLoading}
-                            data-testid="input-password"
-                          />
-                        </div>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+              <FormField
+                control={form.control}
+                name="password"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormControl>
+                      <div className="relative">
+                        <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/60" />
+                        <Input
+                          {...field}
+                          type="password"
+                          placeholder="Sua senha"
+                          autoComplete="current-password"
+                          className="pl-11 h-12 rounded-xl bg-background/60 border-border/40 text-sm placeholder:text-muted-foreground/50 focus:bg-background focus:border-primary/40 transition-all"
+                          disabled={isLoading}
+                          data-testid="input-password"
+                        />
+                      </div>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-                <Button
-                  type="submit"
-                  className="w-full h-12 text-base font-medium mt-2"
-                  disabled={isLoading}
-                  data-testid="button-login"
-                >
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Entrando...
-                    </>
-                  ) : (
-                    "Entrar"
-                  )}
-                </Button>
-              </form>
-            </Form>
-          </CardContent>
-        </Card>
+              <Button
+                type="submit"
+                className="w-full h-12 text-sm font-semibold rounded-xl shadow-lg shadow-primary/20 transition-all active:scale-[0.98]"
+                disabled={isLoading}
+                data-testid="button-login"
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Entrando...
+                  </>
+                ) : (
+                  "Entrar"
+                )}
+              </Button>
+            </form>
+          </Form>
+        </div>
 
         {deferredPrompt && !isInstalled && (
           <button
             onClick={handleInstall}
-            className="w-full mt-4 flex items-center justify-center gap-2 py-3 px-4 rounded-lg bg-white/15 hover:bg-white/25 border border-white/30 text-white text-sm font-medium transition-colors"
+            className="w-full mt-4 flex items-center justify-center gap-2 py-3 px-4 rounded-xl glass text-white text-sm font-medium transition-all active:scale-[0.98]"
           >
             <Download className="h-4 w-4" />
-            Instalar App Stoker
+            Instalar App
           </button>
         )}
 
-        <p className="text-center text-white/50 text-sm mt-6">
-          Stoker v2.0 — por Gusttavo Batista
+        <p className="text-center text-white/25 text-xs mt-8 font-medium">
+          Stoker v2.0
         </p>
       </div>
     </div>

@@ -5,7 +5,6 @@ import { GradientHeader } from "@/components/ui/gradient-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -18,7 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   ArrowLeft, Search, Plus, Package, Loader2, Trash2, Printer, QrCode,
   ScanBarcode, CheckCircle, AlertCircle, ChevronDown, ChevronUp,
-  FileText, ArrowRight, Hash, Calendar, Tag, Box, Minus, Keyboard,
+  FileText, ArrowRight, Calendar, Tag, Box, Minus, Keyboard,
   Pencil, X,
 } from "lucide-react";
 import { useLocation } from "wouter";
@@ -143,10 +142,10 @@ export default function RecebimentoPage() {
         setBarcodeInput("");
         if (keyboardEnabled) setTimeout(() => scanInputRef.current?.focus(), 50);
       } else {
-        setScanError("Produto não encontrado para este código");
+        setScanError("Produto nao encontrado para este codigo");
       }
     } catch {
-      setScanError("Erro de conexão ao buscar produto");
+      setScanError("Erro de conexao ao buscar produto");
     } finally {
       setScanLoading(false);
     }
@@ -203,7 +202,7 @@ export default function RecebimentoPage() {
         setSelectedNfItems(new Set());
       } else {
         const err = await res.json();
-        toast({ title: "NF não encontrada", description: err.error, variant: "destructive" });
+        toast({ title: "NF nao encontrada", description: err.error, variant: "destructive" });
         setNfData(null);
       }
     } catch {
@@ -260,13 +259,13 @@ export default function RecebimentoPage() {
     const items = Array.from(selectedNfItems).map(idx => nfData.items[idx]).filter(Boolean);
     mergeNfItemsIntoPallet(items);
     setSelectedNfItems(new Set());
-    toast({ title: `${items.length} item(ns) adicionado(s) da NF` });
+    toast({ title: `${items.length} item(ns) adicionado(s)` });
   };
 
   const addAllNfItems = () => {
     if (!nfData?.items || nfData.items.length === 0) return;
     mergeNfItemsIntoPallet(nfData.items);
-    toast({ title: `${nfData.items.length} itens adicionados da NF` });
+    toast({ title: `${nfData.items.length} itens adicionados` });
   };
 
   const createPalletMutation = useMutation({
@@ -295,7 +294,7 @@ export default function RecebimentoPage() {
       setNfData(null);
       setLastScanned(null);
       setShowCreateConfirm(false);
-      toast({ title: "Pallet criado!", description: `Código: ${data.code}` });
+      toast({ title: "Pallet criado!", description: `Codigo: ${data.code}` });
       fetchLabel(data.id);
     },
     onError: (e: Error) => {
@@ -319,7 +318,7 @@ export default function RecebimentoPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["pallets"] });
       setCancelPalletTarget(null);
-      toast({ title: "Pallet cancelado com sucesso" });
+      toast({ title: "Pallet cancelado" });
     },
     onError: (e: Error) => {
       toast({ title: "Erro", description: e.message, variant: "destructive" });
@@ -334,10 +333,7 @@ export default function RecebimentoPage() {
       const res = await fetch(`/api/pallets/${pallet.id}`, { credentials: "include" });
       if (res.ok) {
         const data = await res.json();
-        setEditPalletItems(data.items?.map((item: any) => ({
-          ...item,
-          quantity: item.quantity,
-        })) || []);
+        setEditPalletItems(data.items?.map((item: any) => ({ ...item, quantity: item.quantity })) || []);
       }
     } catch {
       toast({ title: "Erro ao carregar pallet", variant: "destructive" });
@@ -369,7 +365,7 @@ export default function RecebimentoPage() {
       }
       queryClient.invalidateQueries({ queryKey: ["pallets"] });
       setEditPalletDialog(null);
-      toast({ title: "Pallet atualizado com sucesso" });
+      toast({ title: "Pallet atualizado" });
     } catch (e: any) {
       toast({ title: "Erro", description: e.message, variant: "destructive" });
     } finally {
@@ -432,402 +428,393 @@ export default function RecebimentoPage() {
   const totalItems = palletItems.reduce((sum, i) => sum + i.quantity, 0);
 
   return (
-    <div className="min-h-screen bg-background">
-      <GradientHeader title="Recebimento" subtitle={companyId ? (companiesData?.find(c => c.id === companyId)?.name || "") : ""}>
-        <Button variant="outline" size="sm" onClick={() => navigate("/")} className="bg-white/10 border-white/20 text-white hover:bg-white/20" data-testid="button-back">
-          <ArrowLeft className="h-4 w-4 mr-2" /> Voltar
+    <div className="min-h-[100dvh] bg-background">
+      <GradientHeader title="Recebimento" subtitle={companyId ? (companiesData?.find(c => c.id === companyId)?.name || "") : ""} compact>
+        <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="text-white/70 hover:text-white hover:bg-white/10 h-9" data-testid="button-back">
+          <ArrowLeft className="h-4 w-4 mr-1.5" /> Voltar
         </Button>
       </GradientHeader>
 
-      <main className="max-w-4xl mx-auto px-3 py-4 space-y-4">
-        <div className="flex rounded-lg border bg-muted/30 p-1 gap-1">
+      <main className="max-w-lg mx-auto px-4 py-4 space-y-3 safe-bottom">
+        <div className="flex rounded-xl border border-border/50 bg-muted/30 p-1 gap-1 animate-fade-in">
           <button
             onClick={() => setActiveTab("scan")}
-            className={`flex-1 flex items-center justify-center gap-2 py-3 px-3 rounded-md text-sm font-medium transition-all min-h-[48px] ${activeTab === "scan" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold transition-all ${activeTab === "scan" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground"}`}
             data-testid="tab-scan"
           >
-            <ScanBarcode className="h-4 w-4 shrink-0" />
-            <span className="truncate">Leitura de Código</span>
+            <ScanBarcode className="h-3.5 w-3.5 shrink-0" />
+            Leitura
           </button>
           <button
             onClick={() => setActiveTab("nf")}
-            className={`flex-1 flex items-center justify-center gap-2 py-3 px-3 rounded-md text-sm font-medium transition-all min-h-[48px] ${activeTab === "nf" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-semibold transition-all ${activeTab === "nf" ? "bg-card shadow-sm text-foreground" : "text-muted-foreground"}`}
             data-testid="tab-nf"
           >
-            <FileText className="h-4 w-4 shrink-0" />
-            <span className="truncate">Importar da NF</span>
+            <FileText className="h-3.5 w-3.5 shrink-0" />
+            Importar NF
           </button>
         </div>
 
         {activeTab === "scan" && (
-          <Card className="border-2 border-primary/20">
-            <CardContent className="pt-4 space-y-3">
-              <div className="relative">
-                <ScanBarcode className="absolute left-3 top-3.5 h-5 w-5 text-muted-foreground" />
-                <Input
-                  ref={scanInputRef}
-                  placeholder="Bipe o código de barras ou ERP..."
-                  value={barcodeInput}
-                  onChange={e => setBarcodeInput(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && handleScan()}
-                  className="pl-10 pr-24 h-12 text-base font-mono"
-                  inputMode={keyboardEnabled ? "text" : "none"}
-                  disabled={scanLoading}
-                  data-testid="input-barcode-scan"
-                />
-                <div className="absolute right-2 top-2 flex items-center gap-1">
-                  {scanLoading && <Loader2 className="h-5 w-5 animate-spin text-primary" />}
-                  <Button
-                    variant={keyboardEnabled ? "default" : "outline"}
-                    size="sm"
-                    className="h-8 w-8 p-0"
-                    onClick={() => {
-                      setKeyboardEnabled(v => !v);
-                      setTimeout(() => scanInputRef.current?.focus(), 50);
-                    }}
-                    title={keyboardEnabled ? "Desativar teclado" : "Ativar teclado para digitar"}
-                    data-testid="button-toggle-keyboard-scan"
-                  >
-                    <Keyboard className="h-4 w-4" />
-                  </Button>
+          <div className="rounded-2xl border-2 border-primary/20 bg-card p-4 space-y-3 animate-slide-up">
+            <div className="relative">
+              <ScanBarcode className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/50" />
+              <Input
+                ref={scanInputRef}
+                placeholder="Bipe o codigo de barras..."
+                value={barcodeInput}
+                onChange={e => setBarcodeInput(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handleScan()}
+                className="pl-10 pr-20 h-12 rounded-xl text-sm font-mono"
+                inputMode={keyboardEnabled ? "text" : "none"}
+                disabled={scanLoading}
+                data-testid="input-barcode-scan"
+              />
+              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                {scanLoading && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
+                <Button
+                  variant={keyboardEnabled ? "default" : "ghost"}
+                  size="sm"
+                  className="h-8 w-8 p-0 rounded-lg"
+                  onClick={() => {
+                    setKeyboardEnabled(v => !v);
+                    setTimeout(() => scanInputRef.current?.focus(), 50);
+                  }}
+                  data-testid="button-toggle-keyboard-scan"
+                >
+                  <Keyboard className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+
+            {!keyboardEnabled && (
+              <p className="text-[11px] text-muted-foreground text-center">
+                Bipe o codigo ou toque <Keyboard className="h-3 w-3 inline" /> para digitar
+              </p>
+            )}
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[9px] text-muted-foreground uppercase font-bold flex items-center gap-0.5 mb-0.5">
+                  <Tag className="h-2.5 w-2.5" />Lote
+                </label>
+                <Input placeholder="Lote" value={lotInput} onChange={e => setLotInput(e.target.value)} className="h-9 rounded-lg text-xs" data-testid="input-lot" />
+              </div>
+              <div>
+                <label className="text-[9px] text-muted-foreground uppercase font-bold flex items-center gap-0.5 mb-0.5">
+                  <Calendar className="h-2.5 w-2.5" />Validade
+                </label>
+                <Input type="date" value={expiryInput} onChange={e => setExpiryInput(e.target.value)} className="h-9 rounded-lg text-xs" data-testid="input-expiry" />
+              </div>
+            </div>
+
+            {lastScanned && (
+              <div className="flex items-center gap-2.5 p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/40 animate-scale-in" data-testid="scan-success-feedback">
+                <CheckCircle className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-xs text-emerald-800 dark:text-emerald-200 truncate">{lastScanned.product.name}</p>
+                  <p className="text-[10px] text-emerald-600 dark:text-emerald-400">
+                    {lastScanned.product.erpCode}
+                    {lastScanned.isBox ? <span className="ml-1 font-semibold">Cx: +{lastScanned.qty}</span> : <span className="ml-1">+{lastScanned.qty} {lastScanned.product.unit || "UN"}</span>}
+                  </p>
                 </div>
               </div>
+            )}
 
-              {!keyboardEnabled && (
-                <p className="text-xs text-muted-foreground text-center">
-                  Bipe o código ou toque em <Keyboard className="h-3 w-3 inline" /> para digitar
-                </p>
-              )}
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-muted-foreground mb-1 block">
-                    <Tag className="h-3 w-3 inline mr-1" />Lote (opcional)
-                  </label>
-                  <Input placeholder="Lote" value={lotInput} onChange={e => setLotInput(e.target.value)} className="h-10" data-testid="input-lot" />
-                </div>
-                <div>
-                  <label className="text-xs text-muted-foreground mb-1 block">
-                    <Calendar className="h-3 w-3 inline mr-1" />Validade (opcional)
-                  </label>
-                  <Input type="date" value={expiryInput} onChange={e => setExpiryInput(e.target.value)} className="h-10" data-testid="input-expiry" />
-                </div>
+            {scanError && (
+              <div className="flex items-center gap-2.5 p-3 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200/60 dark:border-red-800/40" data-testid="scan-error-feedback">
+                <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400 shrink-0" />
+                <p className="text-xs text-red-700 dark:text-red-300">{scanError}</p>
               </div>
-
-              {lastScanned && (
-                <div className="flex items-center gap-3 p-3 rounded-lg bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-900 animate-in fade-in slide-in-from-top-2 duration-300" data-testid="scan-success-feedback">
-                  <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-sm text-green-800 dark:text-green-200 truncate">{lastScanned.product.name}</p>
-                    <p className="text-xs text-green-600 dark:text-green-400">
-                      {lastScanned.product.erpCode}
-                      {lastScanned.isBox ? <span className="ml-2 font-semibold">Caixa: +{lastScanned.qty} un</span> : <span className="ml-2">+{lastScanned.qty} {lastScanned.product.unit || "UN"}</span>}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {scanError && (
-                <div className="flex items-center gap-3 p-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900" data-testid="scan-error-feedback">
-                  <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0" />
-                  <p className="text-sm text-red-700 dark:text-red-300">{scanError}</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+            )}
+          </div>
         )}
 
         {activeTab === "nf" && (
-          <div className="space-y-4">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <FileText className="h-5 w-5" /> Notas Fiscais
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
+          <div className="space-y-3 animate-slide-up">
+            <div className="rounded-2xl border border-border/50 bg-card overflow-hidden">
+              <div className="px-4 py-3 border-b border-border/30">
+                <p className="text-sm font-semibold flex items-center gap-1.5">
+                  <FileText className="h-4 w-4 text-primary" /> Notas Fiscais
+                </p>
+              </div>
+              <div className="p-4 space-y-3">
                 <div className="flex gap-2">
                   <div className="relative flex-1">
-                    <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/50" />
                     <Input
-                      placeholder="Buscar NF ou fornecedor..."
+                      placeholder="Buscar NF..."
                       value={nfSearch}
                       onChange={e => setNfSearch(e.target.value)}
                       onKeyDown={e => e.key === "Enter" && searchNfList()}
-                      className="pl-9"
+                      className="pl-10 h-10 rounded-xl text-sm"
                       data-testid="input-nf-search"
                     />
                   </div>
-                  <Button onClick={searchNfList} disabled={nfListLoading} data-testid="button-search-nf-list">
-                    {nfListLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Buscar"}
+                  <Button className="h-10 rounded-xl px-4" onClick={searchNfList} disabled={nfListLoading} data-testid="button-search-nf-list">
+                    {nfListLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                  </Button>
+                </div>
+              </div>
+
+              {nfListLoading ? (
+                <div className="text-center py-8"><Loader2 className="h-5 w-5 mx-auto animate-spin text-muted-foreground" /></div>
+              ) : nfList.length === 0 ? (
+                <p className="text-xs text-muted-foreground text-center py-6">Nenhuma NF encontrada</p>
+              ) : (
+                <div className="divide-y divide-border/30 max-h-60 overflow-y-auto">
+                  {nfList.map((nf: any) => (
+                    <button
+                      key={nf.id}
+                      onClick={() => loadNfDetail(nf.nfNumber)}
+                      className={`w-full flex items-center justify-between px-4 py-3 text-left transition-all active:bg-muted/50 ${nfData?.nfNumber === nf.nfNumber ? "bg-primary/5" : ""}`}
+                      data-testid={`nf-list-${nf.id}`}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <span className="font-mono font-semibold text-sm">NF {nf.nfNumber}</span>
+                        {nf.nfSeries && <span className="text-[10px] text-muted-foreground ml-1">S{nf.nfSeries}</span>}
+                        {nf.supplierName && (
+                          <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{nf.supplierName}</p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <Badge variant="outline" className="text-[10px]">{nf.status}</Badge>
+                        <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/50" />
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {nfLoading && <div className="text-center py-6"><Loader2 className="h-5 w-5 mx-auto animate-spin text-muted-foreground" /></div>}
+
+            {nfData && !nfLoading && (
+              <div className="rounded-2xl border-2 border-blue-200/60 dark:border-blue-800/40 bg-card overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-border/30">
+                  <div className="min-w-0">
+                    <span className="font-mono font-bold text-sm">NF {nfData.nfNumber}</span>
+                    {nfData.supplierName && (
+                      <p className="text-[10px] text-muted-foreground truncate">{nfData.supplierName}</p>
+                    )}
+                  </div>
+                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0 shrink-0 rounded-lg" onClick={() => { setNfData(null); setSelectedNfItems(new Set()); }}>
+                    <X className="h-4 w-4" />
                   </Button>
                 </div>
 
-                {nfListLoading ? (
-                  <div className="text-center py-6"><Loader2 className="h-6 w-6 mx-auto animate-spin text-muted-foreground" /></div>
-                ) : nfList.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-6">Nenhuma NF encontrada.</p>
-                ) : (
-                  <div className="space-y-1 max-h-60 overflow-y-auto">
-                    {nfList.map((nf: any) => (
-                      <div
-                        key={nf.id}
-                        onClick={() => loadNfDetail(nf.nfNumber)}
-                        className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all ${nfData?.nfNumber === nf.nfNumber ? "bg-primary/5 border-primary/30 ring-1 ring-primary/20" : "hover:bg-muted/50"}`}
-                        data-testid={`nf-list-${nf.id}`}
-                      >
-                        <div className="min-w-0 flex-1">
-                          <span className="font-mono font-semibold text-sm">NF {nf.nfNumber}</span>
-                          {nf.nfSeries && <span className="text-xs text-muted-foreground ml-1">Série {nf.nfSeries}</span>}
-                          {nf.supplierName && (
-                            <p className="text-xs text-muted-foreground mt-0.5 truncate">Fornecedor: {nf.supplierName}</p>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <Badge variant={nf.status === "pendente" ? "secondary" : nf.status === "recebida" ? "default" : "outline"}>
-                            {nf.status}
-                          </Badge>
-                          <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {nfLoading && <div className="text-center py-6"><Loader2 className="h-6 w-6 mx-auto animate-spin text-muted-foreground" /></div>}
-
-            {nfData && !nfLoading && (
-              <Card className="border-2 border-blue-200 dark:border-blue-900">
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <CardTitle className="text-base min-w-0">
-                      <span className="font-mono">NF {nfData.nfNumber}</span>
-                      {nfData.supplierName && (
-                        <span className="text-sm text-muted-foreground font-normal ml-2 truncate">— {nfData.supplierName}</span>
-                      )}
-                    </CardTitle>
-                    <Button variant="ghost" size="sm" className="shrink-0 h-10" onClick={() => { setNfData(null); setSelectedNfItems(new Set()); }}>
-                      Fechar
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
+                <div className="p-4 space-y-3">
                   {nfImportProgress && (
                     <div className="space-y-1">
-                      <div className="flex justify-between text-xs text-muted-foreground">
+                      <div className="flex justify-between text-[10px] text-muted-foreground">
                         <span>Importando...</span><span>{nfImportProgress.current}/{nfImportProgress.total}</span>
                       </div>
-                      <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
-                        <div className="bg-primary h-2 rounded-full transition-all duration-300" style={{ width: `${(nfImportProgress.current / nfImportProgress.total) * 100}%` }} />
+                      <div className="w-full bg-muted rounded-full h-1.5 overflow-hidden">
+                        <div className="bg-primary h-1.5 rounded-full transition-all duration-300" style={{ width: `${(nfImportProgress.current / nfImportProgress.total) * 100}%` }} />
                       </div>
                     </div>
                   )}
 
                   {nfData.items?.length > 0 ? (
                     <>
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                        <p className="text-sm text-muted-foreground">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs text-muted-foreground">
                           {selectedNfItems.size > 0 ? `${selectedNfItems.size} selecionado(s)` : `${nfData.items.length} itens`}
                         </p>
-                        <div className="flex gap-2 shrink-0">
-                          <Button variant="outline" size="sm" className="h-10 flex-1 sm:flex-none" onClick={addAllNfItems} disabled={!!nfImportProgress} data-testid="button-add-all-nf">
-                            Adicionar Todos
+                        <div className="flex gap-1.5 shrink-0">
+                          <Button variant="outline" size="sm" className="h-8 text-[11px] rounded-lg" onClick={addAllNfItems} disabled={!!nfImportProgress} data-testid="button-add-all-nf">
+                            Todos
                           </Button>
                           {selectedNfItems.size > 0 && (
-                            <Button size="sm" className="h-10 flex-1 sm:flex-none" onClick={addSelectedNfItems} disabled={!!nfImportProgress} data-testid="button-add-selected-nf">
-                              <Plus className="h-4 w-4 mr-1" />
-                              Adicionar {selectedNfItems.size}
+                            <Button size="sm" className="h-8 text-[11px] rounded-lg" onClick={addSelectedNfItems} disabled={!!nfImportProgress} data-testid="button-add-selected-nf">
+                              <Plus className="h-3 w-3 mr-0.5" />{selectedNfItems.size}
                             </Button>
                           )}
                         </div>
                       </div>
-                      <div className="space-y-1 max-h-72 overflow-y-auto">
+                      <div className="divide-y divide-border/30 max-h-60 overflow-y-auto rounded-xl border border-border/30 overflow-hidden">
                         {nfData.items.map((item: any, idx: number) => (
-                          <div
+                          <button
                             key={idx}
                             onClick={() => toggleNfItem(idx)}
-                            className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${selectedNfItems.has(idx) ? "bg-primary/5 border-primary/30 ring-1 ring-primary/20" : "hover:bg-muted/50"}`}
+                            className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-left transition-all ${selectedNfItems.has(idx) ? "bg-primary/5" : ""}`}
                             data-testid={`nf-item-${idx}`}
                           >
-                            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${selectedNfItems.has(idx) ? "bg-primary border-primary text-primary-foreground" : "border-muted-foreground/30"}`}>
-                              {selectedNfItems.has(idx) && <CheckCircle className="h-3 w-3" />}
+                            <div className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${selectedNfItems.has(idx) ? "bg-primary border-primary text-primary-foreground" : "border-muted-foreground/25"}`}>
+                              {selectedNfItems.has(idx) && <CheckCircle className="h-2.5 w-2.5" />}
                             </div>
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium truncate">{item.productName || item.name || "Produto"}</p>
-                              <p className="text-xs text-muted-foreground">
-                                {item.erpCode && <span className="font-mono mr-2">{item.erpCode}</span>}
-                                {item.lot && <span>Lote: {item.lot}</span>}
+                              <p className="text-xs font-medium truncate">{item.productName || item.name || "Produto"}</p>
+                              <p className="text-[10px] text-muted-foreground truncate">
+                                {item.erpCode && <span className="font-mono mr-1.5">{item.erpCode}</span>}
+                                {item.lot && <span>L:{item.lot}</span>}
                               </p>
                             </div>
-                            <Badge variant="outline" className="font-mono flex-shrink-0">{item.quantity || 1} {item.unit || "UN"}</Badge>
-                          </div>
+                            <Badge variant="outline" className="font-mono text-[10px] shrink-0">{item.quantity || 1} {item.unit || "UN"}</Badge>
+                          </button>
                         ))}
                       </div>
                     </>
                   ) : (
-                    <p className="text-sm text-muted-foreground text-center py-4">NF sem itens detalhados. Use leitura de código.</p>
+                    <p className="text-xs text-muted-foreground text-center py-4">NF sem itens. Use leitura de codigo.</p>
                   )}
-                </CardContent>
-              </Card>
+                </div>
+              </div>
             )}
           </div>
         )}
 
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base flex items-center gap-2">
-                <Package className="h-5 w-5" />Itens do Pallet
-                {palletItems.length > 0 && (
-                  <Badge variant="secondary">{palletItems.length} prod · {totalItems} un</Badge>
-                )}
-              </CardTitle>
+        <div className="rounded-2xl border border-border/50 bg-card overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border/30">
+            <div className="flex items-center gap-2">
+              <Package className="h-4 w-4 text-primary" />
+              <span className="text-sm font-semibold">Itens do Pallet</span>
               {palletItems.length > 0 && (
-                <Button variant="ghost" size="sm" onClick={() => setShowItemList(!showItemList)} data-testid="button-toggle-items">
-                  {showItemList ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                </Button>
+                <Badge variant="secondary" className="text-[10px] font-bold h-5 px-1.5">{palletItems.length}p · {totalItems}un</Badge>
               )}
             </div>
-          </CardHeader>
-          <CardContent>
-            {palletItems.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">
-                <Box className="h-10 w-10 mx-auto mb-3 opacity-30" />
-                <p className="text-sm">Nenhum item adicionado</p>
-              </div>
-            ) : (
-              <>
-                {showItemList && (
-                  <div className="space-y-2 mb-4">
-                    {palletItems.map((item, idx) => (
-                      <div key={idx} className="flex items-center gap-2 p-3 rounded-lg border bg-card" data-testid={`pallet-item-${idx}`}>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium text-sm truncate">{item.productName}</p>
-                          <p className="text-xs text-muted-foreground font-mono">{item.erpCode}{item.lot && ` · L:${item.lot}`}</p>
-                        </div>
-                        <div className="flex items-center gap-1 flex-shrink-0">
-                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => updateItemQty(idx, -1)} data-testid={`button-dec-${idx}`}>
-                            <Minus className="h-3 w-3" />
-                          </Button>
-                          {editingQtyIdx === idx ? (
-                            <Input
-                              value={editingQtyValue}
-                              onChange={e => setEditingQtyValue(e.target.value.replace(/\D/g, ""))}
-                              onBlur={commitEditQty}
-                              onKeyDown={e => e.key === "Enter" && commitEditQty()}
-                              className="h-7 w-14 text-center font-mono font-bold text-sm p-0"
-                              autoFocus
-                              data-testid={`input-qty-${idx}`}
-                            />
-                          ) : (
-                            <span
-                              className="font-mono font-bold text-sm w-10 text-center cursor-pointer hover:bg-muted rounded px-1 py-0.5"
-                              onClick={() => startEditQty(idx)}
-                              data-testid={`qty-display-${idx}`}
-                            >
-                              {item.quantity}
-                            </span>
-                          )}
-                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => updateItemQty(idx, 1)} data-testid={`button-inc-${idx}`}>
-                            <Plus className="h-3 w-3" />
-                          </Button>
-                          <span className="text-xs text-muted-foreground w-5">{item.unit}</span>
-                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive" onClick={() => removeItem(idx)} data-testid={`button-remove-${idx}`}>
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <div className="flex items-center justify-between pt-2 border-t">
-                  <div className="text-sm">
-                    <span className="text-muted-foreground">Total:</span>
-                    <span className="font-bold ml-2">{palletItems.length} prod · {totalItems} un</span>
-                  </div>
-                  <Button
-                    onClick={() => setShowCreateConfirm(true)}
-                    disabled={createPalletMutation.isPending || palletItems.length === 0}
-                    className="gap-2 h-12 shrink-0"
-                    data-testid="button-create-pallet"
-                  >
-                    {createPalletMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Package className="h-4 w-4" />}
-                    Gerar Pallet
-                  </Button>
-                </div>
-              </>
+            {palletItems.length > 0 && (
+              <button onClick={() => setShowItemList(!showItemList)} className="text-muted-foreground/50" data-testid="button-toggle-items">
+                {showItemList ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              </button>
             )}
-          </CardContent>
-        </Card>
+          </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base flex items-center gap-2">
-              <QrCode className="h-5 w-5" />Pallets Aguardando Endereço
-              {pallets.length > 0 && <Badge variant="secondary">{pallets.length}</Badge>}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {palletsLoading ? (
-              <div className="text-center py-6"><Loader2 className="h-6 w-6 mx-auto animate-spin text-muted-foreground" /></div>
-            ) : pallets.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">Nenhum pallet pendente</p>
-            ) : (
-              <div className="space-y-2">
-                {pallets.map((p: any) => (
-                  <div key={p.id} className="flex items-center justify-between gap-2 p-3 rounded-lg border hover:bg-muted/30 transition-colors" data-testid={`pallet-row-${p.id}`}>
-                    <div className="flex items-center gap-3 min-w-0">
-                      <QrCode className="h-5 w-5 text-primary shrink-0" />
-                      <div className="min-w-0">
-                        <span className="font-mono font-semibold truncate block">{p.code}</span>
-                        <div className="text-xs text-muted-foreground truncate">
-                          {p.items?.length || 0} itens · {new Date(p.createdAt).toLocaleString("pt-BR")}
-                        </div>
+          {palletItems.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <div className="w-12 h-12 mx-auto mb-2 rounded-2xl bg-muted flex items-center justify-center">
+                <Box className="h-6 w-6 opacity-30" />
+              </div>
+              <p className="text-xs font-medium">Nenhum item adicionado</p>
+            </div>
+          ) : (
+            <>
+              {showItemList && (
+                <div className="divide-y divide-border/30">
+                  {palletItems.map((item, idx) => (
+                    <div key={idx} className="flex items-center gap-2 px-4 py-2.5" data-testid={`pallet-item-${idx}`}>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{item.productName}</p>
+                        <p className="text-[10px] text-muted-foreground font-mono truncate">{item.erpCode}{item.lot && ` · L:${item.lot}`}</p>
+                      </div>
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg" onClick={() => updateItemQty(idx, -1)} data-testid={`button-dec-${idx}`}>
+                          <Minus className="h-3.5 w-3.5" />
+                        </Button>
+                        {editingQtyIdx === idx ? (
+                          <Input
+                            value={editingQtyValue}
+                            onChange={e => setEditingQtyValue(e.target.value.replace(/\D/g, ""))}
+                            onBlur={commitEditQty}
+                            onKeyDown={e => e.key === "Enter" && commitEditQty()}
+                            className="h-8 w-12 text-center font-mono font-bold text-sm p-0 rounded-lg"
+                            autoFocus
+                            data-testid={`input-qty-${idx}`}
+                          />
+                        ) : (
+                          <span
+                            className="font-mono font-bold text-sm w-9 text-center cursor-pointer hover:bg-muted rounded-lg px-1 py-0.5"
+                            onClick={() => startEditQty(idx)}
+                            data-testid={`qty-display-${idx}`}
+                          >
+                            {item.quantity}
+                          </span>
+                        )}
+                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg" onClick={() => updateItemQty(idx, 1)} data-testid={`button-inc-${idx}`}>
+                          <Plus className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg text-muted-foreground hover:text-destructive" onClick={() => removeItem(idx)} data-testid={`button-remove-${idx}`}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <Badge variant="secondary" className="hidden sm:inline-flex">Sem endereço</Badge>
-                      <Button variant="outline" size="sm" className="h-10 w-10 p-0" onClick={() => openEditPallet(p)} title="Editar pallet" data-testid={`button-edit-${p.id}`}>
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button variant="outline" size="sm" className="h-10 w-10 p-0" onClick={() => fetchLabel(p.id)} disabled={labelLoading} title="Imprimir etiqueta" data-testid={`button-print-${p.id}`}>
-                        <Printer className="h-4 w-4" />
-                      </Button>
-                      <Button variant="outline" size="sm" className="h-10 w-10 p-0 text-destructive hover:bg-destructive hover:text-destructive-foreground" onClick={() => setCancelPalletTarget(p)} title="Cancelar pallet" data-testid={`button-cancel-${p.id}`}>
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
+              )}
+              <div className="flex items-center justify-between px-4 py-3 border-t border-border/30 bg-muted/10">
+                <div className="text-xs">
+                  <span className="text-muted-foreground">Total:</span>
+                  <span className="font-bold ml-1">{palletItems.length}p · {totalItems}un</span>
+                </div>
+                <Button
+                  onClick={() => setShowCreateConfirm(true)}
+                  disabled={createPalletMutation.isPending || palletItems.length === 0}
+                  className="h-11 rounded-xl text-xs font-semibold px-4 shadow-lg shadow-primary/15 active:scale-[0.98] transition-all"
+                  data-testid="button-create-pallet"
+                >
+                  {createPalletMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Package className="h-4 w-4 mr-1.5" />}
+                  Gerar Pallet
+                </Button>
               </div>
+            </>
+          )}
+        </div>
+
+        <div className="rounded-2xl border border-border/50 bg-card overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-border/30">
+            <QrCode className="h-4 w-4 text-primary" />
+            <span className="text-sm font-semibold">Aguardando Endereco</span>
+            {pallets.length > 0 && (
+              <Badge variant="secondary" className="text-[10px] font-bold h-5 px-1.5">{pallets.length}</Badge>
             )}
-          </CardContent>
-        </Card>
+          </div>
+
+          {palletsLoading ? (
+            <div className="text-center py-8"><Loader2 className="h-5 w-5 mx-auto animate-spin text-muted-foreground" /></div>
+          ) : pallets.length === 0 ? (
+            <p className="text-xs text-muted-foreground text-center py-6">Nenhum pallet pendente</p>
+          ) : (
+            <div className="divide-y divide-border/30">
+              {pallets.map((p: any) => (
+                <div key={p.id} className="flex items-center gap-3 px-4 py-3" data-testid={`pallet-row-${p.id}`}>
+                  <div className="w-9 h-9 rounded-xl bg-primary/8 flex items-center justify-center shrink-0">
+                    <QrCode className="h-4 w-4 text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-mono font-semibold text-sm truncate">{p.code}</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      {p.items?.length || 0} itens · {new Date(p.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg" onClick={() => openEditPallet(p)} data-testid={`button-edit-${p.id}`}>
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg" onClick={() => fetchLabel(p.id)} disabled={labelLoading} data-testid={`button-print-${p.id}`}>
+                      <Printer className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg text-destructive hover:bg-destructive/10" onClick={() => setCancelPalletTarget(p)} data-testid={`button-cancel-${p.id}`}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </main>
 
       <Dialog open={showCreateConfirm} onOpenChange={setShowCreateConfirm}>
-        <DialogContent>
+        <DialogContent className="rounded-2xl">
           <DialogHeader>
-            <DialogTitle>Confirmar Criação do Pallet</DialogTitle>
+            <DialogTitle>Confirmar Pallet</DialogTitle>
             <DialogDescription>
-              {palletItems.length} produto{palletItems.length !== 1 ? "s" : ""} · {totalItems} unidade{totalItems !== 1 ? "s" : ""}
+              {palletItems.length} produto{palletItems.length !== 1 ? "s" : ""} · {totalItems} un
               {nfData && <span className="block mt-1">NF: {nfData.nfNumber}</span>}
             </DialogDescription>
           </DialogHeader>
-          <div className="max-h-40 overflow-y-auto space-y-1">
+          <div className="max-h-40 overflow-y-auto divide-y divide-border/30 rounded-xl border border-border/30">
             {palletItems.map((item, idx) => (
-              <div key={idx} className="flex justify-between text-sm py-1 border-b border-dashed last:border-0">
+              <div key={idx} className="flex justify-between text-xs px-3 py-2">
                 <span className="truncate mr-2">{item.productName}</span>
-                <span className="font-mono flex-shrink-0">{item.quantity} {item.unit}</span>
+                <span className="font-mono shrink-0">{item.quantity} {item.unit}</span>
               </div>
             ))}
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCreateConfirm(false)}>Cancelar</Button>
-            <Button onClick={() => createPalletMutation.mutate()} disabled={createPalletMutation.isPending} data-testid="button-confirm-create-pallet">
-              {createPalletMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Package className="h-4 w-4 mr-2" />}
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setShowCreateConfirm(false)} className="rounded-xl">Cancelar</Button>
+            <Button onClick={() => createPalletMutation.mutate()} disabled={createPalletMutation.isPending} className="rounded-xl" data-testid="button-confirm-create-pallet">
+              {createPalletMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Package className="h-4 w-4 mr-1.5" />}
               Confirmar
             </Button>
           </DialogFooter>
@@ -835,40 +822,40 @@ export default function RecebimentoPage() {
       </Dialog>
 
       <Dialog open={!!cancelPalletTarget} onOpenChange={open => !open && setCancelPalletTarget(null)}>
-        <DialogContent>
+        <DialogContent className="rounded-2xl">
           <DialogHeader>
             <DialogTitle>Cancelar Pallet</DialogTitle>
             <DialogDescription>
-              Tem certeza que deseja cancelar o pallet <span className="font-mono font-semibold">{cancelPalletTarget?.code}</span>?
+              Cancelar pallet <span className="font-mono font-semibold">{cancelPalletTarget?.code}</span>?
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCancelPalletTarget(null)}>Voltar</Button>
-            <Button variant="destructive" onClick={() => cancelPalletTarget && cancelPalletMutation.mutate(cancelPalletTarget.id)} disabled={cancelPalletMutation.isPending} data-testid="button-confirm-cancel-pallet">
-              {cancelPalletMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Trash2 className="h-4 w-4 mr-2" />}
-              Cancelar Pallet
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setCancelPalletTarget(null)} className="rounded-xl">Voltar</Button>
+            <Button variant="destructive" onClick={() => cancelPalletTarget && cancelPalletMutation.mutate(cancelPalletTarget.id)} disabled={cancelPalletMutation.isPending} className="rounded-xl" data-testid="button-confirm-cancel-pallet">
+              {cancelPalletMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Trash2 className="h-4 w-4 mr-1.5" />}
+              Cancelar
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog open={!!editPalletDialog} onOpenChange={open => !open && setEditPalletDialog(null)}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="rounded-2xl max-w-md">
           <DialogHeader>
-            <DialogTitle>Editar Pallet: {editPalletDialog?.code}</DialogTitle>
+            <DialogTitle className="font-mono text-sm">Editar {editPalletDialog?.code}</DialogTitle>
           </DialogHeader>
           {editPalletLoading ? (
-            <div className="text-center py-8"><Loader2 className="h-6 w-6 mx-auto animate-spin" /></div>
+            <div className="text-center py-8"><Loader2 className="h-5 w-5 mx-auto animate-spin" /></div>
           ) : (
-            <div className="space-y-2 max-h-80 overflow-y-auto">
+            <div className="divide-y divide-border/30 max-h-60 overflow-y-auto rounded-xl border border-border/30">
               {editPalletItems.map((item, idx) => (
-                <div key={idx} className="flex items-center gap-2 p-2.5 rounded-lg border">
+                <div key={idx} className="flex items-center gap-2 px-3 py-2.5">
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{item.product?.name || "Produto"}</p>
-                    <p className="text-xs text-muted-foreground font-mono">{item.product?.erpCode || ""}</p>
+                    <p className="text-xs font-medium truncate">{item.product?.name || "Produto"}</p>
+                    <p className="text-[10px] text-muted-foreground font-mono">{item.product?.erpCode || ""}</p>
                   </div>
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => {
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 rounded-lg" onClick={() => {
                       setEditPalletItems(prev => prev.map((it, i) => i === idx ? { ...it, quantity: Math.max(1, it.quantity - 1) } : it));
                     }}>
                       <Minus className="h-3 w-3" />
@@ -879,14 +866,14 @@ export default function RecebimentoPage() {
                         const v = parseInt(e.target.value.replace(/\D/g, "")) || 1;
                         setEditPalletItems(prev => prev.map((it, i) => i === idx ? { ...it, quantity: v } : it));
                       }}
-                      className="h-7 w-14 text-center font-mono font-bold text-sm p-0"
+                      className="h-7 w-12 text-center font-mono font-bold text-sm p-0 rounded-lg"
                     />
-                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => {
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 rounded-lg" onClick={() => {
                       setEditPalletItems(prev => prev.map((it, i) => i === idx ? { ...it, quantity: it.quantity + 1 } : it));
                     }}>
                       <Plus className="h-3 w-3" />
                     </Button>
-                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive" onClick={() => {
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 rounded-lg text-destructive" onClick={() => {
                       setEditPalletItems(prev => prev.filter((_, i) => i !== idx));
                     }}>
                       <X className="h-3 w-3" />
@@ -895,45 +882,49 @@ export default function RecebimentoPage() {
                 </div>
               ))}
               {editPalletItems.length === 0 && (
-                <p className="text-sm text-muted-foreground text-center py-4">Nenhum item. O pallet será cancelado ao salvar.</p>
+                <p className="text-xs text-muted-foreground text-center py-4">Nenhum item</p>
               )}
             </div>
           )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditPalletDialog(null)}>Cancelar</Button>
-            <Button onClick={savePalletEdit} disabled={editPalletLoading} data-testid="button-save-pallet-edit">
-              {editPalletLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-              Salvar Alterações
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setEditPalletDialog(null)} className="rounded-xl">Cancelar</Button>
+            <Button onClick={savePalletEdit} disabled={editPalletLoading} className="rounded-xl" data-testid="button-save-pallet-edit">
+              {editPalletLoading ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}
+              Salvar
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog open={!!labelDialog} onOpenChange={open => !open && setLabelDialog(null)}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="rounded-2xl max-w-sm">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2"><Printer className="h-5 w-5" />Etiqueta do Pallet</DialogTitle>
+            <DialogTitle className="flex items-center gap-1.5 text-sm">
+              <Printer className="h-4 w-4" />Etiqueta
+            </DialogTitle>
           </DialogHeader>
           {labelDialog && (
             <div className="space-y-3">
-              <div className="text-center p-4 border-2 border-dashed rounded-lg bg-muted/30">
+              <div className="text-center p-4 border-2 border-dashed rounded-xl bg-muted/20">
                 <p className="font-mono text-2xl font-bold">{labelDialog.palletCode}</p>
-                <p className="font-semibold text-lg mt-1">{labelDialog.address}</p>
-                <p className="text-xs text-muted-foreground mt-2">{new Date(labelDialog.createdAt).toLocaleString("pt-BR")}</p>
+                <p className="font-semibold text-base mt-1">{labelDialog.address}</p>
+                <p className="text-[10px] text-muted-foreground mt-2">{new Date(labelDialog.createdAt).toLocaleString("pt-BR")}</p>
               </div>
-              <div className="space-y-1 max-h-40 overflow-y-auto text-sm">
+              <div className="divide-y divide-border/30 max-h-32 overflow-y-auto rounded-xl border border-border/30 text-xs">
                 {labelDialog.items?.map((i: any, idx: number) => (
-                  <div key={idx} className="flex justify-between py-1 border-b border-dashed last:border-0">
+                  <div key={idx} className="flex justify-between px-3 py-1.5">
                     <span className="truncate mr-2">{i.product}</span>
-                    <span className="font-mono flex-shrink-0">{i.quantity} {i.unit}</span>
+                    <span className="font-mono shrink-0">{i.quantity} {i.unit}</span>
                   </div>
                 ))}
               </div>
             </div>
           )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setLabelDialog(null)}>Fechar</Button>
-            <Button onClick={printLabel} data-testid="button-print-label"><Printer className="h-4 w-4 mr-2" />Imprimir</Button>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setLabelDialog(null)} className="rounded-xl">Fechar</Button>
+            <Button onClick={printLabel} className="rounded-xl" data-testid="button-print-label">
+              <Printer className="h-4 w-4 mr-1.5" />Imprimir
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
