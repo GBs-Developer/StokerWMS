@@ -236,7 +236,7 @@ export default function TransferenciaPage() {
               <div className="relative w-32">
                 <Input placeholder="Filtrar..." value={filterText} onChange={e => setFilterText(e.target.value)} className="h-7 text-xs rounded-lg pl-2 pr-6" data-testid="input-filter-pallets" />
                 {filterText && (
-                  <button className="absolute right-1 top-1/2 -translate-y-1/2" onClick={() => setFilterText("")}>
+                  <button className="absolute right-1 top-1/2 -translate-y-1/2" onClick={() => setFilterText("")} data-testid="button-clear-filter">
                     <X className="h-3 w-3 text-muted-foreground" />
                   </button>
                 )}
@@ -327,15 +327,16 @@ export default function TransferenciaPage() {
                           </div>
                           {transferMode === "partial" ? (
                             <div className="flex items-center gap-0.5 shrink-0">
-                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg" onClick={() => updateSelectedQty(item.productId, -1, maxQty)}>
+                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg" onClick={() => updateSelectedQty(item.productId, -1, maxQty)} data-testid={`button-qty-minus-${idx}`}>
                                 <Minus className="h-3.5 w-3.5" />
                               </Button>
                               <Input
                                 value={selectedQty}
                                 onChange={e => setSelectedQty(item.productId, parseInt(e.target.value.replace(/\D/g, "")) || 0, maxQty)}
                                 className="h-8 w-12 text-center font-mono font-bold text-sm p-0 rounded-lg"
+                                data-testid={`input-qty-${idx}`}
                               />
-                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg" onClick={() => updateSelectedQty(item.productId, 1, maxQty)}>
+                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg" onClick={() => updateSelectedQty(item.productId, 1, maxQty)} data-testid={`button-qty-plus-${idx}`}>
                                 <Plus className="h-3.5 w-3.5" />
                               </Button>
                               <span className="text-[10px] text-muted-foreground w-7 text-right">/{maxQty}</span>

@@ -78,7 +78,8 @@ export async function registerRoutes(
       console.log("[API] Triggering manual DB sync...");
       runSync((error, success) => {
         if (error) {
-          return res.status(500).json({ error: "Falha na sincronização", details: error.message });
+          console.error("Sync error details:", error.message);
+          return res.status(500).json({ error: "Falha na sincronização" });
         }
         if (!success) {
           return res.status(503).json({ error: "Script de sincronização não disponível" });
@@ -106,9 +107,10 @@ export async function registerRoutes(
       await storage.updatePickingSessionHeartbeat(lock.id);
 
       // 2. Process Items
+      const allOrderItems = await storage.getOrderItemsByOrderId(orderId);
       const updates = [];
       for (const item of items) {
-        const orderItem = (await storage.getOrderItemsByOrderId(orderId)).find(i => i.id === item.id);
+        const orderItem = allOrderItems.find(i => i.id === item.id);
         if (!orderItem) continue;
 
         const newQty = Number(item.qtyPicked);
@@ -245,6 +247,7 @@ export async function registerRoutes(
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
         sameSite: "lax",
+        maxAge: 12 * 60 * 60 * 1000,
       });
 
       await storage.createAuditLog({
@@ -2880,7 +2883,8 @@ export async function registerRoutes(
       });
     } catch (error: any) {
       console.error("SQL query error:", error);
-      res.status(400).json({ error: error.message || "Erro ao executar consulta SQL" });
+      const safeMsg = error.message?.replace(/at\s+.*$/gm, "").trim() || "Erro ao executar consulta SQL";
+      res.status(400).json({ error: safeMsg.length > 200 ? safeMsg.slice(0, 200) : safeMsg });
     }
   });
 

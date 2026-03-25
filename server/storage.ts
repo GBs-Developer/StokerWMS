@@ -506,20 +506,29 @@ export class DatabaseStorage implements IStorage {
 
   async getOrderItemsByOrderId(orderId: string): Promise<(OrderItem & { product: Product; exceptionQty?: number; exceptions?: Exception[] })[]> {
     const items = await db.select().from(orderItems).where(eq(orderItems.orderId, orderId));
+    if (items.length === 0) return [];
 
-    // Fetch products and exceptions
-    const itemsWithProduct = await Promise.all(items.map(async (item) => {
-      const [product] = await db.select().from(products).where(eq(products.id, item.productId));
-      const itemExceptions = await db.select().from(exceptions).where(eq(exceptions.orderItemId, item.id));
+    const productIds = [...new Set(items.map(i => i.productId))];
+    const itemIds = items.map(i => i.id);
 
-      return {
-        ...item,
-        product,
-        exceptions: itemExceptions
-      };
+    const [allProducts, allExceptions] = await Promise.all([
+      db.select().from(products).where(inArray(products.id, productIds)),
+      db.select().from(exceptions).where(inArray(exceptions.orderItemId, itemIds)),
+    ]);
+
+    const productMap = new Map(allProducts.map(p => [p.id, p]));
+    const exceptionMap = new Map<string, Exception[]>();
+    for (const exc of allExceptions) {
+      const list = exceptionMap.get(exc.orderItemId) || [];
+      list.push(exc);
+      exceptionMap.set(exc.orderItemId, list);
+    }
+
+    return items.map(item => ({
+      ...item,
+      product: productMap.get(item.productId)!,
+      exceptions: exceptionMap.get(item.id) || [],
     }));
-
-    return itemsWithProduct;
   }
 
   async updateOrderItem(id: string, data: Partial<OrderItem>): Promise<OrderItem | undefined> {
@@ -531,47 +540,47 @@ export class DatabaseStorage implements IStorage {
   }
 
   async relaunchOrder(orderId: string): Promise<void> {
-    // Reset Order
-    await db.update(orders)
-      .set({
-        status: "pendente",
-        isLaunched: true, // Ensure it's launched
-        launchedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      })
-      .where(eq(orders.id, orderId));
+    await db.transaction(async (tx) => {
+      await tx.update(orders)
+        .set({
+          status: "pendente",
+          isLaunched: true,
+          launchedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        })
+        .where(eq(orders.id, orderId));
 
-    // Reset Work Units
-    await db.update(workUnits)
-      .set({
-        status: "pendente",
-        lockedBy: null,
-        lockedAt: null,
-        lockExpiresAt: null,
-        startedAt: null,
-        completedAt: null,
-        cartQrCode: null,
-        palletQrCode: null
-      })
-      .where(eq(workUnits.orderId, orderId));
+      await tx.update(workUnits)
+        .set({
+          status: "pendente",
+          lockedBy: null,
+          lockedAt: null,
+          lockExpiresAt: null,
+          startedAt: null,
+          completedAt: null,
+          cartQrCode: null,
+          palletQrCode: null
+        })
+        .where(eq(workUnits.orderId, orderId));
 
-    // Reset Order Items
-    await db.update(orderItems)
-      .set({
-        status: "pendente",
-        separatedQty: 0,
-        checkedQty: 0
-      })
-      .where(eq(orderItems.orderId, orderId));
+      await tx.update(orderItems)
+        .set({
+          status: "pendente",
+          separatedQty: 0,
+          checkedQty: 0
+        })
+        .where(eq(orderItems.orderId, orderId));
 
-    // Delete all exceptions for this order
-    const orderItemIds = await db.select({ id: orderItems.id })
-      .from(orderItems)
-      .where(eq(orderItems.orderId, orderId));
+      const orderItemIds = await tx.select({ id: orderItems.id })
+        .from(orderItems)
+        .where(eq(orderItems.orderId, orderId));
 
-    for (const item of orderItemIds) {
-      await db.delete(exceptions).where(eq(exceptions.orderItemId, item.id));
-    }
+      if (orderItemIds.length > 0) {
+        await tx.delete(exceptions).where(
+          inArray(exceptions.orderItemId, orderItemIds.map(i => i.id))
+        );
+      }
+    });
   }
 
   // Work Units
@@ -1009,17 +1018,18 @@ export class DatabaseStorage implements IStorage {
 
   async getAllAuditLogs(): Promise<(AuditLog & { user: User | null })[]> {
     const logs = await db.select().from(auditLogs).orderBy(desc(auditLogs.createdAt));
-    const result: (AuditLog & { user: User | null })[] = [];
+    if (logs.length === 0) return [];
 
-    for (const log of logs) {
-      const [user] = log.userId
-        ? await db.select().from(users).where(eq(users.id, log.userId))
-        : [null];
+    const userIds = [...new Set(logs.map(l => l.userId).filter(Boolean))] as string[];
+    const allUsers = userIds.length > 0
+      ? await db.select().from(users).where(inArray(users.id, userIds))
+      : [];
+    const userMap = new Map(allUsers.map(u => [u.id, u]));
 
-      result.push({ ...log, user });
-    }
-
-    return result;
+    return logs.map(log => ({
+      ...log,
+      user: log.userId ? (userMap.get(log.userId) || null) : null,
+    }));
   }
 
   async getAllSections(): Promise<Section[]> {
@@ -1190,62 +1200,57 @@ export class DatabaseStorage implements IStorage {
   }
 
   async cancelOrderLaunch(orderId: string): Promise<void> {
-    // Delete only conferencia work units (which are generated during the process)
-    await db.delete(workUnits).where(and(eq(workUnits.orderId, orderId), eq(workUnits.type, "conferencia")));
+    await db.transaction(async (tx) => {
+      await tx.delete(workUnits).where(and(eq(workUnits.orderId, orderId), eq(workUnits.type, "conferencia")));
 
-    // Reset separacao and balcao work units to pendente
-    await db.update(workUnits)
-      .set({ 
-        status: "pendente", 
-        lockedBy: null, 
-        lockedAt: null,
-        startedAt: null,
-        completedAt: null,
-        cartQrCode: null,
-        palletQrCode: null
-      })
-      .where(and(eq(workUnits.orderId, orderId), inArray(workUnits.type, ["separacao", "balcao"])));
+      await tx.update(workUnits)
+        .set({ 
+          status: "pendente", 
+          lockedBy: null, 
+          lockedAt: null,
+          startedAt: null,
+          completedAt: null,
+          cartQrCode: null,
+          palletQrCode: null
+        })
+        .where(and(eq(workUnits.orderId, orderId), inArray(workUnits.type, ["separacao", "balcao"])));
 
-    // Delete all picking sessions for this order
-    await db.delete(pickingSessions).where(eq(pickingSessions.orderId, orderId));
+      await tx.delete(pickingSessions).where(eq(pickingSessions.orderId, orderId));
 
-    // Get all order items to delete exceptions
-    const items = await db.select({ id: orderItems.id })
-      .from(orderItems)
-      .where(eq(orderItems.orderId, orderId));
+      const items = await tx.select({ id: orderItems.id })
+        .from(orderItems)
+        .where(eq(orderItems.orderId, orderId));
 
-    // Delete all exceptions for order items
-    for (const item of items) {
-      await db.delete(exceptions).where(eq(exceptions.orderItemId, item.id));
-    }
+      if (items.length > 0) {
+        await tx.delete(exceptions).where(
+          inArray(exceptions.orderItemId, items.map(i => i.id))
+        );
+      }
 
-    // Reset all order items — exceptionQty is computed from the exceptions table (already deleted above)
-    // exceptionType is a direct column and should be cleared
-    await db.update(orderItems)
-      .set({
-        status: "pendente",
-        qtyPicked: 0,
-        separatedQty: 0,
-        checkedQty: 0,
-        exceptionType: null,
-      })
-      .where(eq(orderItems.orderId, orderId));
+      await tx.update(orderItems)
+        .set({
+          status: "pendente",
+          qtyPicked: 0,
+          separatedQty: 0,
+          checkedQty: 0,
+          exceptionType: null,
+        })
+        .where(eq(orderItems.orderId, orderId));
 
-    // Delete volume record for this order (carga/pacote volume)
-    await db.delete(orderVolumes).where(eq(orderVolumes.orderId, orderId));
+      await tx.delete(orderVolumes).where(eq(orderVolumes.orderId, orderId));
 
-    // Reset order completely: clear rota, carga/pacote, lançamento, prioridade
-    await db.update(orders)
-      .set({
-        status: "pendente",
-        isLaunched: false,
-        launchedAt: null,
-        loadCode: null,
-        routeId: null,
-        priority: 0,
-        updatedAt: new Date().toISOString()
-      })
-      .where(eq(orders.id, orderId));
+      await tx.update(orders)
+        .set({
+          status: "pendente",
+          isLaunched: false,
+          launchedAt: null,
+          loadCode: null,
+          routeId: null,
+          priority: 0,
+          updatedAt: new Date().toISOString()
+        })
+        .where(eq(orders.id, orderId));
+    });
   }
 
 

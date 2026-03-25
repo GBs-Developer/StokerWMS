@@ -232,7 +232,7 @@ export default function ContagemPage() {
                 <Textarea placeholder="Observacoes (opcional)..." value={newNotes} onChange={e => setNewNotes(e.target.value)}
                   className="rounded-xl resize-none" rows={2} data-testid="input-cycle-notes" />
                 <div className="flex gap-2">
-                  <Button variant="outline" className="flex-1 h-11 rounded-xl" onClick={() => setShowNew(false)}>Cancelar</Button>
+                  <Button variant="outline" className="flex-1 h-11 rounded-xl" onClick={() => setShowNew(false)} data-testid="button-cancel-new-cycle">Cancelar</Button>
                   <Button className="flex-1 h-11 rounded-xl" onClick={() => createMutation.mutate()} disabled={createMutation.isPending} data-testid="button-create-cycle">
                     {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}
                     Criar
@@ -256,7 +256,7 @@ export default function ContagemPage() {
                 <div className="divide-y divide-border/30">
                   {cycles.map((c: any) => (
                     <div key={c.id} className="group flex items-center gap-3 px-4 py-3" data-testid={`row-cycle-${c.id}`}>
-                      <button className="flex-1 text-left min-w-0" onClick={() => loadCycle(c.id)}>
+                      <button className="flex-1 text-left min-w-0" onClick={() => loadCycle(c.id)} data-testid={`button-load-cycle-${c.id}`}>
                         <p className="text-sm font-semibold truncate">{cycleTypeOptions.find(o => o.value === c.type)?.label || c.type}</p>
                         <p className="text-[10px] text-muted-foreground truncate mt-0.5">
                           {new Date(c.createdAt).toLocaleDateString("pt-BR")}

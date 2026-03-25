@@ -1,4 +1,6 @@
 import express, { type Request, Response, NextFunction } from "express";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import { log } from "./log";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
@@ -14,16 +16,43 @@ declare module "http" {
   }
 }
 
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+}));
+
 app.use(
   express.json({
+    limit: "2mb",
     verify: (req, _res, buf) => {
       req.rawBody = buf;
     },
   }),
 );
 
-app.use(express.urlencoded({ extended: false }));
-app.set("json escape", false);
+app.use(express.urlencoded({ extended: false, limit: "2mb" }));
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { error: "Muitas tentativas de login. Tente novamente em 15 minutos." },
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false, trustProxy: false },
+});
+
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 200,
+  message: { error: "Limite de requisições excedido. Tente novamente em breve." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use("/api/auth/login", loginLimiter);
+app.use("/api/auth/badge-login", loginLimiter);
+app.use("/api/sql-query", rateLimit({ windowMs: 60 * 1000, max: 30, message: { error: "Limite de consultas SQL excedido." } }));
+app.use("/api/", apiLimiter);
 
 
 
@@ -86,7 +115,6 @@ app.use((req, res, next) => {
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
 
     console.error("Internal Server Error:", err);
 
@@ -94,6 +122,7 @@ app.use((req, res, next) => {
       return next(err);
     }
 
+    const message = status >= 500 ? "Erro interno do servidor" : (err.message || "Erro desconhecido");
     return res.status(status).json({ message });
   });
 

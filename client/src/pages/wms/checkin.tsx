@@ -219,7 +219,7 @@ export default function CheckinPage() {
                 <div className="relative w-32">
                   <Input placeholder="Filtrar..." value={filterText} onChange={e => setFilterText(e.target.value)} className="h-7 text-xs rounded-lg pl-2 pr-6" data-testid="input-filter-checkin" />
                   {filterText && (
-                    <button className="absolute right-1 top-1/2 -translate-y-1/2" onClick={() => setFilterText("")}>
+                    <button className="absolute right-1 top-1/2 -translate-y-1/2" onClick={() => setFilterText("")} data-testid="button-clear-filter">
                       <X className="h-3 w-3 text-muted-foreground" />
                     </button>
                   )}
@@ -284,14 +284,14 @@ export default function CheckinPage() {
                       </p>
                     </div>
                     <div className="flex items-center gap-0.5 shrink-0">
-                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg" onClick={() => updateItemQty(idx, -1)}>
+                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg" onClick={() => updateItemQty(idx, -1)} data-testid={`button-qty-minus-${idx}`}>
                         <Minus className="h-3.5 w-3.5" />
                       </Button>
                       <span className="font-mono font-bold text-sm w-9 text-center">{item.quantity}</span>
-                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg" onClick={() => updateItemQty(idx, 1)}>
+                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg" onClick={() => updateItemQty(idx, 1)} data-testid={`button-qty-plus-${idx}`}>
                         <Plus className="h-3.5 w-3.5" />
                       </Button>
-                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg text-destructive hover:bg-destructive/10" onClick={() => removeItemFromPallet(idx)}>
+                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg text-destructive hover:bg-destructive/10" onClick={() => removeItemFromPallet(idx)} data-testid={`button-remove-item-${idx}`}>
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
@@ -352,7 +352,7 @@ export default function CheckinPage() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setShowAllocateConfirm(false)} className="rounded-xl">Cancelar</Button>
+            <Button variant="outline" onClick={() => setShowAllocateConfirm(false)} className="rounded-xl" data-testid="button-cancel-allocate">Cancelar</Button>
             <Button onClick={() => allocateMutation.mutate()} disabled={allocateMutation.isPending} className="rounded-xl" data-testid="button-confirm-allocate">
               {allocateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle className="h-4 w-4 mr-2" />}
               Confirmar
@@ -368,7 +368,7 @@ export default function CheckinPage() {
             <DialogDescription>Tem certeza que deseja cancelar este pallet?</DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setShowCancelConfirm(null)} className="rounded-xl">Voltar</Button>
+            <Button variant="outline" onClick={() => setShowCancelConfirm(null)} className="rounded-xl" data-testid="button-cancel-cancel">Voltar</Button>
             <Button variant="destructive" onClick={() => showCancelConfirm && cancelMutation.mutate(showCancelConfirm)} disabled={cancelMutation.isPending} className="rounded-xl" data-testid="button-confirm-cancel-pallet">
               {cancelMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Trash2 className="h-4 w-4 mr-2" />}
               Confirmar

@@ -12,6 +12,39 @@ import { z } from "zod";
 import { broadcastSSE } from "./sse";
 import { randomUUID } from "crypto";
 
+const addressSchema = z.object({
+  bairro: z.string().min(1).max(50),
+  rua: z.string().min(1).max(50),
+  bloco: z.string().min(1).max(50),
+  nivel: z.string().min(1).max(50),
+  type: z.string().max(30).optional(),
+});
+
+const palletItemSchema = z.object({
+  productId: z.string().min(1),
+  erpNfId: z.string().nullable().optional(),
+  quantity: z.number().positive(),
+  lot: z.string().max(100).nullable().optional(),
+  expiryDate: z.string().nullable().optional(),
+  fefoEnabled: z.boolean().optional(),
+});
+
+const createPalletSchema = z.object({
+  items: z.array(palletItemSchema).min(1),
+  nfIds: z.array(z.string()).optional(),
+});
+
+const allocatePalletSchema = z.object({
+  addressId: z.string().min(1),
+});
+
+const countItemSchema = z.object({
+  itemId: z.string().min(1),
+  countedQty: z.number().min(0),
+  lot: z.string().max(100).optional(),
+  expiryDate: z.string().optional(),
+});
+
 function getCompanyId(req: Request): number {
   return (req as any).companyId;
 }
@@ -69,7 +102,11 @@ export function registerWmsRoutes(app: Express) {
   app.post("/api/wms-addresses", ...authMiddleware, supervisorRoles, async (req: Request, res: Response) => {
     try {
       const companyId = getCompanyId(req);
-      const { bairro, rua, bloco, nivel, type } = req.body;
+      const parsed = addressSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Dados inválidos", details: parsed.error.flatten().fieldErrors });
+      }
+      const { bairro, rua, bloco, nivel, type } = parsed.data;
       const code = `${bairro}-${rua}-${bloco}-${nivel}`;
 
       const existing = await db.select().from(wmsAddresses)
@@ -231,35 +268,43 @@ export function registerWmsRoutes(app: Express) {
         return res.status(400).json({ error: "Lista de endereços inválida" });
       }
 
-      let created = 0;
-      let skipped = 0;
+      const result = await db.transaction(async (tx) => {
+        let created = 0;
+        let skipped = 0;
 
-      for (const addr of addresses) {
-        const code = `${addr.bairro}-${addr.rua}-${addr.bloco}-${addr.nivel}`;
-        const existing = await db.select().from(wmsAddresses)
-          .where(and(eq(wmsAddresses.companyId, companyId), eq(wmsAddresses.code, code)));
+        for (const addr of addresses) {
+          if (!addr.bairro || !addr.rua || !addr.bloco || !addr.nivel) {
+            skipped++;
+            continue;
+          }
+          const code = `${String(addr.bairro)}-${String(addr.rua)}-${String(addr.bloco)}-${String(addr.nivel)}`;
+          const existing = await tx.select().from(wmsAddresses)
+            .where(and(eq(wmsAddresses.companyId, companyId), eq(wmsAddresses.code, code)));
 
-        if (existing.length > 0) {
-          skipped++;
-          continue;
+          if (existing.length > 0) {
+            skipped++;
+            continue;
+          }
+
+          await tx.insert(wmsAddresses).values({
+            companyId,
+            bairro: String(addr.bairro),
+            rua: String(addr.rua),
+            bloco: String(addr.bloco),
+            nivel: String(addr.nivel),
+            code,
+            type: addr.type || "standard",
+            createdBy: getUserId(req),
+            createdAt: new Date().toISOString(),
+          });
+          created++;
         }
 
-        await db.insert(wmsAddresses).values({
-          companyId,
-          bairro: addr.bairro,
-          rua: addr.rua,
-          bloco: addr.bloco,
-          nivel: addr.nivel,
-          code,
-          type: addr.type || "standard",
-          createdBy: getUserId(req),
-          createdAt: new Date().toISOString(),
-        });
-        created++;
-      }
+        return { created, skipped };
+      });
 
-      await createAuditLog(req, "import", "wms_address", "", `Importação: ${created} criados, ${skipped} ignorados`);
-      res.json({ created, skipped });
+      await createAuditLog(req, "import", "wms_address", "", `Importação: ${result.created} criados, ${result.skipped} ignorados`);
+      res.json(result);
     } catch (error) {
       console.error("Import addresses error:", error);
       res.status(500).json({ error: "Erro ao importar endereços" });
@@ -319,7 +364,11 @@ export function registerWmsRoutes(app: Express) {
 
   app.post("/api/pallets", ...authMiddleware, receiverRoles, async (req: Request, res: Response) => {
     try {
-      const { items, nfIds } = req.body;
+      const parsed = createPalletSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Dados inválidos", details: parsed.error.flatten().fieldErrors });
+      }
+      const { items, nfIds } = parsed.data;
       const companyId = getCompanyId(req);
       const userId = getUserId(req);
 
@@ -534,7 +583,11 @@ export function registerWmsRoutes(app: Express) {
     try {
       const companyId = getCompanyId(req);
       const { id } = req.params;
-      const { addressId } = req.body;
+      const parsed = allocatePalletSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "ID do endereço é obrigatório" });
+      }
+      const { addressId } = parsed.data;
 
       const [pallet] = await db.select().from(pallets)
         .where(and(eq(pallets.id, id), eq(pallets.companyId, companyId)));
@@ -554,32 +607,41 @@ export function registerWmsRoutes(app: Express) {
         return res.status(400).json({ error: "Endereço inativo" });
       }
 
-      const occupant = await db.select().from(pallets)
-        .where(and(
-          eq(pallets.addressId, addressId),
-          sql`${pallets.status} != 'cancelado'`,
-          sql`${pallets.id} != ${id}`,
-        ));
-      if (occupant.length > 0) {
-        return res.status(400).json({ error: "Endereço já ocupado por outro pallet" });
-      }
-
       const now = new Date().toISOString();
-      await db.update(pallets).set({
-        addressId,
-        status: "alocado",
-        allocatedAt: now,
-      }).where(eq(pallets.id, id));
 
-      await db.insert(palletMovements).values({
-        palletId: id,
-        companyId,
-        movementType: "allocated",
-        fromAddressId: pallet.addressId || null,
-        toAddressId: addressId,
-        userId: getUserId(req),
-        createdAt: now,
+      const allocationResult = await db.transaction(async (tx) => {
+        const occupant = await tx.select().from(pallets)
+          .where(and(
+            eq(pallets.addressId, addressId),
+            sql`${pallets.status} != 'cancelado'`,
+            sql`${pallets.id} != ${id}`,
+          ));
+        if (occupant.length > 0) {
+          return { error: "Endereço já ocupado por outro pallet" } as const;
+        }
+
+        await tx.update(pallets).set({
+          addressId,
+          status: "alocado",
+          allocatedAt: now,
+        }).where(eq(pallets.id, id));
+
+        await tx.insert(palletMovements).values({
+          palletId: id,
+          companyId,
+          movementType: "allocated",
+          fromAddressId: pallet.addressId || null,
+          toAddressId: addressId,
+          userId: getUserId(req),
+          createdAt: now,
+        });
+
+        return { success: true } as const;
       });
+
+      if ("error" in allocationResult) {
+        return res.status(400).json({ error: allocationResult.error });
+      }
 
       await createAuditLog(req, "allocate", "pallet", id, `Pallet ${pallet.code} alocado em ${address.code}`);
       broadcastSSE("pallet_allocated", { palletId: id, addressId, companyId });
@@ -596,6 +658,9 @@ export function registerWmsRoutes(app: Express) {
       const companyId = getCompanyId(req);
       const { id } = req.params;
       const { toAddressId } = req.body;
+      if (!toAddressId || typeof toAddressId !== "string") {
+        return res.status(400).json({ error: "Endereço de destino é obrigatório" });
+      }
 
       const [pallet] = await db.select().from(pallets)
         .where(and(eq(pallets.id, id), eq(pallets.companyId, companyId)));
@@ -626,32 +691,41 @@ export function registerWmsRoutes(app: Express) {
         return res.status(400).json({ error: "Endereço destino está inativo" });
       }
 
-      const occupant = await db.select().from(pallets)
-        .where(and(
-          eq(pallets.addressId, toAddressId),
-          sql`${pallets.status} != 'cancelado'`,
-          sql`${pallets.id} != ${id}`,
-        ));
-      if (occupant.length > 0) {
-        return res.status(400).json({ error: "Endereço destino já ocupado por outro pallet" });
-      }
-
       const now = new Date().toISOString();
       const fromAddressId = pallet.addressId;
-      await db.update(pallets).set({
-        addressId: toAddressId,
-        status: "alocado",
-      }).where(eq(pallets.id, id));
 
-      await db.insert(palletMovements).values({
-        palletId: id,
-        companyId,
-        movementType: "transferred",
-        fromAddressId: fromAddressId || null,
-        toAddressId,
-        userId: getUserId(req),
-        createdAt: now,
+      const transferResult = await db.transaction(async (tx) => {
+        const occupant = await tx.select().from(pallets)
+          .where(and(
+            eq(pallets.addressId, toAddressId),
+            sql`${pallets.status} != 'cancelado'`,
+            sql`${pallets.id} != ${id}`,
+          ));
+        if (occupant.length > 0) {
+          return { error: "Endereço destino já ocupado por outro pallet" } as const;
+        }
+
+        await tx.update(pallets).set({
+          addressId: toAddressId,
+          status: "alocado",
+        }).where(eq(pallets.id, id));
+
+        await tx.insert(palletMovements).values({
+          palletId: id,
+          companyId,
+          movementType: "transferred",
+          fromAddressId: fromAddressId || null,
+          toAddressId,
+          userId: getUserId(req),
+          createdAt: now,
+        });
+
+        return { success: true } as const;
       });
+
+      if ("error" in transferResult) {
+        return res.status(400).json({ error: transferResult.error });
+      }
 
       await createAuditLog(req, "transfer", "pallet", id, `Pallet ${pallet.code} transferido para ${toAddress.code}`);
       broadcastSSE("pallet_transferred", { palletId: id, fromAddressId, toAddressId, companyId });
@@ -1078,29 +1152,33 @@ export function registerWmsRoutes(app: Express) {
       const companyId = getCompanyId(req);
       const { type, items, notes } = req.body;
 
-      const [cycle] = await db.insert(countingCycles).values({
-        companyId,
-        type: type || "por_endereco",
-        status: "pendente",
-        createdBy: getUserId(req),
-        notes: notes || null,
-        createdAt: new Date().toISOString(),
-      }).returning();
+      const cycle = await db.transaction(async (tx) => {
+        const [cycle] = await tx.insert(countingCycles).values({
+          companyId,
+          type: type || "por_endereco",
+          status: "pendente",
+          createdBy: getUserId(req),
+          notes: notes || null,
+          createdAt: new Date().toISOString(),
+        }).returning();
 
-      if (Array.isArray(items)) {
-        for (const item of items) {
-          await db.insert(countingCycleItems).values({
-            cycleId: cycle.id,
-            companyId,
-            addressId: item.addressId || null,
-            productId: item.productId || null,
-            palletId: item.palletId || null,
-            expectedQty: item.expectedQty ?? null,
-            status: "pendente",
-            createdAt: new Date().toISOString(),
-          });
+        if (Array.isArray(items)) {
+          for (const item of items) {
+            await tx.insert(countingCycleItems).values({
+              cycleId: cycle.id,
+              companyId,
+              addressId: item.addressId || null,
+              productId: item.productId || null,
+              palletId: item.palletId || null,
+              expectedQty: item.expectedQty ?? null,
+              status: "pendente",
+              createdAt: new Date().toISOString(),
+            });
+          }
         }
-      }
+
+        return cycle;
+      });
 
       await createAuditLog(req, "create", "counting_cycle", cycle.id, `Ciclo de contagem criado`);
       res.json(cycle);
@@ -1194,7 +1272,11 @@ export function registerWmsRoutes(app: Express) {
     try {
       const companyId = getCompanyId(req);
       const { id } = req.params;
-      const { itemId, countedQty, lot, expiryDate } = req.body;
+      const parsed = countItemSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Dados inválidos", details: parsed.error.flatten().fieldErrors });
+      }
+      const { itemId, countedQty, lot, expiryDate } = parsed.data;
 
       const [cycle] = await db.select().from(countingCycles)
         .where(and(eq(countingCycles.id, id), eq(countingCycles.companyId, companyId)));
@@ -1238,19 +1320,21 @@ export function registerWmsRoutes(app: Express) {
         updates.status = "divergente";
       }
 
-      await db.update(countingCycleItems).set(updates).where(eq(countingCycleItems.id, itemId));
+      await db.transaction(async (tx) => {
+        await tx.update(countingCycleItems).set(updates).where(eq(countingCycleItems.id, itemId));
 
-      const allItems = await db.select().from(countingCycleItems)
-        .where(eq(countingCycleItems.cycleId, id));
-      const allCounted = allItems.every(i => i.id === itemId ? true : i.status !== "pendente");
-      if (allCounted) {
-        await db.update(countingCycles).set({
-          status: "concluido",
-          completedAt: now,
-        }).where(eq(countingCycles.id, id));
-      } else if (cycle.status === "pendente") {
-        await db.update(countingCycles).set({ status: "em_andamento" }).where(eq(countingCycles.id, id));
-      }
+        const allItems = await tx.select().from(countingCycleItems)
+          .where(eq(countingCycleItems.cycleId, id));
+        const allCounted = allItems.every(i => i.id === itemId ? true : i.status !== "pendente");
+        if (allCounted) {
+          await tx.update(countingCycles).set({
+            status: "concluido",
+            completedAt: now,
+          }).where(eq(countingCycles.id, id));
+        } else if (cycle.status === "pendente") {
+          await tx.update(countingCycles).set({ status: "em_andamento" }).where(eq(countingCycles.id, id));
+        }
+      });
 
       await createAuditLog(req, "count_item", "counting_cycle_item", itemId, `Contagem: ${countedQty} (esperado: ${item.expectedQty})`);
       res.json({ success: true });
