@@ -766,6 +766,114 @@ export function registerWmsRoutes(app: Express) {
     }
   });
 
+  app.post("/api/pallets/:id/cancel-unaddressed", ...authMiddleware, receiverRoles, async (req: Request, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const { id } = req.params;
+
+      const [pallet] = await db.select().from(pallets)
+        .where(and(eq(pallets.id, id), eq(pallets.companyId, companyId)));
+      if (!pallet) return res.status(404).json({ error: "Pallet não encontrado" });
+      if (pallet.status !== "sem_endereco") return res.status(400).json({ error: "Apenas pallets sem endereço podem ser cancelados aqui" });
+
+      const now = new Date().toISOString();
+      await db.update(pallets).set({
+        status: "cancelado",
+        cancelledAt: now,
+        cancelledBy: getUserId(req),
+        cancelReason: "Cancelado pelo recebedor",
+      }).where(eq(pallets.id, id));
+
+      await db.delete(palletItems).where(eq(palletItems.palletId, id));
+      await createAuditLog(req, "cancel", "pallet", id, `Pallet ${pallet.code} cancelado pelo recebedor`);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Cancel unaddressed pallet error:", error);
+      res.status(500).json({ error: "Erro ao cancelar pallet" });
+    }
+  });
+
+  app.post("/api/pallets/:id/partial-transfer", ...authMiddleware, forkliftRoles, async (req: Request, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const { id } = req.params;
+      const { items, toAddressId } = req.body;
+
+      if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: "Selecione itens para transferir" });
+      if (!toAddressId) return res.status(400).json({ error: "Endereço de destino obrigatório" });
+
+      const [pallet] = await db.select().from(pallets)
+        .where(and(eq(pallets.id, id), eq(pallets.companyId, companyId)));
+      if (!pallet) return res.status(404).json({ error: "Pallet não encontrado" });
+      if (pallet.status === "cancelado") return res.status(400).json({ error: "Pallet cancelado" });
+
+      const [toAddress] = await db.select().from(wmsAddresses).where(eq(wmsAddresses.id, toAddressId));
+      if (!toAddress) return res.status(404).json({ error: "Endereço não encontrado" });
+
+      const allItems = await db.select().from(palletItems).where(eq(palletItems.palletId, id));
+      const now = new Date().toISOString();
+
+      const newCode = `PLT-${companyId}-${Date.now().toString(36).toUpperCase()}`;
+      const [newPallet] = await db.insert(pallets).values({
+        companyId,
+        code: newCode,
+        status: "alocado",
+        addressId: toAddressId,
+        createdBy: getUserId(req),
+        createdAt: now,
+        allocatedAt: now,
+      }).returning();
+
+      for (const reqItem of items) {
+        const existing = allItems.find(i => i.productId === reqItem.productId);
+        if (!existing) continue;
+        const qty = Math.min(Number(reqItem.quantity), Number(existing.quantity));
+        if (qty <= 0) continue;
+
+        await db.insert(palletItems).values({
+          palletId: newPallet.id,
+          productId: existing.productId,
+          quantity: qty,
+          lot: existing.lot,
+          expiryDate: existing.expiryDate,
+          fefoEnabled: existing.fefoEnabled,
+          companyId,
+          createdAt: now,
+        });
+
+        const remaining = Number(existing.quantity) - qty;
+        if (remaining <= 0) {
+          await db.delete(palletItems).where(eq(palletItems.id, existing.id));
+        } else {
+          await db.update(palletItems).set({ quantity: remaining }).where(eq(palletItems.id, existing.id));
+        }
+      }
+
+      const remainingItems = await db.select().from(palletItems).where(eq(palletItems.palletId, id));
+      if (remainingItems.length === 0) {
+        await db.update(pallets).set({ status: "cancelado", cancelledAt: now }).where(eq(pallets.id, id));
+      }
+
+      await db.insert(palletMovements).values({
+        palletId: newPallet.id,
+        companyId,
+        movementType: "partial_transfer",
+        fromAddressId: pallet.addressId,
+        toAddressId,
+        fromPalletId: id,
+        userId: getUserId(req),
+        notes: `Transferência parcial de ${pallet.code}`,
+        createdAt: now,
+      });
+
+      await createAuditLog(req, "partial_transfer", "pallet", id, `Transferência parcial de ${pallet.code} para ${toAddress.code}`);
+      res.json({ success: true, newPallet });
+    } catch (error) {
+      console.error("Partial transfer error:", error);
+      res.status(500).json({ error: "Erro ao realizar transferência parcial" });
+    }
+  });
+
   app.get("/api/pallets/:id/print-label", ...authMiddleware, receiverRoles, async (req: Request, res: Response) => {
     try {
       const companyId = getCompanyId(req);
@@ -966,10 +1074,68 @@ export function registerWmsRoutes(app: Express) {
       const items = await db.select().from(countingCycleItems)
         .where(eq(countingCycleItems.cycleId, id));
 
-      res.json({ ...cycle, items });
+      const productIds = [...new Set(items.map(i => i.productId).filter(Boolean))] as string[];
+      const productMap = new Map<string, any>();
+      if (productIds.length > 0) {
+        const prods = await db.select().from(products)
+          .where(sql`${products.id} IN (${sql.join(productIds.map(pid => sql`${pid}`), sql`, `)})`);
+        for (const p of prods) productMap.set(p.id, p);
+      }
+
+      const enrichedItems = items.map(item => ({
+        ...item,
+        product: item.productId ? productMap.get(item.productId) || null : null,
+      }));
+
+      res.json({ ...cycle, items: enrichedItems });
     } catch (error) {
       console.error("Get counting cycle error:", error);
       res.status(500).json({ error: "Erro ao buscar ciclo" });
+    }
+  });
+
+  app.post("/api/counting-cycles/:id/items", ...authMiddleware, wmsCounterRoles, async (req: Request, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const { id } = req.params;
+      const { barcode, productId, palletId, addressId } = req.body;
+
+      const [cycle] = await db.select().from(countingCycles)
+        .where(and(eq(countingCycles.id, id), eq(countingCycles.companyId, companyId)));
+      if (!cycle) return res.status(404).json({ error: "Ciclo não encontrado" });
+      if (cycle.status === "aprovado") return res.status(400).json({ error: "Ciclo já aprovado" });
+
+      let resolvedProductId = productId || null;
+
+      if (!resolvedProductId && barcode) {
+        const [found] = await db.select().from(products).where(
+          or(eq(products.barcode, barcode), eq(products.erpCode, barcode))
+        );
+        if (!found) return res.status(404).json({ error: "Produto não encontrado para este código" });
+        resolvedProductId = found.id;
+      }
+
+      const [newItem] = await db.insert(countingCycleItems).values({
+        cycleId: id,
+        companyId,
+        productId: resolvedProductId,
+        palletId: palletId || null,
+        addressId: addressId || null,
+        expectedQty: null,
+        status: "pendente",
+        createdAt: new Date().toISOString(),
+      }).returning();
+
+      let productData = null;
+      if (resolvedProductId) {
+        const [p] = await db.select().from(products).where(eq(products.id, resolvedProductId));
+        productData = p || null;
+      }
+
+      res.json({ ...newItem, product: productData });
+    } catch (error) {
+      console.error("Add counting cycle item error:", error);
+      res.status(500).json({ error: "Erro ao adicionar item" });
     }
   });
 
@@ -1232,7 +1398,7 @@ export function registerWmsRoutes(app: Express) {
       const conditions = [];
 
       if (searchType === "code") {
-        conditions.push(ilike(products.erpCode, `%${q}%`));
+        conditions.push(eq(products.erpCode, q));
       } else if (searchType === "description") {
         conditions.push(ilike(products.name, searchPattern));
       } else {

@@ -18,7 +18,8 @@ import { useToast } from "@/hooks/use-toast";
 import {
   ArrowLeft, Search, Plus, Package, Loader2, Trash2, Printer, QrCode,
   ScanBarcode, CheckCircle, AlertCircle, ChevronDown, ChevronUp,
-  FileText, ArrowRight, Hash, Calendar, Tag, Box, Minus,
+  FileText, ArrowRight, Hash, Calendar, Tag, Box, Minus, Keyboard,
+  Pencil, X,
 } from "lucide-react";
 import { useLocation } from "wouter";
 
@@ -51,9 +52,9 @@ export default function RecebimentoPage() {
   const [lastScanned, setLastScanned] = useState<{ product: any; qty: number; isBox: boolean } | null>(null);
   const [scanError, setScanError] = useState("");
   const [showItemList, setShowItemList] = useState(true);
+  const [keyboardEnabled, setKeyboardEnabled] = useState(false);
 
   const [nfSearch, setNfSearch] = useState("");
-  const [nfNumber, setNfNumber] = useState("");
   const [nfData, setNfData] = useState<any>(null);
   const [nfLoading, setNfLoading] = useState(false);
   const [selectedNfItems, setSelectedNfItems] = useState<Set<number>>(new Set());
@@ -67,13 +68,18 @@ export default function RecebimentoPage() {
   const [editingQtyIdx, setEditingQtyIdx] = useState<number | null>(null);
   const [editingQtyValue, setEditingQtyValue] = useState("");
 
+  const [editPalletDialog, setEditPalletDialog] = useState<any>(null);
+  const [editPalletItems, setEditPalletItems] = useState<any[]>([]);
+  const [editPalletLoading, setEditPalletLoading] = useState(false);
+  const [cancelPalletTarget, setCancelPalletTarget] = useState<any>(null);
+
   const scanInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (activeTab === "scan") {
+    if (activeTab === "scan" && keyboardEnabled) {
       setTimeout(() => scanInputRef.current?.focus(), 100);
     }
-  }, [activeTab]);
+  }, [activeTab, keyboardEnabled]);
 
   useEffect(() => {
     if (lastScanned) {
@@ -89,7 +95,7 @@ export default function RecebimentoPage() {
     }
   }, [scanError]);
 
-  const { data: pallets = [], isLoading: palletsLoading } = useQuery({
+  const { data: pallets = [], isLoading: palletsLoading, refetch: refetchPallets } = useQuery({
     queryKey: ["pallets", companyId, "sem_endereco"],
     queryFn: async () => {
       const res = await fetch("/api/pallets?status=sem_endereco", { credentials: "include" });
@@ -135,7 +141,7 @@ export default function RecebimentoPage() {
         const isBox = !!product.boxQty;
         addItemToPallet(product, qty, isBox);
         setBarcodeInput("");
-        setTimeout(() => scanInputRef.current?.focus(), 50);
+        if (keyboardEnabled) setTimeout(() => scanInputRef.current?.focus(), 50);
       } else {
         setScanError("Produto não encontrado para este código");
       }
@@ -149,8 +155,7 @@ export default function RecebimentoPage() {
   const updateItemQty = (idx: number, delta: number) => {
     setPalletItems(prev => prev.map((item, i) => {
       if (i !== idx) return item;
-      const newQty = Math.max(1, item.quantity + delta);
-      return { ...item, quantity: newQty };
+      return { ...item, quantity: Math.max(1, item.quantity + delta) };
     }));
   };
 
@@ -180,9 +185,7 @@ export default function RecebimentoPage() {
     try {
       const q = nfSearch.trim();
       const res = await fetch(`/api/nf/list${q ? `?q=${encodeURIComponent(q)}` : ""}`, { credentials: "include" });
-      if (res.ok) {
-        setNfList(await res.json());
-      }
+      if (res.ok) setNfList(await res.json());
     } catch {
       toast({ title: "Erro", description: "Falha ao listar NFs", variant: "destructive" });
     } finally {
@@ -197,7 +200,6 @@ export default function RecebimentoPage() {
       if (res.ok) {
         const data = await res.json();
         setNfData(data);
-        setNfNumber(nfNumber);
         setSelectedNfItems(new Set());
       } else {
         const err = await res.json();
@@ -212,9 +214,7 @@ export default function RecebimentoPage() {
   };
 
   useEffect(() => {
-    if (activeTab === "nf" && nfList.length === 0) {
-      searchNfList();
-    }
+    if (activeTab === "nf" && nfList.length === 0) searchNfList();
   }, [activeTab]);
 
   const toggleNfItem = (idx: number) => {
@@ -232,7 +232,7 @@ export default function RecebimentoPage() {
       const merged = [...prev];
       itemsToAdd.forEach((nfItem, i) => {
         const pid = nfItem.productId || nfItem.id;
-        const existingIdx = merged.findIndex(i => i.productId === pid);
+        const existingIdx = merged.findIndex(it => it.productId === pid);
         if (existingIdx >= 0) {
           merged[existingIdx] = { ...merged[existingIdx], quantity: merged[existingIdx].quantity + (nfItem.quantity || 1) };
         } else {
@@ -293,7 +293,6 @@ export default function RecebimentoPage() {
       queryClient.invalidateQueries({ queryKey: ["pallets"] });
       setPalletItems([]);
       setNfData(null);
-      setNfNumber("");
       setLastScanned(null);
       setShowCreateConfirm(false);
       toast({ title: "Pallet criado!", description: `Código: ${data.code}` });
@@ -305,13 +304,84 @@ export default function RecebimentoPage() {
     },
   });
 
+  const cancelPalletMutation = useMutation({
+    mutationFn: async (palletId: string) => {
+      const res = await fetch(`/api/pallets/${palletId}/cancel-unaddressed`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Erro ao cancelar");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["pallets"] });
+      setCancelPalletTarget(null);
+      toast({ title: "Pallet cancelado com sucesso" });
+    },
+    onError: (e: Error) => {
+      toast({ title: "Erro", description: e.message, variant: "destructive" });
+      setCancelPalletTarget(null);
+    },
+  });
+
+  const openEditPallet = async (pallet: any) => {
+    setEditPalletLoading(true);
+    setEditPalletDialog(pallet);
+    try {
+      const res = await fetch(`/api/pallets/${pallet.id}`, { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setEditPalletItems(data.items?.map((item: any) => ({
+          ...item,
+          quantity: item.quantity,
+        })) || []);
+      }
+    } catch {
+      toast({ title: "Erro ao carregar pallet", variant: "destructive" });
+    } finally {
+      setEditPalletLoading(false);
+    }
+  };
+
+  const savePalletEdit = async () => {
+    if (!editPalletDialog) return;
+    setEditPalletLoading(true);
+    try {
+      const res = await fetch(`/api/pallets/${editPalletDialog.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items: editPalletItems.map(i => ({
+            productId: i.productId || i.product?.id,
+            quantity: i.quantity,
+            lot: i.lot,
+            expiryDate: i.expiryDate,
+          })),
+        }),
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Erro ao salvar");
+      }
+      queryClient.invalidateQueries({ queryKey: ["pallets"] });
+      setEditPalletDialog(null);
+      toast({ title: "Pallet atualizado com sucesso" });
+    } catch (e: any) {
+      toast({ title: "Erro", description: e.message, variant: "destructive" });
+    } finally {
+      setEditPalletLoading(false);
+    }
+  };
+
   const fetchLabel = async (palletId: string) => {
     setLabelLoading(true);
     try {
       const res = await fetch(`/api/pallets/${palletId}/print-label`, { credentials: "include" });
-      if (res.ok) {
-        setLabelDialog(await res.json());
-      }
+      if (res.ok) setLabelDialog(await res.json());
     } catch {
       toast({ title: "Erro ao carregar etiqueta", variant: "destructive" });
     } finally {
@@ -339,7 +409,6 @@ export default function RecebimentoPage() {
         .items { border-top: 1px solid #000; padding-top: 6px; }
         .item { border-bottom: 1px dashed #ccc; padding: 4px 0; }
         .item-name { font-weight: bold; }
-        .nf { font-size: 10px; margin-top: 6px; }
         @media print { body { padding: 5mm; } }
       </style></head><body>
         <div class="code">${esc(labelDialog.palletCode)}</div>
@@ -353,7 +422,7 @@ export default function RecebimentoPage() {
             </div>
           `).join("")}
         </div>
-        ${labelDialog.nfIds?.length ? `<div class="nf">NF: ${esc(labelDialog.nfIds.join(", "))}</div>` : ""}
+        ${labelDialog.nfIds?.length ? `<div style="font-size:10px;margin-top:6px">NF: ${esc(labelDialog.nfIds.join(", "))}</div>` : ""}
       </body></html>
     `);
     w.document.close();
@@ -370,61 +439,76 @@ export default function RecebimentoPage() {
         </Button>
       </GradientHeader>
 
-      <main className="max-w-4xl mx-auto px-4 py-6 space-y-4">
+      <main className="max-w-4xl mx-auto px-3 py-4 space-y-4">
         <div className="flex rounded-lg border bg-muted/30 p-1 gap-1">
           <button
             onClick={() => setActiveTab("scan")}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-md text-sm font-medium transition-all ${activeTab === "scan" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-md text-sm font-medium transition-all ${activeTab === "scan" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
             data-testid="tab-scan"
           >
-            <ScanBarcode className="h-4 w-4" />
-            Leitura de Código
+            <ScanBarcode className="h-4 w-4" /> Leitura
           </button>
           <button
             onClick={() => setActiveTab("nf")}
-            className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-4 rounded-md text-sm font-medium transition-all ${activeTab === "nf" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-md text-sm font-medium transition-all ${activeTab === "nf" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
             data-testid="tab-nf"
           >
-            <FileText className="h-4 w-4" />
-            Importar da NF
+            <FileText className="h-4 w-4" /> Importar NF
           </button>
         </div>
 
         {activeTab === "scan" && (
           <Card className="border-2 border-primary/20">
-            <CardContent className="pt-6 space-y-4">
+            <CardContent className="pt-4 space-y-3">
               <div className="relative">
                 <ScanBarcode className="absolute left-3 top-3.5 h-5 w-5 text-muted-foreground" />
                 <Input
                   ref={scanInputRef}
-                  placeholder="Bipe o código de barras ou digite o código ERP..."
+                  placeholder="Bipe o código de barras ou ERP..."
                   value={barcodeInput}
                   onChange={e => setBarcodeInput(e.target.value)}
                   onKeyDown={e => e.key === "Enter" && handleScan()}
-                  className="pl-10 h-12 text-lg font-mono"
-                  autoFocus
+                  className="pl-10 pr-24 h-12 text-base font-mono"
+                  inputMode={keyboardEnabled ? "text" : "none"}
                   disabled={scanLoading}
                   data-testid="input-barcode-scan"
                 />
-                {scanLoading && (
-                  <Loader2 className="absolute right-3 top-3.5 h-5 w-5 animate-spin text-primary" />
-                )}
+                <div className="absolute right-2 top-2 flex items-center gap-1">
+                  {scanLoading && <Loader2 className="h-5 w-5 animate-spin text-primary" />}
+                  <Button
+                    variant={keyboardEnabled ? "default" : "outline"}
+                    size="sm"
+                    className="h-8 w-8 p-0"
+                    onClick={() => {
+                      setKeyboardEnabled(v => !v);
+                      setTimeout(() => scanInputRef.current?.focus(), 50);
+                    }}
+                    title={keyboardEnabled ? "Desativar teclado" : "Ativar teclado para digitar"}
+                    data-testid="button-toggle-keyboard-scan"
+                  >
+                    <Keyboard className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
+
+              {!keyboardEnabled && (
+                <p className="text-xs text-muted-foreground text-center">
+                  Bipe o código ou toque em <Keyboard className="h-3 w-3 inline" /> para digitar
+                </p>
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-muted-foreground mb-1 block">
                     <Tag className="h-3 w-3 inline mr-1" />Lote (opcional)
                   </label>
-                  <Input placeholder="Lote" value={lotInput} onChange={e => setLotInput(e.target.value)}
-                    className="h-9" data-testid="input-lot" />
+                  <Input placeholder="Lote" value={lotInput} onChange={e => setLotInput(e.target.value)} className="h-10" data-testid="input-lot" />
                 </div>
                 <div>
                   <label className="text-xs text-muted-foreground mb-1 block">
                     <Calendar className="h-3 w-3 inline mr-1" />Validade (opcional)
                   </label>
-                  <Input type="date" value={expiryInput} onChange={e => setExpiryInput(e.target.value)}
-                    className="h-9" data-testid="input-expiry" />
+                  <Input type="date" value={expiryInput} onChange={e => setExpiryInput(e.target.value)} className="h-10" data-testid="input-expiry" />
                 </div>
               </div>
 
@@ -435,15 +519,14 @@ export default function RecebimentoPage() {
                     <p className="font-semibold text-sm text-green-800 dark:text-green-200 truncate">{lastScanned.product.name}</p>
                     <p className="text-xs text-green-600 dark:text-green-400">
                       {lastScanned.product.erpCode}
-                      {lastScanned.isBox && <span className="ml-2 font-semibold">Caixa: +{lastScanned.qty} un</span>}
-                      {!lastScanned.isBox && <span className="ml-2">+{lastScanned.qty} {lastScanned.product.unit || "UN"}</span>}
+                      {lastScanned.isBox ? <span className="ml-2 font-semibold">Caixa: +{lastScanned.qty} un</span> : <span className="ml-2">+{lastScanned.qty} {lastScanned.product.unit || "UN"}</span>}
                     </p>
                   </div>
                 </div>
               )}
 
               {scanError && (
-                <div className="flex items-center gap-3 p-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 animate-in fade-in slide-in-from-top-2 duration-300" data-testid="scan-error-feedback">
+                <div className="flex items-center gap-3 p-3 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900" data-testid="scan-error-feedback">
                   <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0" />
                   <p className="text-sm text-red-700 dark:text-red-300">{scanError}</p>
                 </div>
@@ -457,8 +540,7 @@ export default function RecebimentoPage() {
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-base flex items-center gap-2">
-                  <FileText className="h-5 w-5" />
-                  Notas Fiscais de Recebimento
+                  <FileText className="h-5 w-5" /> Notas Fiscais
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
@@ -466,7 +548,7 @@ export default function RecebimentoPage() {
                   <div className="relative flex-1">
                     <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                     <Input
-                      placeholder="Buscar por número da NF ou fornecedor..."
+                      placeholder="Buscar NF ou fornecedor..."
                       value={nfSearch}
                       onChange={e => setNfSearch(e.target.value)}
                       onKeyDown={e => e.key === "Enter" && searchNfList()}
@@ -482,9 +564,7 @@ export default function RecebimentoPage() {
                 {nfListLoading ? (
                   <div className="text-center py-6"><Loader2 className="h-6 w-6 mx-auto animate-spin text-muted-foreground" /></div>
                 ) : nfList.length === 0 ? (
-                  <p className="text-sm text-muted-foreground text-center py-6">
-                    Nenhuma NF encontrada. As notas são sincronizadas do ERP automaticamente.
-                  </p>
+                  <p className="text-sm text-muted-foreground text-center py-6">Nenhuma NF encontrada.</p>
                 ) : (
                   <div className="space-y-1 max-h-60 overflow-y-auto">
                     {nfList.map((nf: any) => (
@@ -496,15 +576,10 @@ export default function RecebimentoPage() {
                       >
                         <div>
                           <span className="font-mono font-semibold text-sm">NF {nf.nfNumber}</span>
-                          {nf.nfSeries && <span className="text-xs text-muted-foreground ml-1">Série {nf.nfSeries}</span>}
-                          {nf.supplierName && (
-                            <p className="text-xs text-muted-foreground mt-0.5">Fornecedor: {nf.supplierName}</p>
-                          )}
+                          {nf.supplierName && <p className="text-xs text-muted-foreground mt-0.5">{nf.supplierName}</p>}
                         </div>
                         <div className="flex items-center gap-2">
-                          <Badge variant={nf.status === "pendente" ? "secondary" : nf.status === "recebida" ? "default" : "outline"}>
-                            {nf.status}
-                          </Badge>
+                          <Badge variant="secondary">{nf.status}</Badge>
                           <ArrowRight className="h-4 w-4 text-muted-foreground" />
                         </div>
                       </div>
@@ -514,9 +589,7 @@ export default function RecebimentoPage() {
               </CardContent>
             </Card>
 
-            {nfLoading && (
-              <div className="text-center py-6"><Loader2 className="h-6 w-6 mx-auto animate-spin text-muted-foreground" /></div>
-            )}
+            {nfLoading && <div className="text-center py-6"><Loader2 className="h-6 w-6 mx-auto animate-spin text-muted-foreground" /></div>}
 
             {nfData && !nfLoading && (
               <Card className="border-2 border-blue-200 dark:border-blue-900">
@@ -524,36 +597,28 @@ export default function RecebimentoPage() {
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-base">
                       <span className="font-mono">NF {nfData.nfNumber}</span>
-                      {nfData.supplierName && (
-                        <span className="text-sm text-muted-foreground font-normal ml-2">— {nfData.supplierName}</span>
-                      )}
+                      {nfData.supplierName && <span className="text-sm text-muted-foreground font-normal ml-2">— {nfData.supplierName}</span>}
                     </CardTitle>
-                    <Button variant="ghost" size="sm" onClick={() => { setNfData(null); setSelectedNfItems(new Set()); }}>
-                      Fechar
-                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => { setNfData(null); setSelectedNfItems(new Set()); }}>Fechar</Button>
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   {nfImportProgress && (
                     <div className="space-y-1">
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>Importando itens...</span>
-                        <span>{nfImportProgress.current}/{nfImportProgress.total}</span>
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>Importando...</span><span>{nfImportProgress.current}/{nfImportProgress.total}</span>
                       </div>
                       <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
-                        <div
-                          className="bg-primary h-2 rounded-full transition-all duration-300"
-                          style={{ width: `${(nfImportProgress.current / nfImportProgress.total) * 100}%` }}
-                        />
+                        <div className="bg-primary h-2 rounded-full transition-all duration-300" style={{ width: `${(nfImportProgress.current / nfImportProgress.total) * 100}%` }} />
                       </div>
                     </div>
                   )}
 
                   {nfData.items?.length > 0 ? (
                     <>
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
                         <p className="text-sm text-muted-foreground">
-                          {selectedNfItems.size > 0 ? `${selectedNfItems.size} selecionado(s)` : `${nfData.items.length} itens — selecione para adicionar ao pallet`}
+                          {selectedNfItems.size > 0 ? `${selectedNfItems.size} selecionado(s)` : `${nfData.items.length} itens`}
                         </p>
                         <div className="flex gap-2">
                           <Button variant="outline" size="sm" onClick={addAllNfItems} disabled={!!nfImportProgress} data-testid="button-add-all-nf">
@@ -561,14 +626,12 @@ export default function RecebimentoPage() {
                           </Button>
                           {selectedNfItems.size > 0 && (
                             <Button size="sm" onClick={addSelectedNfItems} disabled={!!nfImportProgress} data-testid="button-add-selected-nf">
-                              <Plus className="h-4 w-4 mr-1" />
-                              Adicionar {selectedNfItems.size}
+                              <Plus className="h-4 w-4 mr-1" />Adicionar {selectedNfItems.size}
                             </Button>
                           )}
                         </div>
                       </div>
-
-                      <div className="space-y-1 max-h-80 overflow-y-auto">
+                      <div className="space-y-1 max-h-72 overflow-y-auto">
                         {nfData.items.map((item: any, idx: number) => (
                           <div
                             key={idx}
@@ -576,28 +639,23 @@ export default function RecebimentoPage() {
                             className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${selectedNfItems.has(idx) ? "bg-primary/5 border-primary/30 ring-1 ring-primary/20" : "hover:bg-muted/50"}`}
                             data-testid={`nf-item-${idx}`}
                           >
-                            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${selectedNfItems.has(idx) ? "bg-primary border-primary text-primary-foreground" : "border-muted-foreground/30"}`}>
+                            <div className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 ${selectedNfItems.has(idx) ? "bg-primary border-primary text-primary-foreground" : "border-muted-foreground/30"}`}>
                               {selectedNfItems.has(idx) && <CheckCircle className="h-3 w-3" />}
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium truncate">{item.productName || item.name || "Produto"}</p>
                               <p className="text-xs text-muted-foreground">
-                                {item.erpCode && <span className="font-mono mr-3">{item.erpCode}</span>}
-                                {item.quantity && <span>{item.quantity} {item.unit || "UN"}</span>}
-                                {item.lot && <span className="ml-2">Lote: {item.lot}</span>}
+                                {item.erpCode && <span className="font-mono mr-2">{item.erpCode}</span>}
+                                {item.lot && <span>Lote: {item.lot}</span>}
                               </p>
                             </div>
-                            <Badge variant="outline" className="font-mono flex-shrink-0">
-                              {item.quantity || 1} {item.unit || "UN"}
-                            </Badge>
+                            <Badge variant="outline" className="font-mono flex-shrink-0">{item.quantity || 1} {item.unit || "UN"}</Badge>
                           </div>
                         ))}
                       </div>
                     </>
                   ) : (
-                    <p className="text-sm text-muted-foreground text-center py-4">
-                      NF encontrada mas sem itens detalhados. Use a leitura de código para adicionar os produtos.
-                    </p>
+                    <p className="text-sm text-muted-foreground text-center py-4">NF sem itens detalhados. Use leitura de código.</p>
                   )}
                 </CardContent>
               </Card>
@@ -609,10 +667,9 @@ export default function RecebimentoPage() {
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
               <CardTitle className="text-base flex items-center gap-2">
-                <Package className="h-5 w-5" />
-                Itens do Pallet
+                <Package className="h-5 w-5" />Itens do Pallet
                 {palletItems.length > 0 && (
-                  <Badge variant="secondary" className="ml-2">{palletItems.length} produto{palletItems.length !== 1 ? "s" : ""} · {totalItems} un</Badge>
+                  <Badge variant="secondary">{palletItems.length} prod · {totalItems} un</Badge>
                 )}
               </CardTitle>
               {palletItems.length > 0 && (
@@ -627,24 +684,18 @@ export default function RecebimentoPage() {
               <div className="text-center py-8 text-muted-foreground">
                 <Box className="h-10 w-10 mx-auto mb-3 opacity-30" />
                 <p className="text-sm">Nenhum item adicionado</p>
-                <p className="text-xs mt-1">Use a leitura de código ou importe da NF</p>
               </div>
             ) : (
               <>
                 {showItemList && (
                   <div className="space-y-2 mb-4">
                     {palletItems.map((item, idx) => (
-                      <div key={idx} className="flex items-center gap-3 p-3 rounded-lg border bg-card group" data-testid={`pallet-item-${idx}`}>
+                      <div key={idx} className="flex items-center gap-2 p-3 rounded-lg border bg-card" data-testid={`pallet-item-${idx}`}>
                         <div className="flex-1 min-w-0">
                           <p className="font-medium text-sm truncate">{item.productName}</p>
-                          <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground mt-0.5">
-                            <span className="font-mono">{item.erpCode}</span>
-                            {item.erpNfId && <span>NF: {item.erpNfId}</span>}
-                            {item.lot && <span>Lote: {item.lot}</span>}
-                            {item.expiryDate && <span>Val: {item.expiryDate}</span>}
-                          </div>
+                          <p className="text-xs text-muted-foreground font-mono">{item.erpCode}{item.lot && ` · L:${item.lot}`}</p>
                         </div>
-                        <div className="flex items-center gap-1">
+                        <div className="flex items-center gap-1 flex-shrink-0">
                           <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => updateItemQty(idx, -1)} data-testid={`button-dec-${idx}`}>
                             <Minus className="h-3 w-3" />
                           </Button>
@@ -662,7 +713,6 @@ export default function RecebimentoPage() {
                             <span
                               className="font-mono font-bold text-sm w-10 text-center cursor-pointer hover:bg-muted rounded px-1 py-0.5"
                               onClick={() => startEditQty(idx)}
-                              title="Clique para editar"
                               data-testid={`qty-display-${idx}`}
                             >
                               {item.quantity}
@@ -671,22 +721,19 @@ export default function RecebimentoPage() {
                           <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => updateItemQty(idx, 1)} data-testid={`button-inc-${idx}`}>
                             <Plus className="h-3 w-3" />
                           </Button>
-                          <span className="text-xs text-muted-foreground w-6">{item.unit}</span>
+                          <span className="text-xs text-muted-foreground w-5">{item.unit}</span>
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive" onClick={() => removeItem(idx)} data-testid={`button-remove-${idx}`}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
                         </div>
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => removeItem(idx)} data-testid={`button-remove-${idx}`}>
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
                       </div>
                     ))}
                   </div>
                 )}
-
                 <div className="flex items-center justify-between pt-2 border-t">
                   <div className="text-sm">
                     <span className="text-muted-foreground">Total:</span>
-                    <span className="font-bold ml-2">{palletItems.length} produto{palletItems.length !== 1 ? "s" : ""}</span>
-                    <span className="mx-1 text-muted-foreground">·</span>
-                    <span className="font-bold">{totalItems} unidades</span>
+                    <span className="font-bold ml-2">{palletItems.length} prod · {totalItems} un</span>
                   </div>
                   <Button
                     onClick={() => setShowCreateConfirm(true)}
@@ -694,11 +741,7 @@ export default function RecebimentoPage() {
                     className="gap-2"
                     data-testid="button-create-pallet"
                   >
-                    {createPalletMutation.isPending ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Package className="h-4 w-4" />
-                    )}
+                    {createPalletMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Package className="h-4 w-4" />}
                     Gerar Pallet
                   </Button>
                 </div>
@@ -710,8 +753,7 @@ export default function RecebimentoPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              <QrCode className="h-5 w-5" />
-              Pallets Aguardando Endereço
+              <QrCode className="h-5 w-5" />Pallets Aguardando Endereço
               {pallets.length > 0 && <Badge variant="secondary">{pallets.length}</Badge>}
             </CardTitle>
           </CardHeader>
@@ -723,20 +765,25 @@ export default function RecebimentoPage() {
             ) : (
               <div className="space-y-2">
                 {pallets.map((p: any) => (
-                  <div key={p.id} className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/30 transition-colors" data-testid={`pallet-row-${p.id}`}>
-                    <div className="flex items-center gap-3">
-                      <QrCode className="h-5 w-5 text-primary" />
-                      <div>
+                  <div key={p.id} className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/20 transition-colors" data-testid={`pallet-row-${p.id}`}>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <QrCode className="h-5 w-5 text-primary flex-shrink-0" />
+                      <div className="min-w-0">
                         <span className="font-mono font-semibold">{p.code}</span>
                         <div className="text-xs text-muted-foreground">
                           {p.items?.length || 0} itens · {new Date(p.createdAt).toLocaleString("pt-BR")}
                         </div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="secondary">Sem endereço</Badge>
-                      <Button variant="outline" size="sm" onClick={() => fetchLabel(p.id)} disabled={labelLoading} data-testid={`button-print-${p.id}`}>
-                        <Printer className="h-4 w-4" />
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => openEditPallet(p)} title="Editar pallet" data-testid={`button-edit-${p.id}`}>
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => fetchLabel(p.id)} disabled={labelLoading} title="Imprimir etiqueta" data-testid={`button-print-${p.id}`}>
+                        <Printer className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button variant="outline" size="sm" className="h-8 w-8 p-0 text-destructive hover:bg-destructive hover:text-destructive-foreground" onClick={() => setCancelPalletTarget(p)} title="Cancelar pallet" data-testid={`button-cancel-${p.id}`}>
+                        <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
                   </div>
@@ -752,8 +799,8 @@ export default function RecebimentoPage() {
           <DialogHeader>
             <DialogTitle>Confirmar Criação do Pallet</DialogTitle>
             <DialogDescription>
-              Deseja gerar um novo pallet com {palletItems.length} produto{palletItems.length !== 1 ? "s" : ""} e {totalItems} unidade{totalItems !== 1 ? "s" : ""}?
-              {nfData && <span className="block mt-1">Vinculado à NF {nfData.nfNumber}</span>}
+              {palletItems.length} produto{palletItems.length !== 1 ? "s" : ""} · {totalItems} unidade{totalItems !== 1 ? "s" : ""}
+              {nfData && <span className="block mt-1">NF: {nfData.nfNumber}</span>}
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-40 overflow-y-auto space-y-1">
@@ -774,23 +821,92 @@ export default function RecebimentoPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!labelDialog} onOpenChange={(open) => !open && setLabelDialog(null)}>
+      <Dialog open={!!cancelPalletTarget} onOpenChange={open => !open && setCancelPalletTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cancelar Pallet</DialogTitle>
+            <DialogDescription>
+              Tem certeza que deseja cancelar o pallet <span className="font-mono font-semibold">{cancelPalletTarget?.code}</span>?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCancelPalletTarget(null)}>Voltar</Button>
+            <Button variant="destructive" onClick={() => cancelPalletTarget && cancelPalletMutation.mutate(cancelPalletTarget.id)} disabled={cancelPalletMutation.isPending} data-testid="button-confirm-cancel-pallet">
+              {cancelPalletMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Trash2 className="h-4 w-4 mr-2" />}
+              Cancelar Pallet
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editPalletDialog} onOpenChange={open => !open && setEditPalletDialog(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Editar Pallet: {editPalletDialog?.code}</DialogTitle>
+          </DialogHeader>
+          {editPalletLoading ? (
+            <div className="text-center py-8"><Loader2 className="h-6 w-6 mx-auto animate-spin" /></div>
+          ) : (
+            <div className="space-y-2 max-h-80 overflow-y-auto">
+              {editPalletItems.map((item, idx) => (
+                <div key={idx} className="flex items-center gap-2 p-2.5 rounded-lg border">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{item.product?.name || "Produto"}</p>
+                    <p className="text-xs text-muted-foreground font-mono">{item.product?.erpCode || ""}</p>
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => {
+                      setEditPalletItems(prev => prev.map((it, i) => i === idx ? { ...it, quantity: Math.max(1, it.quantity - 1) } : it));
+                    }}>
+                      <Minus className="h-3 w-3" />
+                    </Button>
+                    <Input
+                      value={item.quantity}
+                      onChange={e => {
+                        const v = parseInt(e.target.value.replace(/\D/g, "")) || 1;
+                        setEditPalletItems(prev => prev.map((it, i) => i === idx ? { ...it, quantity: v } : it));
+                      }}
+                      className="h-7 w-14 text-center font-mono font-bold text-sm p-0"
+                    />
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => {
+                      setEditPalletItems(prev => prev.map((it, i) => i === idx ? { ...it, quantity: it.quantity + 1 } : it));
+                    }}>
+                      <Plus className="h-3 w-3" />
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-destructive" onClick={() => {
+                      setEditPalletItems(prev => prev.filter((_, i) => i !== idx));
+                    }}>
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+              {editPalletItems.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-4">Nenhum item. O pallet será cancelado ao salvar.</p>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditPalletDialog(null)}>Cancelar</Button>
+            <Button onClick={savePalletEdit} disabled={editPalletLoading} data-testid="button-save-pallet-edit">
+              {editPalletLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              Salvar Alterações
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!labelDialog} onOpenChange={open => !open && setLabelDialog(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Printer className="h-5 w-5" />
-              Etiqueta do Pallet
-            </DialogTitle>
+            <DialogTitle className="flex items-center gap-2"><Printer className="h-5 w-5" />Etiqueta do Pallet</DialogTitle>
           </DialogHeader>
           {labelDialog && (
             <div className="space-y-3">
               <div className="text-center p-4 border-2 border-dashed rounded-lg bg-muted/30">
                 <p className="font-mono text-2xl font-bold">{labelDialog.palletCode}</p>
                 <p className="font-semibold text-lg mt-1">{labelDialog.address}</p>
-                <p className="text-xs text-muted-foreground mt-2">
-                  {new Date(labelDialog.createdAt).toLocaleString("pt-BR")}
-                  {labelDialog.createdBy && ` · ${labelDialog.createdBy}`}
-                </p>
+                <p className="text-xs text-muted-foreground mt-2">{new Date(labelDialog.createdAt).toLocaleString("pt-BR")}</p>
               </div>
               <div className="space-y-1 max-h-40 overflow-y-auto text-sm">
                 {labelDialog.items?.map((i: any, idx: number) => (
@@ -800,17 +916,11 @@ export default function RecebimentoPage() {
                   </div>
                 ))}
               </div>
-              {labelDialog.nfIds?.length > 0 && (
-                <p className="text-xs text-muted-foreground">NF: {labelDialog.nfIds.join(", ")}</p>
-              )}
             </div>
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setLabelDialog(null)}>Fechar</Button>
-            <Button onClick={printLabel} data-testid="button-print-label">
-              <Printer className="h-4 w-4 mr-2" />
-              Imprimir
-            </Button>
+            <Button onClick={printLabel} data-testid="button-print-label"><Printer className="h-4 w-4 mr-2" />Imprimir</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

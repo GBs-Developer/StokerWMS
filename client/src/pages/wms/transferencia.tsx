@@ -15,7 +15,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, ArrowRightLeft, MapPin, Loader2, Ban, QrCode, Package, Search, X, Clock, ArrowRight } from "lucide-react";
+import { ArrowLeft, ArrowRightLeft, MapPin, Loader2, Ban, QrCode, Package, Search, X, Clock, ArrowRight, Minus, Plus } from "lucide-react";
 import { useLocation } from "wouter";
 import { AddressPicker } from "@/components/wms/address-picker";
 
@@ -33,6 +33,8 @@ export default function TransferenciaPage() {
   const [showTransferConfirm, setShowTransferConfirm] = useState(false);
   const [filterText, setFilterText] = useState("");
   const [detailLoading, setDetailLoading] = useState(false);
+  const [transferMode, setTransferMode] = useState<"full" | "partial">("full");
+  const [selectedItems, setSelectedItems] = useState<Map<string, number>>(new Map());
 
   const { data: allPallets = [] } = useQuery({
     queryKey: ["pallets-all", companyId],
@@ -58,11 +60,19 @@ export default function TransferenciaPage() {
     setSelectedPallet(pallet);
     setShowCancel(false);
     setToAddressId("");
+    setTransferMode("full");
+    setSelectedItems(new Map());
     setDetailLoading(true);
     try {
       const res = await fetch(`/api/pallets/${pallet.id}`, { credentials: "include" });
       if (res.ok) {
-        setPalletDetail(await res.json());
+        const data = await res.json();
+        setPalletDetail(data);
+        const initMap = new Map<string, number>();
+        data.items?.forEach((item: any) => {
+          initMap.set(item.productId, item.quantity);
+        });
+        setSelectedItems(initMap);
       } else {
         setPalletDetail(null);
       }
@@ -85,19 +95,58 @@ export default function TransferenciaPage() {
     }
   };
 
+  const updateSelectedQty = (productId: string, delta: number, maxQty: number) => {
+    setSelectedItems(prev => {
+      const next = new Map(prev);
+      const current = next.get(productId) || 0;
+      const newQty = Math.max(0, Math.min(maxQty, current + delta));
+      if (newQty === 0) next.delete(productId);
+      else next.set(productId, newQty);
+      return next;
+    });
+  };
+
+  const setSelectedQty = (productId: string, qty: number, maxQty: number) => {
+    setSelectedItems(prev => {
+      const next = new Map(prev);
+      const clamped = Math.max(0, Math.min(maxQty, qty));
+      if (clamped === 0) next.delete(productId);
+      else next.set(productId, clamped);
+      return next;
+    });
+  };
+
   const transferMutation = useMutation({
     mutationFn: async () => {
-      const res = await fetch(`/api/pallets/${selectedPallet.id}/transfer`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ toAddressId }),
-        credentials: "include",
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "Erro");
+      if (transferMode === "full") {
+        const res = await fetch(`/api/pallets/${selectedPallet.id}/transfer`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ toAddressId }),
+          credentials: "include",
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error || "Erro");
+        }
+        return res.json();
+      } else {
+        const items = Array.from(selectedItems.entries())
+          .filter(([, qty]) => qty > 0)
+          .map(([productId, quantity]) => ({ productId, quantity }));
+        if (items.length === 0) throw new Error("Selecione ao menos um item");
+        const res = await fetch(`/api/pallets/${selectedPallet.id}/partial-transfer`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ items, toAddressId }),
+          credentials: "include",
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error || "Erro");
+        }
+        return res.json();
       }
-      return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["pallets"] });
@@ -138,17 +187,13 @@ export default function TransferenciaPage() {
       setShowCancel(false);
       setCancelReason("");
     },
-    onError: (e: Error) => {
-      toast({ title: "Erro", description: e.message, variant: "destructive" });
-    },
+    onError: (e: Error) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
   });
 
   const isSupervisor = user?.role === "supervisor" || user?.role === "administrador";
   const statusLabels: Record<string, string> = {
-    sem_endereco: "Sem Endereço",
-    alocado: "Alocado",
-    em_transferencia: "Em Transferência",
-    cancelado: "Cancelado",
+    sem_endereco: "Sem Endereço", alocado: "Alocado",
+    em_transferencia: "Em Transferência", cancelado: "Cancelado",
   };
   const statusColors: Record<string, string> = {
     sem_endereco: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
@@ -166,6 +211,8 @@ export default function TransferenciaPage() {
     : activePallets;
 
   const destinationAddress = toAddressId ? availableAddresses.find((a: any) => a.id === toAddressId) : null;
+  const totalSelected = Array.from(selectedItems.values()).reduce((acc, v) => acc + v, 0);
+  const canTransfer = !!toAddressId && (transferMode === "full" || totalSelected > 0);
 
   return (
     <div className="min-h-screen bg-background">
@@ -175,9 +222,9 @@ export default function TransferenciaPage() {
         </Button>
       </GradientHeader>
 
-      <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">
+      <main className="max-w-4xl mx-auto px-3 py-4 space-y-4">
         <Card>
-          <CardHeader><CardTitle className="text-base">Buscar Pallet</CardTitle></CardHeader>
+          <CardHeader className="pb-2"><CardTitle className="text-base">Buscar Pallet</CardTitle></CardHeader>
           <CardContent>
             <div className="flex gap-2">
               <Input placeholder="Escaneie ou digite o código do pallet" value={scanInput} onChange={e => setScanInput(e.target.value)}
@@ -194,7 +241,7 @@ export default function TransferenciaPage() {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base">Pallets Ativos ({activePallets.length})</CardTitle>
-                <div className="relative w-48">
+                <div className="relative w-44">
                   <Search className="absolute left-2.5 top-2 h-4 w-4 text-muted-foreground" />
                   <Input placeholder="Filtrar..." value={filterText} onChange={e => setFilterText(e.target.value)} className="pl-8 h-8 text-sm" data-testid="input-filter-pallets" />
                   {filterText && (
@@ -216,9 +263,7 @@ export default function TransferenciaPage() {
                       <Package className="h-5 w-5 text-primary" />
                       <div>
                         <div className="font-mono font-semibold">{p.code}</div>
-                        <div className="text-xs text-muted-foreground">
-                          {p.address?.code || "Sem endereço"} · {p.items?.length || 0} itens
-                        </div>
+                        <div className="text-xs text-muted-foreground">{p.address?.code || "Sem endereço"} · {p.items?.length || 0} itens</div>
                       </div>
                     </div>
                     <Badge className={statusColors[p.status] || ""}>{statusLabels[p.status] || p.status}</Badge>
@@ -248,53 +293,93 @@ export default function TransferenciaPage() {
 
               {detailLoading ? (
                 <div className="text-center py-4"><Loader2 className="h-6 w-6 mx-auto animate-spin text-muted-foreground" /></div>
-              ) : palletDetail?.items && palletDetail.items.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-xs font-bold text-muted-foreground uppercase">Itens do Pallet ({palletDetail.items.length})</p>
-                  <div className="space-y-1 max-h-48 overflow-y-auto">
-                    {palletDetail.items.map((item: any, idx: number) => (
-                      <div key={idx} className="flex justify-between items-center p-2.5 rounded-lg border text-sm">
-                        <div className="flex-1 min-w-0 mr-3">
-                          <p className="font-medium truncate">{item.product?.name || "Produto"}</p>
-                          <p className="text-xs text-muted-foreground font-mono">{item.product?.erpCode || ""}</p>
-                        </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          <span className="font-mono font-bold">{item.quantity}</span>
-                          <span className="text-xs text-muted-foreground">{item.product?.unit || "UN"}</span>
-                          {item.lot && <Badge variant="outline" className="text-[9px]">L: {item.lot}</Badge>}
-                        </div>
-                      </div>
-                    ))}
+              ) : palletDetail?.items && palletDetail.items.length > 0 && selectedPallet.status === "alocado" && (
+                <>
+                  <div className="flex rounded-lg border bg-muted/30 p-1 gap-1">
+                    <button
+                      onClick={() => { setTransferMode("full"); setSelectedItems(new Map(palletDetail.items.map((i: any) => [i.productId, i.quantity]))); }}
+                      className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-all ${transferMode === "full" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                      data-testid="tab-full-transfer"
+                    >
+                      Transferir Tudo
+                    </button>
+                    <button
+                      onClick={() => { setTransferMode("partial"); setSelectedItems(new Map()); }}
+                      className={`flex-1 py-2 px-3 rounded-md text-sm font-medium transition-all ${transferMode === "partial" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                      data-testid="tab-partial-transfer"
+                    >
+                      Parcial
+                    </button>
                   </div>
-                </div>
+
+                  <div className="space-y-1">
+                    <p className="text-xs font-bold text-muted-foreground uppercase">Itens ({palletDetail.items.length})</p>
+                    {palletDetail.items.map((item: any, idx: number) => {
+                      const maxQty = Number(item.quantity);
+                      const selectedQty = selectedItems.get(item.productId) || 0;
+                      return (
+                        <div key={idx} className="flex items-center gap-2 p-2.5 rounded-lg border text-sm">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium truncate">{item.product?.name || "Produto"}</p>
+                            <p className="text-xs text-muted-foreground font-mono">
+                              {item.product?.erpCode || ""} · Total: {maxQty} {item.product?.unit || "UN"}
+                              {item.lot && ` · L:${item.lot}`}
+                            </p>
+                          </div>
+                          {transferMode === "partial" ? (
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => updateSelectedQty(item.productId, -1, maxQty)}>
+                                <Minus className="h-3 w-3" />
+                              </Button>
+                              <Input
+                                value={selectedQty}
+                                onChange={e => setSelectedQty(item.productId, parseInt(e.target.value.replace(/\D/g, "")) || 0, maxQty)}
+                                className="h-7 w-14 text-center font-mono font-bold text-sm p-0"
+                              />
+                              <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => updateSelectedQty(item.productId, 1, maxQty)}>
+                                <Plus className="h-3 w-3" />
+                              </Button>
+                              <span className="text-xs text-muted-foreground">/ {maxQty}</span>
+                            </div>
+                          ) : (
+                            <span className="font-mono font-bold flex-shrink-0">{maxQty} {item.product?.unit || "UN"}</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {transferMode === "partial" && totalSelected > 0 && (
+                      <p className="text-xs text-blue-600 font-semibold text-right pt-1">{totalSelected} un selecionadas para transferir</p>
+                    )}
+                  </div>
+                </>
               )}
 
-              {palletDetail?.movements && palletDetail.movements.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-xs font-bold text-muted-foreground uppercase flex items-center gap-1">
-                    <Clock className="h-3 w-3" /> Histórico de Movimentações
-                  </p>
-                  <div className="space-y-1 max-h-32 overflow-y-auto">
-                    {palletDetail.movements.slice(0, 5).map((m: any, idx: number) => (
-                      <div key={idx} className="flex items-center gap-2 text-xs text-muted-foreground p-1.5 rounded bg-muted/20">
-                        <Badge variant="outline" className="text-[9px]">{m.movementType}</Badge>
-                        <span>{new Date(m.createdAt).toLocaleString("pt-BR")}</span>
-                        {m.notes && <span className="truncate">— {m.notes}</span>}
+              {palletDetail?.items && palletDetail.items.length > 0 && selectedPallet.status !== "alocado" && (
+                <div className="space-y-1">
+                  <p className="text-xs font-bold text-muted-foreground uppercase">Itens ({palletDetail.items.length})</p>
+                  {palletDetail.items.map((item: any, idx: number) => (
+                    <div key={idx} className="flex justify-between items-center p-2.5 rounded-lg border text-sm">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium truncate">{item.product?.name || "Produto"}</p>
+                        <p className="text-xs text-muted-foreground font-mono">{item.product?.erpCode || ""}</p>
                       </div>
-                    ))}
-                  </div>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <span className="font-mono font-bold">{item.quantity}</span>
+                        <span className="text-xs text-muted-foreground">{item.product?.unit || "UN"}</span>
+                        {item.lot && <Badge variant="outline" className="text-[9px]">L: {item.lot}</Badge>}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
 
               {selectedPallet.status === "alocado" && (
                 <>
-                  <div className="space-y-3 pt-2">
-                    <AddressPicker
-                      availableAddresses={availableAddresses}
-                      onAddressSelect={setToAddressId}
-                      onClear={() => setToAddressId("")}
-                    />
-                  </div>
+                  <AddressPicker
+                    availableAddresses={availableAddresses}
+                    onAddressSelect={setToAddressId}
+                    onClear={() => setToAddressId("")}
+                  />
 
                   {toAddressId && destinationAddress && (
                     <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900">
@@ -305,16 +390,16 @@ export default function TransferenciaPage() {
                   )}
 
                   <Button className="w-full" onClick={() => setShowTransferConfirm(true)}
-                    disabled={!toAddressId || transferMutation.isPending} data-testid="button-transfer">
+                    disabled={!canTransfer || transferMutation.isPending} data-testid="button-transfer">
                     {transferMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <ArrowRightLeft className="h-4 w-4 mr-2" />}
-                    Transferir Pallet
+                    {transferMode === "partial" ? `Transferir ${totalSelected} un` : "Transferir Pallet"}
                   </Button>
                 </>
               )}
 
               {selectedPallet.status === "sem_endereco" && (
                 <div className="p-3 rounded-lg bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-200 dark:border-yellow-900 text-sm text-yellow-800 dark:text-yellow-400">
-                  Este pallet ainda não foi alocado. Use o módulo de Check-in para alocá-lo primeiro.
+                  Este pallet não foi alocado. Use o módulo de Check-in primeiro.
                 </div>
               )}
 
@@ -353,15 +438,16 @@ export default function TransferenciaPage() {
           <DialogHeader>
             <DialogTitle>Confirmar Transferência</DialogTitle>
             <DialogDescription>
-              Confirma a transferência do pallet <span className="font-mono font-semibold">{selectedPallet?.code}</span>
+              {transferMode === "full"
+                ? <>Transferir pallet <span className="font-mono font-semibold">{selectedPallet?.code}</span></>
+                : <>Transferir <span className="font-semibold">{totalSelected} unidades</span> do pallet <span className="font-mono font-semibold">{selectedPallet?.code}</span></>
+              }
               {selectedPallet?.address?.code && <> de <span className="font-mono font-semibold">{selectedPallet.address.code}</span></>}
               {destinationAddress && <> para <span className="font-mono font-semibold">{destinationAddress.code}</span></>}?
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowTransferConfirm(false)} data-testid="button-cancel-transfer">
-              Cancelar
-            </Button>
+            <Button variant="outline" onClick={() => setShowTransferConfirm(false)} data-testid="button-cancel-transfer">Cancelar</Button>
             <Button onClick={() => transferMutation.mutate()} disabled={transferMutation.isPending} data-testid="button-confirm-transfer">
               {transferMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <ArrowRightLeft className="h-4 w-4 mr-2" />}
               Confirmar
