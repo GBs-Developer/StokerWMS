@@ -150,7 +150,7 @@ export default function CheckinPage() {
 
   const cancelMutation = useMutation({
     mutationFn: async (palletId: string) => {
-      const res = await fetch(`/api/pallets/${palletId}/cancel`, {
+      const res = await fetch(`/api/pallets/${palletId}/cancel-unaddressed`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reason: "Cancelado pelo operador no Check-in" }),

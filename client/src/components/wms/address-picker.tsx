@@ -41,6 +41,11 @@ export function AddressPicker({ availableAddresses, onAddressSelect, onClear, va
         setBloco(match.bloco);
         setNivel(match.nivel);
       }
+    } else {
+      setBairro("");
+      setRua("");
+      setBloco("");
+      setNivel("");
     }
   }, [value, availableAddresses]);
 

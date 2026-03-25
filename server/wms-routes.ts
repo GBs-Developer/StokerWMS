@@ -2,7 +2,7 @@ import type { Express, Request, Response } from "express";
 import { isAuthenticated, requireRole, requireCompany, getTokenFromRequest } from "./auth";
 import { storage } from "./storage";
 import { db } from "./db";
-import { eq, and, sql, desc, isNull, ilike, or } from "drizzle-orm";
+import { eq, and, sql, desc, isNull, ilike, or, inArray, ne } from "drizzle-orm";
 import {
   wmsAddresses, pallets, palletItems, palletMovements, nfCache, nfItems,
   countingCycles, countingCycleItems, productCompanyStock, products,
@@ -361,45 +361,51 @@ export function registerWmsRoutes(app: Express) {
       }
 
       const code = `PLT-${companyId}-${Date.now().toString(36).toUpperCase()}`;
+      const now = new Date().toISOString();
 
-      const [pallet] = await db.insert(pallets).values({
-        companyId,
-        code,
-        status: "sem_endereco",
-        createdBy: userId,
-        createdAt: new Date().toISOString(),
-      }).returning();
+      const { pallet, createdItems } = await db.transaction(async (tx) => {
+        const [pallet] = await tx.insert(pallets).values({
+          companyId,
+          code,
+          status: "sem_endereco",
+          createdBy: userId,
+          createdAt: now,
+        }).returning();
 
-      if (Array.isArray(items)) {
-        for (const item of items) {
-          await db.insert(palletItems).values({
-            palletId: pallet.id,
-            productId: item.productId,
-            erpNfId: item.erpNfId || null,
-            quantity: item.quantity,
-            lot: item.lot || null,
-            expiryDate: item.expiryDate || null,
-            fefoEnabled: item.fefoEnabled || false,
-            companyId,
-            createdAt: new Date().toISOString(),
-          });
+        const createdItems = [];
+        if (Array.isArray(items)) {
+          for (const item of items) {
+            const [inserted] = await tx.insert(palletItems).values({
+              palletId: pallet.id,
+              productId: item.productId,
+              erpNfId: item.erpNfId || null,
+              quantity: item.quantity,
+              lot: item.lot || null,
+              expiryDate: item.expiryDate || null,
+              fefoEnabled: item.fefoEnabled || false,
+              companyId,
+              createdAt: now,
+            }).returning();
+            createdItems.push(inserted);
+          }
         }
-      }
 
-      await db.insert(palletMovements).values({
-        palletId: pallet.id,
-        companyId,
-        movementType: "created",
-        userId,
-        notes: nfIds ? `NFs: ${nfIds.join(", ")}` : null,
-        createdAt: new Date().toISOString(),
+        await tx.insert(palletMovements).values({
+          palletId: pallet.id,
+          companyId,
+          movementType: "created",
+          userId,
+          notes: nfIds ? `NFs: ${nfIds.join(", ")}` : null,
+          createdAt: now,
+        });
+
+        return { pallet, createdItems };
       });
 
       await createAuditLog(req, "create", "pallet", pallet.id, `Pallet criado: ${code}`);
       broadcastSSE("pallet_created", { palletId: pallet.id, code, companyId });
 
-      const palletItems2 = await db.select().from(palletItems).where(eq(palletItems.palletId, pallet.id));
-      res.json({ ...pallet, items: palletItems2 });
+      res.json({ ...pallet, items: createdItems });
     } catch (error) {
       console.error("Create pallet error:", error);
       res.status(500).json({ error: "Erro ao criar pallet" });
@@ -428,10 +434,12 @@ export function registerWmsRoutes(app: Express) {
         .where(eq(palletMovements.palletId, id))
         .orderBy(desc(palletMovements.createdAt));
 
-      const enrichedItems = await Promise.all(items.map(async (item) => {
-        const [product] = await db.select().from(products).where(eq(products.id, item.productId));
-        return { ...item, product };
-      }));
+      const itemProductIds = [...new Set(items.map(i => i.productId))];
+      const itemProducts = itemProductIds.length > 0
+        ? await db.select().from(products).where(inArray(products.id, itemProductIds))
+        : [];
+      const itemProductMap = new Map(itemProducts.map(p => [p.id, p]));
+      const enrichedItems = items.map(item => ({ ...item, product: itemProductMap.get(item.productId) || null }));
 
       res.json({ ...pallet, items: enrichedItems, address, movements });
     } catch (error) {
@@ -495,20 +503,23 @@ export function registerWmsRoutes(app: Express) {
       }
 
       if (Array.isArray(items)) {
-        await db.delete(palletItems).where(eq(palletItems.palletId, id));
-        for (const item of items) {
-          await db.insert(palletItems).values({
-            palletId: id,
-            productId: item.productId,
-            erpNfId: item.erpNfId || null,
-            quantity: item.quantity,
-            lot: item.lot || null,
-            expiryDate: item.expiryDate || null,
-            fefoEnabled: item.fefoEnabled || false,
-            companyId,
-            createdAt: new Date().toISOString(),
-          });
-        }
+        const updateNow = new Date().toISOString();
+        await db.transaction(async (tx) => {
+          await tx.delete(palletItems).where(eq(palletItems.palletId, id));
+          for (const item of items) {
+            await tx.insert(palletItems).values({
+              palletId: id,
+              productId: item.productId,
+              erpNfId: item.erpNfId || null,
+              quantity: item.quantity,
+              lot: item.lot || null,
+              expiryDate: item.expiryDate || null,
+              fefoEnabled: item.fefoEnabled || false,
+              companyId,
+              createdAt: updateNow,
+            });
+          }
+        });
       }
 
       await createAuditLog(req, "update", "pallet", id, `Pallet atualizado: ${pallet.code}`);
@@ -737,23 +748,27 @@ export function registerWmsRoutes(app: Express) {
       }
 
       const now = new Date().toISOString();
-      await db.update(pallets).set({
-        status: "cancelado",
-        addressId: pickingAddressId,
-        cancelledAt: now,
-        cancelledBy: getUserId(req),
-        cancelReason: reason || null,
-      }).where(eq(pallets.id, id));
+      const cancelUserId = getUserId(req);
 
-      await db.insert(palletMovements).values({
-        palletId: id,
-        companyId,
-        movementType: "cancelled",
-        fromAddressId: pallet.addressId || null,
-        toAddressId: pickingAddressId,
-        userId: getUserId(req),
-        notes: reason || "Cancelamento",
-        createdAt: now,
+      await db.transaction(async (tx) => {
+        await tx.update(pallets).set({
+          status: "cancelado",
+          addressId: pickingAddressId,
+          cancelledAt: now,
+          cancelledBy: cancelUserId,
+          cancelReason: reason || null,
+        }).where(eq(pallets.id, id));
+
+        await tx.insert(palletMovements).values({
+          palletId: id,
+          companyId,
+          movementType: "cancelled",
+          fromAddressId: pallet.addressId || null,
+          toAddressId: pickingAddressId,
+          userId: cancelUserId,
+          notes: reason || "Cancelamento",
+          createdAt: now,
+        });
       });
 
       await createAuditLog(req, "cancel", "pallet", id, `Pallet ${pallet.code} cancelado: ${reason || 'sem motivo'}`);
@@ -766,7 +781,9 @@ export function registerWmsRoutes(app: Express) {
     }
   });
 
-  app.post("/api/pallets/:id/cancel-unaddressed", ...authMiddleware, receiverRoles, async (req: Request, res: Response) => {
+  app.post("/api/pallets/:id/cancel-unaddressed", ...authMiddleware,
+    requireRole("recebedor", "empilhador", "supervisor", "administrador"),
+    async (req: Request, res: Response) => {
     try {
       const companyId = getCompanyId(req);
       const { id } = req.params;
@@ -777,15 +794,30 @@ export function registerWmsRoutes(app: Express) {
       if (pallet.status !== "sem_endereco") return res.status(400).json({ error: "Apenas pallets sem endereço podem ser cancelados aqui" });
 
       const now = new Date().toISOString();
-      await db.update(pallets).set({
-        status: "cancelado",
-        cancelledAt: now,
-        cancelledBy: getUserId(req),
-        cancelReason: "Cancelado pelo recebedor",
-      }).where(eq(pallets.id, id));
+      const userId = getUserId(req);
 
-      await db.delete(palletItems).where(eq(palletItems.palletId, id));
-      await createAuditLog(req, "cancel", "pallet", id, `Pallet ${pallet.code} cancelado pelo recebedor`);
+      await db.transaction(async (tx) => {
+        await tx.update(pallets).set({
+          status: "cancelado",
+          cancelledAt: now,
+          cancelledBy: userId,
+          cancelReason: "Cancelado pelo operador",
+        }).where(eq(pallets.id, id));
+
+        await tx.delete(palletItems).where(eq(palletItems.palletId, id));
+
+        await tx.insert(palletMovements).values({
+          palletId: id,
+          companyId,
+          movementType: "cancelled",
+          fromAddressId: null,
+          userId,
+          notes: "Cancelado pelo operador (sem endereço)",
+          createdAt: now,
+        });
+      });
+
+      await createAuditLog(req, "cancel", "pallet", id, `Pallet ${pallet.code} cancelado pelo operador (sem endereço)`);
       res.json({ success: true });
     } catch (error) {
       console.error("Cancel unaddressed pallet error:", error);
@@ -807,63 +839,79 @@ export function registerWmsRoutes(app: Express) {
       if (!pallet) return res.status(404).json({ error: "Pallet não encontrado" });
       if (pallet.status === "cancelado") return res.status(400).json({ error: "Pallet cancelado" });
 
-      const [toAddress] = await db.select().from(wmsAddresses).where(eq(wmsAddresses.id, toAddressId));
-      if (!toAddress) return res.status(404).json({ error: "Endereço não encontrado" });
+      const [toAddress] = await db.select().from(wmsAddresses)
+        .where(and(eq(wmsAddresses.id, toAddressId), eq(wmsAddresses.companyId, companyId)));
+      if (!toAddress) return res.status(404).json({ error: "Endereço não encontrado ou de outra empresa" });
+      if (!toAddress.active) return res.status(400).json({ error: "Endereço de destino está inativo" });
+
+      if (pallet.addressId === toAddressId) {
+        return res.status(400).json({ error: "Endereço de destino é o mesmo endereço atual do pallet" });
+      }
 
       const allItems = await db.select().from(palletItems).where(eq(palletItems.palletId, id));
       const now = new Date().toISOString();
+      const userId = getUserId(req);
 
       const newCode = `PLT-${companyId}-${Date.now().toString(36).toUpperCase()}`;
-      const [newPallet] = await db.insert(pallets).values({
-        companyId,
-        code: newCode,
-        status: "alocado",
-        addressId: toAddressId,
-        createdBy: getUserId(req),
-        createdAt: now,
-        allocatedAt: now,
-      }).returning();
 
-      for (const reqItem of items) {
-        const existing = allItems.find(i => i.productId === reqItem.productId);
-        if (!existing) continue;
-        const qty = Math.min(Number(reqItem.quantity), Number(existing.quantity));
-        if (qty <= 0) continue;
-
-        await db.insert(palletItems).values({
-          palletId: newPallet.id,
-          productId: existing.productId,
-          quantity: qty,
-          lot: existing.lot,
-          expiryDate: existing.expiryDate,
-          fefoEnabled: existing.fefoEnabled,
+      const newPallet = await db.transaction(async (tx) => {
+        const [newPallet] = await tx.insert(pallets).values({
           companyId,
+          code: newCode,
+          status: "alocado",
+          addressId: toAddressId,
+          createdBy: userId,
+          createdAt: now,
+          allocatedAt: now,
+        }).returning();
+
+        let anyTransferred = false;
+        for (const reqItem of items) {
+          const existing = allItems.find(i => i.productId === reqItem.productId);
+          if (!existing) continue;
+          const qty = Math.min(Number(reqItem.quantity), Number(existing.quantity));
+          if (qty <= 0) continue;
+
+          anyTransferred = true;
+          await tx.insert(palletItems).values({
+            palletId: newPallet.id,
+            productId: existing.productId,
+            quantity: qty,
+            lot: existing.lot,
+            expiryDate: existing.expiryDate,
+            fefoEnabled: existing.fefoEnabled,
+            companyId,
+            createdAt: now,
+          });
+
+          const remaining = Number(existing.quantity) - qty;
+          if (remaining <= 0) {
+            await tx.delete(palletItems).where(eq(palletItems.id, existing.id));
+          } else {
+            await tx.update(palletItems).set({ quantity: remaining }).where(eq(palletItems.id, existing.id));
+          }
+        }
+
+        if (!anyTransferred) throw new Error("Nenhum item válido para transferência");
+
+        const remainingItems = await tx.select().from(palletItems).where(eq(palletItems.palletId, id));
+        if (remainingItems.length === 0) {
+          await tx.update(pallets).set({ status: "cancelado", cancelledAt: now }).where(eq(pallets.id, id));
+        }
+
+        await tx.insert(palletMovements).values({
+          palletId: newPallet.id,
+          companyId,
+          movementType: "partial_transfer",
+          fromAddressId: pallet.addressId,
+          toAddressId,
+          fromPalletId: id,
+          userId,
+          notes: `Transferência parcial de ${pallet.code}`,
           createdAt: now,
         });
 
-        const remaining = Number(existing.quantity) - qty;
-        if (remaining <= 0) {
-          await db.delete(palletItems).where(eq(palletItems.id, existing.id));
-        } else {
-          await db.update(palletItems).set({ quantity: remaining }).where(eq(palletItems.id, existing.id));
-        }
-      }
-
-      const remainingItems = await db.select().from(palletItems).where(eq(palletItems.palletId, id));
-      if (remainingItems.length === 0) {
-        await db.update(pallets).set({ status: "cancelado", cancelledAt: now }).where(eq(pallets.id, id));
-      }
-
-      await db.insert(palletMovements).values({
-        palletId: newPallet.id,
-        companyId,
-        movementType: "partial_transfer",
-        fromAddressId: pallet.addressId,
-        toAddressId,
-        fromPalletId: id,
-        userId: getUserId(req),
-        notes: `Transferência parcial de ${pallet.code}`,
-        createdAt: now,
+        return newPallet;
       });
 
       await createAuditLog(req, "partial_transfer", "pallet", id, `Transferência parcial de ${pallet.code} para ${toAddress.code}`);
@@ -886,10 +934,12 @@ export function registerWmsRoutes(app: Express) {
       }
 
       const items = await db.select().from(palletItems).where(eq(palletItems.palletId, id));
-      const enrichedItems = await Promise.all(items.map(async (item) => {
-        const [product] = await db.select().from(products).where(eq(products.id, item.productId));
-        return { ...item, product };
-      }));
+      const labelProductIds = [...new Set(items.map(i => i.productId))];
+      const labelProducts = labelProductIds.length > 0
+        ? await db.select().from(products).where(inArray(products.id, labelProductIds))
+        : [];
+      const labelProductMap = new Map(labelProducts.map(p => [p.id, p]));
+      const enrichedItems = items.map(item => ({ ...item, product: labelProductMap.get(item.productId) || null }));
 
       let address = null;
       if (pallet.addressId) {
@@ -1224,51 +1274,55 @@ export function registerWmsRoutes(app: Express) {
       }
 
       const now = new Date().toISOString();
-      await db.update(countingCycles).set({
-        status: "aprovado",
-        approvedBy: getUserId(req),
-        approvedAt: now,
-      }).where(eq(countingCycles.id, id));
+      const approveUserId = getUserId(req);
 
       const items = await db.select().from(countingCycleItems)
         .where(eq(countingCycleItems.cycleId, id));
 
-      for (const item of items) {
-        if (item.countedQty !== null && item.productId) {
-          const existing = await db.select().from(productCompanyStock)
-            .where(and(
-              eq(productCompanyStock.productId, item.productId),
-              eq(productCompanyStock.companyId, companyId),
-            ));
+      await db.transaction(async (tx) => {
+        await tx.update(countingCycles).set({
+          status: "aprovado",
+          approvedBy: approveUserId,
+          approvedAt: now,
+        }).where(eq(countingCycles.id, id));
 
-          if (existing.length > 0) {
-            await db.update(productCompanyStock).set({
-              stockQty: item.countedQty,
-              erpUpdatedAt: now,
-            }).where(eq(productCompanyStock.id, existing[0].id));
-          } else {
-            await db.insert(productCompanyStock).values({
-              productId: item.productId,
-              companyId,
-              stockQty: item.countedQty,
-              erpUpdatedAt: now,
-            });
+        for (const item of items) {
+          if (item.countedQty !== null && item.productId) {
+            const existing = await tx.select().from(productCompanyStock)
+              .where(and(
+                eq(productCompanyStock.productId, item.productId),
+                eq(productCompanyStock.companyId, companyId),
+              ));
+
+            if (existing.length > 0) {
+              await tx.update(productCompanyStock).set({
+                stockQty: item.countedQty,
+                erpUpdatedAt: now,
+              }).where(eq(productCompanyStock.id, existing[0].id));
+            } else {
+              await tx.insert(productCompanyStock).values({
+                productId: item.productId,
+                companyId,
+                stockQty: item.countedQty,
+                erpUpdatedAt: now,
+              });
+            }
+
+            if (item.palletId && item.lot !== undefined) {
+              await tx.update(palletItems).set({
+                lot: item.lot,
+                expiryDate: item.expiryDate,
+              }).where(and(
+                eq(palletItems.palletId, item.palletId),
+                eq(palletItems.productId, item.productId),
+              ));
+            }
           }
 
-          if (item.palletId && item.lot !== undefined) {
-            await db.update(palletItems).set({
-              lot: item.lot,
-              expiryDate: item.expiryDate,
-            }).where(and(
-              eq(palletItems.palletId, item.palletId),
-              eq(palletItems.productId, item.productId),
-            ));
-          }
+          await tx.update(countingCycleItems).set({ status: "aprovado" })
+            .where(eq(countingCycleItems.id, item.id));
         }
-
-        await db.update(countingCycleItems).set({ status: "aprovado" })
-          .where(eq(countingCycleItems.id, item.id));
-      }
+      });
 
       await createAuditLog(req, "approve", "counting_cycle", id, `Ciclo aprovado`);
       res.json({ success: true });
@@ -1386,14 +1440,17 @@ export function registerWmsRoutes(app: Express) {
   app.get("/api/products/search", ...authMiddleware, anyWmsRole, async (req: Request, res: Response) => {
     try {
       const q = (req.query.q as string || "").trim();
-      if (q.length < 2) {
-        return res.json([]);
-      }
-
       const companyId = getCompanyId(req);
       const searchType = req.query.type as string || "all";
 
-      const searchPattern = `%${q.replace(/\s+/g, "%")}%`;
+      const minLen = searchType === "code" ? 1 : 2;
+      if (q.length < minLen) {
+        return res.json([]);
+      }
+
+      const escapedQ = q.replace(/[%_\\]/g, "\\$&");
+      const searchPattern = `%${escapedQ.replace(/\s+/g, "%")}%`;
+      const exactPattern = `%${escapedQ}%`;
 
       const conditions = [];
 
@@ -1404,8 +1461,8 @@ export function registerWmsRoutes(app: Express) {
       } else {
         conditions.push(or(
           ilike(products.name, searchPattern),
-          ilike(products.erpCode, `%${q}%`),
-          ilike(products.barcode, `%${q}%`)
+          ilike(products.erpCode, exactPattern),
+          ilike(products.barcode, exactPattern)
         ));
       }
 
@@ -1759,7 +1816,7 @@ export function registerWmsRoutes(app: Express) {
         if (m.fromAddressId) addressIdsSet.add(m.fromAddressId);
         if (m.toAddressId) addressIdsSet.add(m.toAddressId);
       });
-      const userIdsSet = new Set(movements.map(m => m.performedBy).filter(Boolean) as string[]);
+      const userIdsSet = new Set(movements.map(m => m.userId).filter(Boolean) as string[]);
 
       const palletList = palletIdsSet.size > 0
         ? await db.select({ id: pallets.id, code: pallets.code }).from(pallets)
@@ -1787,7 +1844,7 @@ export function registerWmsRoutes(app: Express) {
         palletCode: palletMap.get(m.palletId) || "—",
         fromAddressCode: m.fromAddressId ? addrMap.get(m.fromAddressId) || "—" : "—",
         toAddressCode: m.toAddressId ? addrMap.get(m.toAddressId) || "—" : "—",
-        performedByName: m.performedBy ? uMap.get(m.performedBy) || "—" : "—",
+        performedByName: m.userId ? uMap.get(m.userId) || "—" : "—",
       }));
 
       const movementTypeLabels: Record<string, string> = {
