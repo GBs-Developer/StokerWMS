@@ -105,6 +105,7 @@ export default function HomePage() {
         { icon: FileText, title: "Relatórios", description: "Gerar relatórios e análises", href: "/supervisor/reports" },
         { icon: ClipboardCheck, title: "Auditoria", description: "Logs de operações do sistema", href: "/supervisor/audit" },
         { icon: ShieldCheck, title: "Permissões de Acesso", description: "Definir acessos por usuário", href: "/admin/permissoes" },
+        { icon: Cog, title: "Modo de Separação", description: "Configurar modo de separação", href: "/supervisor/separation-settings" },
       ],
     },
   ];
@@ -114,12 +115,12 @@ export default function HomePage() {
       "/wms/recebimento", "/wms/checkin", "/wms/transferencia", "/wms/contagem", "/wms/enderecos", "/wms/produtos",
       "/fila-pedidos", "/supervisor/orders", "/supervisor/routes", "/supervisor/route-orders", "/supervisor/exceptions",
       "/supervisor/users", "/supervisor/manual-qty-rules", "/supervisor/mapping-studio", "/supervisor/reports", "/supervisor/audit",
-      "/admin/permissoes",
+      "/admin/permissoes", "/supervisor/separation-settings",
     ],
     supervisor: [
       "/wms/recebimento", "/wms/checkin", "/wms/transferencia", "/wms/contagem", "/wms/enderecos", "/wms/produtos",
       "/fila-pedidos", "/supervisor/orders", "/supervisor/routes", "/supervisor/route-orders", "/supervisor/exceptions",
-      "/supervisor/users", "/supervisor/reports", "/supervisor/audit",
+      "/supervisor/users", "/supervisor/reports", "/supervisor/audit", "/supervisor/separation-settings",
     ],
     separacao: ["/separacao"],
     conferencia: ["/conferencia"],

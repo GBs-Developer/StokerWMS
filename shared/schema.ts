@@ -41,6 +41,9 @@ export type CountingCycleItemStatus = typeof countingCycleItemStatusEnum[number]
 export const nfStatusEnum = ["pendente", "em_recebimento", "recebida", "cancelada"] as const;
 export type NfStatus = typeof nfStatusEnum[number];
 
+export const separationModeEnum = ["by_order", "by_section"] as const;
+export type SeparationMode = typeof separationModeEnum[number];
+
 export interface UserSettings {
   allowManualQty?: boolean;
   allowMultiplier?: boolean;
@@ -405,6 +408,13 @@ export const nfItems = pgTable("nf_items", {
   companyId: integer("company_id").notNull(),
 });
 
+export const systemSettings = pgTable("system_settings", {
+  id: text("id").primaryKey().default("global"),
+  separationMode: text("separation_mode").notNull().default("by_order").$type<SeparationMode>(),
+  updatedAt: text("updated_at").notNull().default(new Date().toISOString()),
+  updatedBy: text("updated_by"),
+});
+
 export const countingCycles = pgTable("counting_cycles", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   companyId: integer("company_id").notNull(),
@@ -527,6 +537,7 @@ export type InsertCountingCycleItem = z.infer<typeof insertCountingCycleItemSche
 export type ProductCompanyStock = typeof productCompanyStock.$inferSelect;
 export type InsertProductCompanyStock = z.infer<typeof insertProductCompanyStockSchema>;
 export type Company = typeof companies.$inferSelect;
+export type SystemSettings = typeof systemSettings.$inferSelect;
 
 export interface BatchSyncItem {
   orderItemId: string;

@@ -1,14 +1,15 @@
 import { db } from "./db";
 import { eq, and, sql, desc, inArray, isNull, gt, lt, or, like } from "drizzle-orm";
 import {
-  users, orders, orderItems, products, routes, workUnits, exceptions, auditLogs, sessions, sections, sectionGroups, manualQtyRules, db2Mappings, cacheOrcamentos, orderVolumes,
+  users, orders, orderItems, products, routes, workUnits, exceptions, auditLogs, sessions, sections, sectionGroups, manualQtyRules, db2Mappings, cacheOrcamentos, orderVolumes, systemSettings,
   type User, type InsertUser, type Order, type InsertOrder, type OrderItem, type InsertOrderItem,
   type Product, type InsertProduct, type Route, type InsertRoute, type WorkUnit, type InsertWorkUnit,
   type Exception, type InsertException, type AuditLog, type InsertAuditLog, type Session,
   type SectionGroup, type InsertSectionGroup, type Section, pickingSessions, type PickingSession, type InsertPickingSession,
   type ManualQtyRule, type InsertManualQtyRule,
   type Db2Mapping, type MappingField, type BatchSyncPayload,
-  type OrderVolume, type InsertOrderVolume, companies, type Company
+  type OrderVolume, type InsertOrderVolume, companies, type Company,
+  type SystemSettings, type SeparationMode
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { getCompanyOperationPickupPoints, getCompanyReportPickupPoints } from "./company-config";
@@ -159,6 +160,13 @@ export interface IStorage {
   getOrderVolume(orderId: string): Promise<OrderVolume | undefined>;
   deleteOrderVolume(orderId: string): Promise<void>;
   getAllOrderVolumes(): Promise<OrderVolume[]>;
+
+  // System Settings
+  getSystemSettings(): Promise<SystemSettings>;
+  updateSeparationMode(mode: SeparationMode, updatedBy: string): Promise<SystemSettings>;
+  getActiveSeparationConflicts(): Promise<{ activeSessions: number; activeWorkUnits: number; affectedSections: string[]; activeUsers: string[] }>;
+  cancelAllPickingSessions(): Promise<void>;
+  resetActiveWorkUnits(): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1707,6 +1715,77 @@ export class DatabaseStorage implements IStorage {
 
   async getAllOrderVolumes(): Promise<OrderVolume[]> {
     return db.select().from(orderVolumes).orderBy(desc(orderVolumes.createdAt));
+  }
+
+  // System Settings
+  async getSystemSettings(): Promise<SystemSettings> {
+    const [settings] = await db.select().from(systemSettings).where(eq(systemSettings.id, "global"));
+    if (settings) return settings;
+    const [created] = await db.insert(systemSettings).values({ id: "global", separationMode: "by_order", updatedAt: new Date().toISOString() }).returning();
+    return created;
+  }
+
+  async updateSeparationMode(mode: SeparationMode, updatedBy: string): Promise<SystemSettings> {
+    const [updated] = await db.update(systemSettings)
+      .set({ separationMode: mode, updatedAt: new Date().toISOString(), updatedBy })
+      .where(eq(systemSettings.id, "global"))
+      .returning();
+    if (updated) return updated;
+    const [created] = await db.insert(systemSettings).values({ id: "global", separationMode: mode, updatedAt: new Date().toISOString(), updatedBy }).returning();
+    return created;
+  }
+
+  async getActiveSeparationConflicts(): Promise<{ activeSessions: number; activeWorkUnits: number; affectedSections: string[]; activeUsers: string[] }> {
+    const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+
+    const activeSessions = await db.select({
+      sectionId: pickingSessions.sectionId,
+      userId: pickingSessions.userId,
+    }).from(pickingSessions).where(gt(pickingSessions.lastHeartbeat, twoMinutesAgo));
+
+    const activeWus = await db.select({
+      section: workUnits.section,
+      lockedBy: workUnits.lockedBy,
+    }).from(workUnits).where(eq(workUnits.status, "em_andamento"));
+
+    const affectedSectionsSet = new Set<string>();
+    const activeUsersSet = new Set<string>();
+
+    for (const s of activeSessions) {
+      affectedSectionsSet.add(s.sectionId);
+      activeUsersSet.add(s.userId);
+    }
+    for (const wu of activeWus) {
+      if (wu.section) affectedSectionsSet.add(wu.section);
+      if (wu.lockedBy) activeUsersSet.add(wu.lockedBy);
+    }
+
+    // Resolve user names
+    const userIds = Array.from(activeUsersSet);
+    const activeUserNames: string[] = [];
+    if (userIds.length > 0) {
+      const userRows = await db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, userIds));
+      for (const u of userRows) activeUserNames.push(u.name);
+    }
+
+    return {
+      activeSessions: activeSessions.length,
+      activeWorkUnits: activeWus.length,
+      affectedSections: Array.from(affectedSectionsSet).sort(),
+      activeUsers: activeUserNames,
+    };
+  }
+
+  async cancelAllPickingSessions(): Promise<void> {
+    await db.delete(pickingSessions);
+  }
+
+  async resetActiveWorkUnits(): Promise<number> {
+    const result = await db.update(workUnits)
+      .set({ status: "pendente", lockedBy: null, lockedAt: null, lockExpiresAt: null, startedAt: null })
+      .where(eq(workUnits.status, "em_andamento"))
+      .returning({ id: workUnits.id });
+    return result.length;
   }
 }
 

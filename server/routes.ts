@@ -519,6 +519,85 @@ export async function registerRoutes(
     }
   });
 
+  // System Settings routes
+  app.get("/api/system-settings/separation-mode", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const settings = await storage.getSystemSettings();
+      res.json({ separationMode: settings.separationMode, updatedAt: settings.updatedAt, updatedBy: settings.updatedBy });
+    } catch (error) {
+      console.error("Get separation mode error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  app.patch("/api/system-settings/separation-mode", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const { mode, force } = req.body;
+      const user = (req as any).user;
+
+      if (!["by_order", "by_section"].includes(mode)) {
+        return res.status(400).json({ error: "Modo inválido. Use 'by_order' ou 'by_section'." });
+      }
+
+      const currentSettings = await storage.getSystemSettings();
+      if (currentSettings.separationMode === mode) {
+        return res.json({ separationMode: currentSettings.separationMode, message: "Modo já ativo." });
+      }
+
+      // Check for active conflicts
+      const conflictsData = await storage.getActiveSeparationConflicts();
+      const hasConflicts = conflictsData.activeSessions > 0 || conflictsData.activeWorkUnits > 0;
+
+      if (hasConflicts && !force) {
+        return res.status(409).json({
+          error: "Há separações em andamento",
+          conflicts: {
+            activeSessions: conflictsData.activeSessions,
+            activeWorkUnits: conflictsData.activeWorkUnits,
+            affectedSections: conflictsData.affectedSections,
+            activeUsers: conflictsData.activeUsers,
+          },
+          message: `Existem ${conflictsData.activeSessions} sessão(ões) de picking ativa(s) e ${conflictsData.activeWorkUnits} unidade(s) de trabalho em andamento. Envie force: true para forçar a troca.`
+        });
+      }
+
+      if (force && hasConflicts) {
+        await storage.cancelAllPickingSessions();
+        const resetCount = await storage.resetActiveWorkUnits();
+        await storage.createAuditLog({
+          userId: user.id,
+          action: "force_separation_mode_change",
+          entityType: "system_settings",
+          entityId: "global",
+          details: `Troca forçada de modo de separação de '${currentSettings.separationMode}' para '${mode}'. Sessões canceladas: ${conflictsData.activeSessions}. Work units resetados para pendente: ${resetCount}. Seções afetadas: ${conflictsData.affectedSections.join(", ")}. Usuários afetados: ${conflictsData.activeUsers.join(", ")}.`,
+          previousValue: currentSettings.separationMode,
+          newValue: mode,
+          ipAddress: getClientIp(req),
+          userAgent: getUserAgent(req),
+        });
+      }
+
+      const updated = await storage.updateSeparationMode(mode as any, user.id);
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "change_separation_mode",
+        entityType: "system_settings",
+        entityId: "global",
+        details: `Modo de separação alterado de '${currentSettings.separationMode}' para '${mode}'.`,
+        previousValue: currentSettings.separationMode,
+        newValue: mode,
+        ipAddress: getClientIp(req),
+        userAgent: getUserAgent(req),
+      });
+
+      res.json({ separationMode: updated.separationMode, updatedAt: updated.updatedAt });
+    } catch (error) {
+      console.error("Update separation mode error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
   app.get("/api/sections", isAuthenticated, async (req: Request, res: Response) => {
     try {
       const sections = await storage.getAllSections();
@@ -653,8 +732,31 @@ export async function registerRoutes(
   app.get("/api/orders", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const companyId = (req as any).companyId;
+      const requestingUser = (req as any).user;
       const isReport = req.query.type === "report";
-      const orders = await storage.getAllOrders(companyId, isReport);
+      let orders = await storage.getAllOrders(companyId, isReport);
+
+      // In by_section mode, separacao users only see orders that have items in their sections
+      if (requestingUser?.role === "separacao") {
+        const systemSettingsData = await storage.getSystemSettings();
+        if (systemSettingsData.separationMode === "by_section") {
+          const userSections: string[] = (requestingUser.sections as string[]) || [];
+          if (userSections.length === 0) {
+            return res.json([]);
+          }
+          // Filter orders to only those that have at least one order item in the user's sections
+          const filteredOrders = [];
+          for (const order of orders) {
+            const items = await storage.getOrderItemsByOrderId(order.id);
+            const hasMatchingSection = items.some(item => userSections.includes(item.section));
+            if (hasMatchingSection) {
+              filteredOrders.push(order);
+            }
+          }
+          return res.json(filteredOrders);
+        }
+      }
+
       res.json(orders);
     } catch (error) {
       console.error("Get orders error:", error);
@@ -1111,10 +1213,21 @@ export async function registerRoutes(
     try {
       const type = req.query.type as string | undefined;
       const companyId = (req as any).companyId;
+      const requestingUser = (req as any).user;
       const allWorkUnits = await storage.getWorkUnits(type, companyId);
 
       // Filter: only return work units belonging to launched orders
-      const launched = allWorkUnits.filter(wu => wu.order?.isLaunched === true);
+      let launched = allWorkUnits.filter(wu => wu.order?.isLaunched === true);
+
+      // Apply separation mode filtering for separacao role (handheld picking)
+      if (requestingUser?.role === "separacao") {
+        const systemSettingsData = await storage.getSystemSettings();
+        if (systemSettingsData.separationMode === "by_section") {
+          const userSections: string[] = (requestingUser.sections as string[]) || [];
+          // Always filter when in by_section mode; user with no sections sees nothing
+          launched = launched.filter(wu => wu.section != null && userSections.includes(wu.section));
+        }
+      }
 
       // Explicit stringify to catch circular/non-serializable objects early
       const json = JSON.stringify(launched);
