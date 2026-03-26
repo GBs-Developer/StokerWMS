@@ -121,18 +121,44 @@ def formatar_hora(valor) -> str:
     return str(valor)[:8]
 
 
+def ensurar_system_settings():
+    """Garante que a tabela system_settings exist no PostgreSQL."""
+    try:
+        conn = psycopg2.connect('host=127.0.0.1 port=5435 dbname=data_stoker user=postgres password=1234')
+        conn.autocommit = True
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS system_settings (
+                id TEXT PRIMARY KEY DEFAULT 'global',
+                separation_mode TEXT NOT NULL DEFAULT 'by_order',
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_by TEXT
+            )
+        """)
+        
+        cursor.execute("SELECT id FROM system_settings WHERE id = 'global'")
+        if not cursor.fetchone():
+            cursor.execute("INSERT INTO system_settings (id, separation_mode) VALUES ('global', 'by_order')")
+            log("  System Settings: Registro 'global' criado")
+            
+        conn.close()
+    except Exception as e:
+        log(f"Erro ao ensurar system_settings: {e}")
+
+
 def inicializar_sqlite():
     """Inicializa o banco SQLite com o schema."""
     log(f"Inicializando SQLite em {"host=127.0.0.1 port=5435 dbname=data_stoker user=postgres password=1234"}...")
     
     try:
         conn_sqlite = psycopg2.connect('host=127.0.0.1 port=5435 dbname=data_stoker user=postgres password=1234')
-        cursor = conn.cursor()
+        cursor = conn_sqlite.cursor()
         
         # Enable WAL mode and set busy timeout for concurrent access
         
         
-        conn.commit()
+        conn_sqlite.commit()
         
         # 1. Cache Orcamentos
         try:
@@ -180,7 +206,7 @@ def inicializar_sqlite():
                     sync_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            conn.commit()
+            conn_sqlite.commit()
         except Exception as e:
             log(f"Erro ao criar cache_orcamentos: {e}")
 
@@ -206,7 +232,7 @@ def inicializar_sqlite():
                         log(f"  Migracao: Coluna {col} adicionada a cache_orcamentos")
                     except Exception as e:
                         log(f"  Erro na migracao {col}: {e}")
-            conn.commit()
+            conn_sqlite.commit()
         except Exception as e:
             log(f"Erro na migracao cache_orcamentos: {e}")
 
@@ -214,7 +240,7 @@ def inicializar_sqlite():
         try:
             cursor.execute("DROP TABLE IF EXISTS cache_vendas_pendentes")
             cursor.execute("DROP TABLE IF EXISTS cache_tubos_conexoes")
-            conn.commit()
+            conn_sqlite.commit()
         except Exception as e:
             log(f"Erro ao limpar tabelas antigas: {e}")
 
@@ -258,7 +284,7 @@ def inicializar_sqlite():
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )
             """)
-            conn.commit()
+            conn_sqlite.commit()
         except Exception as e:
             log(f"Erro ao criar tabelas comp/goals/alerts: {e}")
             
@@ -267,7 +293,7 @@ def inicializar_sqlite():
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_orc_dt ON cache_orcamentos(DTMOVIMENTO)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_orc_vend ON cache_orcamentos(IDVENDEDOR)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_orc_chave ON cache_orcamentos(CHAVE)")
-            conn.commit()
+            conn_sqlite.commit()
         except Exception as e:
             log(f"Erro ao criar indices: {e}")
 
@@ -306,7 +332,7 @@ def inicializar_sqlite():
                      log("  Migracao: Coluna badge_code adicionada a users")
                  except Exception as e:
                      log(f"  Erro na migracao badge_code: {e}")
-            conn.commit()
+            conn_sqlite.commit()
         except Exception as e:
             log(f"Erro ao criar users: {e}")
             
@@ -318,7 +344,7 @@ def inicializar_sqlite():
                     name TEXT NOT NULL
                 )
             """)
-            conn.commit()
+            conn_sqlite.commit()
         except Exception as e:
             log(f"Erro ao criar sections: {e}")
             
@@ -411,7 +437,7 @@ def inicializar_sqlite():
                         log(f"  Migracao: Coluna {col} adicionada a orders")
                     except Exception as e:
                         log(f"  Erro na migracao orders.{col}: {e}")
-            conn.commit()
+            conn_sqlite.commit()
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS order_items (
                     id TEXT PRIMARY KEY,
@@ -531,7 +557,25 @@ def inicializar_sqlite():
                 )
             """)
             
-            conn.commit()
+            # 8. System Settings
+            try:
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS system_settings (
+                        id TEXT PRIMARY KEY DEFAULT 'global',
+                        separation_mode TEXT NOT NULL DEFAULT 'by_order',
+                        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_by TEXT
+                    )
+                """)
+                # Insert default global settings if not exists
+                cursor.execute("SELECT id FROM system_settings WHERE id = 'global'")
+                if not cursor.fetchone():
+                    cursor.execute("INSERT INTO system_settings (id, separation_mode) VALUES ('global', 'by_order')")
+                log("  System Settings: Tabela e registro 'global' garantidos")
+            except Exception as e:
+                log(f"  Erro ao criar system_settings: {e}")
+            
+            conn_sqlite.commit()
             log(f"SQLite OK | arquivo=database.db | schema=OK")
         except Exception as e:
             log(f"Erro ao criar tabelas da aplicacao: {e}")
@@ -544,7 +588,7 @@ def inicializar_sqlite():
 
     finally:
         try:
-            conn.close()
+            conn_sqlite.close()
         except:
             pass
 
@@ -1572,6 +1616,7 @@ Exemplos:
 
     # Garantir que tabelas existam
     # inicializar_sqlite() (Handled via Drizzle)
+    ensurar_system_settings()
     
     # Passar args para sincronizar
     sucesso = sincronizar(data_inicial=args.desde)

@@ -1098,7 +1098,50 @@ export function registerWmsRoutes(app: Express) {
       }
 
       const items = await db.select().from(nfItems).where(eq(nfItems.nfId, nf.id));
-      res.json({ ...nf, items });
+      
+      const productIds = items.map(i => i.productId).filter(Boolean) as string[];
+      const productStock = productIds.length > 0 
+        ? await db.select({
+            productId: productCompanyStock.productId,
+            stockQty: productCompanyStock.stockQty
+          })
+          .from(productCompanyStock)
+          .where(and(
+            inArray(productCompanyStock.productId, productIds),
+            eq(productCompanyStock.companyId, companyId)
+          ))
+        : [];
+        
+      const alocadoStock = productIds.length > 0
+        ? await db.select({
+            productId: palletItems.productId,
+            total: sql<number>`SUM(${palletItems.quantity})`
+          })
+          .from(palletItems)
+          .innerJoin(pallets, eq(palletItems.palletId, pallets.id))
+          .where(and(
+             inArray(palletItems.productId, productIds),
+             eq(palletItems.companyId, companyId),
+             ne(pallets.status, "cancelado"),
+             sql`${pallets.addressId} IS NOT NULL`
+          ))
+          .groupBy(palletItems.productId)
+        : [];
+
+      const stockMap = new Map();
+      productStock.forEach(s => stockMap.set(s.productId, Number(s.stockQty)));
+      
+      const alocadoMap = new Map();
+      alocadoStock.forEach(s => alocadoMap.set(s.productId, Number(s.total)));
+
+      const enrichedItems = items.map(item => ({
+        ...item,
+        quantity: Number(item.quantity),
+        currentStock: item.productId ? (stockMap.get(item.productId) || 0) : 0,
+        alocadoStock: item.productId ? (alocadoMap.get(item.productId) || 0) : 0,
+      }));
+
+      res.json({ ...nf, totalValue: Number(nf.totalValue), items: enrichedItems });
     } catch (error) {
       console.error("Get NF error:", error);
       res.status(500).json({ error: "Erro ao buscar NF" });

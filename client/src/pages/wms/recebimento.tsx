@@ -16,7 +16,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import {
   ArrowLeft, Search, Plus, Package, Loader2, Trash2, Printer, QrCode,
-  ScanBarcode, CheckCircle, AlertCircle, ChevronDown, ChevronUp,
+  PackagePlus, CheckCircle, AlertCircle, ChevronDown, ChevronUp,
   FileText, ArrowRight, Calendar, Tag, Box, Minus, Keyboard,
   Pencil, X,
 } from "lucide-react";
@@ -233,7 +233,10 @@ export default function RecebimentoPage() {
         const pid = nfItem.productId || nfItem.id;
         const existingIdx = merged.findIndex(it => it.productId === pid);
         if (existingIdx >= 0) {
-          merged[existingIdx] = { ...merged[existingIdx], quantity: merged[existingIdx].quantity + (nfItem.quantity || 1) };
+          merged[existingIdx] = { 
+            ...merged[existingIdx], 
+            quantity: Number(merged[existingIdx].quantity) + (Number(nfItem.quantity) || 1) 
+          };
         } else {
           merged.push({
             productId: pid,
@@ -241,7 +244,7 @@ export default function RecebimentoPage() {
             erpCode: nfItem.erpCode || "",
             barcode: nfItem.barcode || "",
             erpNfId: nfData.nfNumber,
-            quantity: nfItem.quantity || 1,
+            quantity: Number(nfItem.quantity) || 1,
             lot: nfItem.lot || undefined,
             expiryDate: nfItem.expiryDate || undefined,
             unit: nfItem.unit || "UN",
@@ -458,7 +461,7 @@ export default function RecebimentoPage() {
         {activeTab === "scan" && (
           <div className="rounded-2xl border-2 border-primary/20 bg-card p-4 space-y-3 animate-slide-up">
             <div className="relative">
-              <ScanBarcode className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/50" />
+              <PackagePlus className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/50" />
               <Input
                 ref={scanInputRef}
                 placeholder="Bipe o codigo de barras..."
@@ -515,7 +518,7 @@ export default function RecebimentoPage() {
                   <p className="font-semibold text-xs text-emerald-800 dark:text-emerald-200 truncate">{lastScanned.product.name}</p>
                   <p className="text-[10px] text-emerald-600 dark:text-emerald-400">
                     {lastScanned.product.erpCode}
-                    {lastScanned.isBox ? <span className="ml-1 font-semibold">Cx: +{lastScanned.qty}</span> : <span className="ml-1">+{lastScanned.qty} {lastScanned.product.unit || "UN"}</span>}
+                    {lastScanned.isBox ? <span className="ml-1 font-semibold">Cx: +{Number(lastScanned.qty).toString()}</span> : <span className="ml-1">+{Number(lastScanned.qty).toString()} {lastScanned.product.unit || "UN"}</span>}
                   </p>
                 </div>
               </div>
@@ -650,7 +653,21 @@ export default function RecebimentoPage() {
                                 {item.lot && <span>L:{item.lot}</span>}
                               </p>
                             </div>
-                            <Badge variant="outline" className="font-mono text-[10px] shrink-0">{item.quantity || 1} {item.unit || "UN"}</Badge>
+                            <div className="flex flex-col items-end gap-1 shrink-0">
+                              <Badge variant="outline" className="font-mono text-[10px]">
+                                NF: {Number(item.quantity || 1).toString()} {item.unit || "UN"}
+                              </Badge>
+                              {(item.currentStock !== undefined || item.alocadoStock !== undefined) && (
+                                <div className="flex gap-1.5 text-[9px] font-medium text-muted-foreground bg-muted/30 px-1.5 py-0.5 rounded border border-border/50">
+                                  <span className="flex items-center gap-0.5" title="Sobra Pick">
+                                    <Store className="h-2.5 w-2.5" /> {Number(item.currentStock || 0).toString()}
+                                  </span>
+                                  <span className="flex items-center gap-0.5 text-blue-600" title="Alocado">
+                                    <Package className="h-2.5 w-2.5" /> {Number(item.alocadoStock || 0).toString()}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
                           </button>
                         ))}
                       </div>
@@ -717,7 +734,7 @@ export default function RecebimentoPage() {
                             onClick={() => startEditQty(idx)}
                             data-testid={`qty-display-${idx}`}
                           >
-                            {item.quantity}
+                            {Number(item.quantity).toString()}
                           </span>
                         )}
                         <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg" onClick={() => updateItemQty(idx, 1)} data-testid={`button-inc-${idx}`}>
@@ -807,7 +824,7 @@ export default function RecebimentoPage() {
             {palletItems.map((item, idx) => (
               <div key={idx} className="flex justify-between text-xs px-3 py-2">
                 <span className="truncate mr-2">{item.productName}</span>
-                <span className="font-mono shrink-0">{item.quantity} {item.unit}</span>
+                <span className="font-mono shrink-0">{Number(item.quantity).toString()} {item.unit}</span>
               </div>
             ))}
           </div>
@@ -861,7 +878,7 @@ export default function RecebimentoPage() {
                       <Minus className="h-3 w-3" />
                     </Button>
                     <Input
-                      value={item.quantity}
+                      value={Number(item.quantity).toString()}
                       onChange={e => {
                         const v = parseInt(e.target.value.replace(/\D/g, "")) || 1;
                         setEditPalletItems(prev => prev.map((it, i) => i === idx ? { ...it, quantity: v } : it));
@@ -914,7 +931,7 @@ export default function RecebimentoPage() {
                 {labelDialog.items?.map((i: any, idx: number) => (
                   <div key={idx} className="flex justify-between px-3 py-1.5">
                     <span className="truncate mr-2">{i.product}</span>
-                    <span className="font-mono shrink-0">{i.quantity} {i.unit}</span>
+                    <span className="font-mono shrink-0">{Number(i.quantity).toString()} {i.unit}</span>
                   </div>
                 ))}
               </div>

@@ -49,7 +49,7 @@ export function AddressPicker({ availableAddresses, onAddressSelect, onClear, va
     }
   }, [value, availableAddresses]);
 
-  const numOnly = (v: string) => v.replace(/[^0-9]/g, "");
+  const alphaNumOnly = (v: string) => v.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
 
   const findMatch = (b: string, r: string, bl: string, n: string) => {
     return availableAddresses.find(
@@ -76,7 +76,7 @@ export function AddressPicker({ availableAddresses, onAddressSelect, onClear, va
     bairroRef.current?.focus();
   };
 
-  const inputMode = keyboardOpen ? "numeric" : "none";
+  const inputMode = keyboardOpen ? "text" : "none";
 
   const fieldClass = `text-center font-bold text-lg h-12 ${!keyboardOpen ? "cursor-default" : ""}`;
 
@@ -124,7 +124,7 @@ export function AddressPicker({ availableAddresses, onAddressSelect, onClear, va
               ref={ref}
               placeholder=""
               value={val}
-              onChange={e => set(numOnly(e.target.value))}
+              onChange={e => set(alphaNumOnly(e.target.value))}
               className={fieldClass}
               inputMode={inputMode}
               readOnly={!keyboardOpen}

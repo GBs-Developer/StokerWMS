@@ -24,10 +24,25 @@ async function seedSections() {
   console.log("Sections seeded:", sectionData.length);
 }
 
+import { systemSettings } from "@shared/schema";
+
+async function seedSystemSettings() {
+  const existingSettings = await db.select().from(systemSettings);
+  if (existingSettings.length > 0) return;
+
+  await db.insert(systemSettings).values({
+    id: "global",
+    separationMode: "by_order",
+    updatedAt: new Date().toISOString(),
+  });
+  console.log("System settings seeded");
+}
+
 export async function seedDatabase() {
   console.log("Seeding database...");
 
   await seedSections();
+  await seedSystemSettings();
 
   // Check if already seeded
   console.log("Checking for existing users...");

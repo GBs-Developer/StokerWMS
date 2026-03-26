@@ -14,7 +14,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, QrCode, MapPin, Loader2, Package, CheckCircle, Trash2, Ban, Search, X, Clock, Minus, Plus, Save } from "lucide-react";
+import { ArrowLeft, QrCode, MapPin, Loader2, Package, CheckCircle, Trash2, Ban, Search, X, Clock, Minus, Plus, Save, Keyboard, PackagePlus } from "lucide-react";
 import { useLocation } from "wouter";
 import { AddressPicker } from "@/components/wms/address-picker";
 
@@ -24,6 +24,8 @@ export default function CheckinPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [scanInput, setScanInput] = useState("");
+  const [keyboardEnabled, setKeyboardEnabled] = useState(false);
+  const scanInputRef = useRef<HTMLInputElement>(null);
   const [selectedPallet, setSelectedPallet] = useState<any>(null);
   const [editableItems, setEditableItems] = useState<any[]>([]);
   const [itemsChanged, setItemsChanged] = useState(false);
@@ -189,22 +191,45 @@ export default function CheckinPage() {
 
       <main className="max-w-lg mx-auto px-4 py-4 space-y-3 safe-bottom">
         <div className="rounded-2xl border border-border/50 bg-card p-4 animate-fade-in">
-          <div className="flex gap-2">
-            <div className="relative flex-1">
-              <QrCode className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/50" />
-              <Input
-                placeholder="Escanear pallet..."
-                value={scanInput}
-                onChange={e => setScanInput(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && loadPallet(scanInput)}
-                className="pl-10 h-12 rounded-xl text-sm"
-                autoFocus
-                data-testid="input-scan-checkin"
-              />
+          <div className="flex flex-col gap-2">
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <PackagePlus className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/50" />
+                <Input
+                  ref={scanInputRef}
+                  placeholder="Escanear pallet..."
+                  value={scanInput}
+                  onChange={e => setScanInput(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && loadPallet(scanInput)}
+                  className="pl-10 pr-12 h-12 rounded-xl text-sm font-mono"
+                  inputMode={keyboardEnabled ? "text" : "none"}
+                  autoFocus
+                  data-testid="input-scan-checkin"
+                />
+                <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                  <Button
+                    variant={keyboardEnabled ? "default" : "ghost"}
+                    size="sm"
+                    className="h-8 w-8 p-0 rounded-lg"
+                    onClick={() => {
+                      setKeyboardEnabled(v => !v);
+                      setTimeout(() => scanInputRef.current?.focus(), 50);
+                    }}
+                    data-testid="button-keyboard-toggle"
+                  >
+                    <Keyboard className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              </div>
+              <Button className="h-12 px-4 rounded-xl shrink-0" onClick={() => loadPallet(scanInput)} disabled={!scanInput.trim()} data-testid="button-search-checkin">
+                <Search className="h-4 w-4" />
+              </Button>
             </div>
-            <Button className="h-12 px-4 rounded-xl shrink-0" onClick={() => loadPallet(scanInput)} disabled={!scanInput.trim()} data-testid="button-search-checkin">
-              <Search className="h-4 w-4" />
-            </Button>
+            {!keyboardEnabled && (
+              <p className="text-[10px] text-muted-foreground text-center mt-1">
+                Bipe o pallet ou use <Keyboard className="h-3 w-3 inline" /> p/ digitar
+              </p>
+            )}
           </div>
         </div>
 
