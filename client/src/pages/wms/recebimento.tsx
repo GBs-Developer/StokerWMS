@@ -18,7 +18,7 @@ import {
   ArrowLeft, Search, Plus, Package, Loader2, Trash2, Printer, QrCode,
   PackagePlus, CheckCircle, AlertCircle, ChevronDown, ChevronUp,
   FileText, ArrowRight, Calendar, Tag, Box, Minus, Keyboard,
-  Pencil, X,
+  Pencil, X, ScanBarcode,
 } from "lucide-react";
 import { useLocation } from "wouter";
 
