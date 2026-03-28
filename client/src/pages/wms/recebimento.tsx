@@ -466,6 +466,8 @@ export default function RecebimentoPage() {
                 onKeyDown={e => e.key === "Enter" && handleScan()}
                 className="pl-10 pr-20 h-12 rounded-xl text-sm font-mono"
                 inputMode={keyboardEnabled ? "text" : "none"}
+                readOnly={!keyboardEnabled}
+                autoFocus
                 disabled={scanLoading}
                 data-testid="input-barcode-scan"
               />
@@ -497,13 +499,13 @@ export default function RecebimentoPage() {
                 <label className="text-[9px] text-muted-foreground uppercase font-bold flex items-center gap-0.5 mb-0.5">
                   <Tag className="h-2.5 w-2.5" />Lote
                 </label>
-                <Input placeholder="Lote" value={lotInput} onChange={e => setLotInput(e.target.value)} className="h-9 rounded-lg text-xs" data-testid="input-lot" />
+                <Input placeholder="Lote" value={lotInput} onChange={e => setLotInput(e.target.value)} className="h-9 rounded-lg text-xs" inputMode={keyboardEnabled ? "text" : "none"} readOnly={!keyboardEnabled} data-testid="input-lot" />
               </div>
               <div>
                 <label className="text-[9px] text-muted-foreground uppercase font-bold flex items-center gap-0.5 mb-0.5">
                   <Calendar className="h-2.5 w-2.5" />Validade
                 </label>
-                <Input type="date" value={expiryInput} onChange={e => setExpiryInput(e.target.value)} className="h-9 rounded-lg text-xs" data-testid="input-expiry" />
+                <Input type="date" value={expiryInput} onChange={e => setExpiryInput(e.target.value)} className="h-9 rounded-lg text-xs" readOnly={!keyboardEnabled} data-testid="input-expiry" />
               </div>
             </div>
 

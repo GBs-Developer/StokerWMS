@@ -229,6 +229,7 @@ export default function TransferenciaPage() {
                   onKeyDown={e => e.key === "Enter" && loadPallet(scanInput)}
                   className="pl-10 pr-12 h-12 rounded-xl text-sm font-mono"
                   inputMode={keyboardEnabled ? "text" : "none"}
+                  readOnly={!keyboardEnabled}
                   autoFocus
                   data-testid="input-scan-pallet"
                 />
