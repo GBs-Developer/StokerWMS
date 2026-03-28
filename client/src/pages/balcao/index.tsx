@@ -267,7 +267,7 @@ export default function BalcaoPage() {
   const currentProduct = aggregatedProducts[currentProductIndex] || aggregatedProducts[0] || null;
 
   useEffect(() => {
-    if (currentProduct && step === "picking") {
+    if (currentProduct && step === "picking" && !showResultDialog) {
       const remaining = currentProduct.totalQty - currentProduct.separatedQty - currentProduct.exceptionQty;
       const isComplete = remaining <= 0;
       if (isComplete && currentProduct.separatedQty > 0) {
@@ -292,7 +292,7 @@ export default function BalcaoPage() {
         }
       }
     }
-  }, [currentProduct?.separatedQty, currentProduct?.totalQty, step, aggregatedProducts, currentProductIndex]);
+  }, [currentProduct?.separatedQty, currentProduct?.totalQty, step, aggregatedProducts, currentProductIndex, showResultDialog]);
 
   useEffect(() => {
     if (aggregatedProducts.length > 0 && currentProductIndex >= aggregatedProducts.length) {
@@ -766,37 +766,25 @@ export default function BalcaoPage() {
     if (!barcode) return;
 
     try {
-      let qtyLeft = qty;
-      let anySuccess = false;
-      let overQtyResult: any = null;
+      const incompleteItem = ap.items.find(it =>
+        Number(it.separatedQty) + Number(it.exceptionQty || 0) < Number(it.quantity)
+      );
+      if (!incompleteItem) return;
 
-      for (const item of ap.items) {
-        if (qtyLeft <= 0) break;
-        const itemRemaining = Number(item.quantity) - Number(item.separatedQty) - Number(item.exceptionQty || 0);
-        if (itemRemaining <= 0) continue;
+      const wu = allMyUnits.find(w => w.items.some(it => it.id === incompleteItem.id));
+      if (!wu) return;
 
-        const wu = allMyUnits.find(w => w.items.some(it => it.id === item.id));
-        if (!wu) continue;
+      const result = await scanItemMutation.mutateAsync({
+        workUnitId: wu.id,
+        barcode,
+        quantity: qty
+      });
 
-        const chunk = Math.min(qtyLeft, itemRemaining);
-        const result = await scanItemMutation.mutateAsync({
-          workUnitId: wu.id,
-          barcode,
-          quantity: chunk
-        });
-
-        if (result.status === "success") {
-          anySuccess = true;
-          qtyLeft -= chunk;
-        } else if (result.status === "over_quantity" || result.status === "over_quantity_with_exception") {
-          overQtyResult = result;
-          break;
-        } else {
-          break;
-        }
-      }
-
-      if (overQtyResult || (qtyLeft > 0 && anySuccess)) {
+      if (result.status === "success") {
+        setScanStatus("idle");
+        setScanMessage("");
+        setMultiplierValue(1);
+      } else if (result.status === "over_quantity" || result.status === "over_quantity_with_exception") {
         ap.items.forEach(item => {
           usePendingDeltaStore.getState().clearItem("balcao", item.id);
           usePendingDeltaStore.getState().resetBaseline("balcao", item.id);
@@ -806,13 +794,9 @@ export default function BalcaoPage() {
         setResultDialogConfig({
           type: "warning",
           title: "Quantidade Excedida",
-          message: overQtyResult?.message || `Quantidade informada (${qty}) excede o disponível (${remaining}). A contagem foi mantida.`
+          message: result.message || "Quantidade excedida. Separação resetada."
         });
         setShowResultDialog(true);
-      } else if (anySuccess) {
-        setScanStatus("idle");
-        setScanMessage("");
-        setMultiplierValue(1);
       } else {
         setScanStatus("error");
         setScanMessage("Erro ao incrementar");

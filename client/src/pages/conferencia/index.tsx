@@ -780,8 +780,8 @@ export default function ConferenciaPage() {
               workUnitId: finalUnit.id,
               barcode: barcode,
               targetQty,
-              message: result.message || `Conferência de "${matchedItem.product.name}" excedeu a quantidade separada.`,
-              serverAlreadyReset: true,
+              message: result.message || `Conferência de "${matchedItem.product.name}" excedeu a quantidade separada. A contagem anterior foi mantida.`,
+              serverAlreadyReset: false,
             });
             setOverQtyModalOpen(true);
             overQtyModalOpenRef.current = true;
@@ -846,48 +846,33 @@ export default function ConferenciaPage() {
     if (!barcode) return;
 
     try {
-      let qtyLeft = qty;
-      let anySuccess = false;
-      let overQtyResult: any = null;
-      let overQtyWuId: string | null = null;
+      const incompleteItem = ap.items.find(it => {
+        const iExc = Number(it.exceptionQty || 0);
+        const iTarget = Number(it.quantity) - iExc;
+        return Number(it.checkedQty) < iTarget;
+      });
+      if (!incompleteItem) return;
+
+      const wu = allMyUnits.find(w => w.items.some(it => it.id === incompleteItem.id));
+      if (!wu) return;
 
       const currentToken = activeSessionTokenRef.current;
+      const result = await scanItemMutation.mutateAsync({
+        workUnitId: wu.id,
+        barcode,
+        quantity: qty
+      });
 
-      for (const item of ap.items) {
-        if (qtyLeft <= 0) break;
-        const iExc = Number(item.exceptionQty || 0);
-        const iTarget = Number(item.quantity) - iExc;
-        const itemRemaining = iTarget - Number(item.checkedQty);
-        if (itemRemaining <= 0) continue;
-
-        const wu = allMyUnits.find(w => w.items.some(it => it.id === item.id));
-        if (!wu) continue;
-
-        const chunk = Math.min(qtyLeft, itemRemaining);
-        const result = await scanItemMutation.mutateAsync({
-          workUnitId: wu.id,
-          barcode,
-          quantity: chunk
-        });
-
-        if (activeSessionTokenRef.current !== currentToken) {
-          console.warn("Stale response descartada na contagem manual.");
-          return;
-        }
-
-        if (result.status === "success") {
-          anySuccess = true;
-          qtyLeft -= chunk;
-        } else if (result.status === "over_quantity" || result.status === "over_quantity_with_exception") {
-          overQtyResult = result;
-          overQtyWuId = wu.id;
-          break;
-        } else {
-          break;
-        }
+      if (activeSessionTokenRef.current !== currentToken) {
+        console.warn("Stale response descartada na contagem manual.");
+        return;
       }
 
-      if (overQtyResult || (qtyLeft > 0 && anySuccess)) {
+      if (result.status === "success") {
+        setScanStatus("idle");
+        setScanMessage("");
+        setMultiplierValue(1);
+      } else if (result.status === "over_quantity" || result.status === "over_quantity_with_exception") {
         ap.items.forEach(item => {
           usePendingDeltaStore.getState().clearItem("conferencia", item.id);
           usePendingDeltaStore.getState().resetBaseline("conferencia", item.id);
@@ -896,22 +881,17 @@ export default function ConferenciaPage() {
         queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
 
         const targetQty = ap.totalSeparatedQty;
-        const wuId = overQtyWuId || allMyUnits[0]?.id || "";
         setOverQtyContext({
           productName: ap.product.name,
           itemIds: ap.items.map(i => i.id),
-          workUnitId: wuId,
+          workUnitId: wu.id,
           barcode: ap.product.barcode || "",
           targetQty,
-          message: overQtyResult?.message || `Quantidade informada (${qty}) excede o disponível (${remaining}). A contagem foi mantida, bipe novamente.`,
-          serverAlreadyReset: !!overQtyResult,
+          message: result.message || `Conferência de "${ap.product.name}" excedeu a quantidade solicitada (${targetQty}). A contagem anterior foi mantida.`,
+          serverAlreadyReset: false,
         });
         setOverQtyModalOpen(true);
         overQtyModalOpenRef.current = true;
-      } else if (anySuccess) {
-        setScanStatus("idle");
-        setScanMessage("");
-        setMultiplierValue(1);
       } else {
         setScanStatus("error");
         setScanMessage("Erro ao incrementar");
