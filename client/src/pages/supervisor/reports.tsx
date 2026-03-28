@@ -11,7 +11,7 @@ export default function Reports() {
     const { user } = useAuth();
     const isAdmin = user?.role === "administrador";
     const allowedReports: string[] | null = (user as any)?.allowedReports ?? null;
-    const canSeeReport = (id: string) => allowedReports === null || allowedReports.includes(id);
+    const canSeeReport = (id: string) => !allowedReports || allowedReports.length === 0 || allowedReports.includes(id);
 
     return (
         <div className="min-h-screen bg-background">
