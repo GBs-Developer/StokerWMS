@@ -10,6 +10,8 @@ import { seedDatabase } from "./seed";
 const app = express();
 const httpServer = createServer(app);
 
+app.set('trust proxy', 1);
+
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
@@ -38,7 +40,7 @@ const loginLimiter = rateLimit({
   message: { error: "Muitas tentativas de login. Tente novamente em 15 minutos." },
   standardHeaders: true,
   legacyHeaders: false,
-  validate: { xForwardedForHeader: false, trustProxy: false },
+  validate: { xForwardedForHeader: false },
 });
 
 const apiLimiter = rateLimit({

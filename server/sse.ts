@@ -1,7 +1,8 @@
 import { Response, Request, Express } from 'express';
 import { getTokenFromRequest, getUserFromToken } from './auth';
 
-let clients: { id: number; res: Response; userId?: string; companyId?: number }[] = [];
+let nextClientId = 0;
+const clients = new Map<number, { res: Response; userId?: string; companyId?: number }>();
 
 export function setupSSE(app: Express) {
     app.get('/api/sse', async (req: Request, res: Response) => {
@@ -21,23 +22,16 @@ export function setupSSE(app: Express) {
         res.setHeader('Connection', 'keep-alive');
         res.flushHeaders();
 
-        const clientId = Date.now();
+        const clientId = ++nextClientId;
         const userId = result.user.id;
         const companyId = result.companyId;
 
-        const newClient = {
-            id: clientId,
-            res,
-            userId,
-            companyId
-        };
-
-        clients.push(newClient);
+        clients.set(clientId, { res, userId, companyId });
 
         res.write(`data: ${JSON.stringify({ type: 'connected', clientId })}\n\n`);
 
         req.on('close', () => {
-            clients = clients.filter(client => client.id !== clientId);
+            clients.delete(clientId);
         });
     });
 }
@@ -45,20 +39,25 @@ export function setupSSE(app: Express) {
 export function broadcastSSE(type: string, data: any, companyId?: number) {
     const message = `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
 
-    clients.forEach(client => {
-        if (companyId) {
-            if (client.companyId !== companyId) return;
+    clients.forEach((client, id) => {
+        if (companyId && client.companyId !== companyId) return;
+        try {
+            client.res.write(message);
+        } catch {
+            clients.delete(id);
         }
-        client.res.write(message);
     });
 }
 
 export function sendToUserSSE(userId: string, type: string, data: any) {
     const message = `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
 
-    clients
-        .filter(client => client.userId === userId)
-        .forEach(client => {
+    clients.forEach((client, id) => {
+        if (client.userId !== userId) return;
+        try {
             client.res.write(message);
-        });
+        } catch {
+            clients.delete(id);
+        }
+    });
 }

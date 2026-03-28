@@ -322,11 +322,16 @@ export default function ConferenciaPage() {
     }
   }, [aggregatedProducts.length, currentProductIndex]);
 
+  const manualQtyProductIdsKey = useMemo(() => {
+    return aggregatedProducts.map(ap => ap.product.id).sort().join(",");
+  }, [aggregatedProducts]);
+
   useEffect(() => {
     if (!hasManualQtyPermission) return;
-    if (aggregatedProducts.length === 0) return;
+    if (!manualQtyProductIdsKey) return;
 
-    const productIds = aggregatedProducts.map(ap => ap.product.id).filter(id => !(id in manualQtyAllowed));
+    const allIds = manualQtyProductIdsKey.split(",").filter(Boolean);
+    const productIds = allIds.filter(id => !(id in manualQtyAllowed));
     if (productIds.length === 0) return;
 
     apiRequest("POST", "/api/manual-qty-rules/check", { productIds })
@@ -339,7 +344,7 @@ export default function ConferenciaPage() {
         productIds.forEach(id => { fallback[id] = false; });
         setManualQtyAllowed(prev => ({ ...prev, ...fallback }));
       });
-  }, [aggregatedProducts, hasManualQtyPermission]);
+  }, [manualQtyProductIdsKey, hasManualQtyPermission]);
 
   useEffect(() => {
     if (workUnits && user && !sessionRestored) {
