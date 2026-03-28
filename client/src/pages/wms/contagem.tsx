@@ -15,9 +15,10 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { ArrowLeft, Plus, Loader2, CheckCircle, XCircle, BarChart3, Trash2, ScanBarcode, Tag, Calendar, Package, Factory, Barcode } from "lucide-react";
+import { ArrowLeft, Plus, Loader2, CheckCircle, XCircle, BarChart3, Trash2, ScanBarcode, Tag, Calendar, Package, Factory, Barcode, Keyboard } from "lucide-react";
 import { useLocation } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
+import { AddressPicker } from "@/components/wms/address-picker";
 
 const cycleTypeOptions = [
   { value: "por_produto", label: "Por Produto", desc: "Conta por produto especifico" },
@@ -38,7 +39,10 @@ export default function ContagemPage() {
 
   const [scanInput, setScanInput] = useState("");
   const [scanLoading, setScanLoading] = useState(false);
+  const [keyboardEnabled, setKeyboardEnabled] = useState(false);
   const scanRef = useRef<HTMLInputElement>(null);
+
+  const [addressId, setAddressId] = useState("");
 
   const isSupervisor = user?.role === "supervisor" || user?.role === "administrador";
 
@@ -46,6 +50,16 @@ export default function ContagemPage() {
     queryKey: ["counting-cycles", companyId],
     queryFn: async () => {
       const res = await fetch("/api/counting-cycles", { credentials: "include" });
+      if (!res.ok) throw new Error("Erro");
+      return res.json();
+    },
+    enabled: !!companyId,
+  });
+
+  const { data: allAddresses = [] } = useQuery({
+    queryKey: ["all-addresses", companyId],
+    queryFn: async () => {
+      const res = await fetch("/api/wms-addresses", { credentials: "include" });
       if (!res.ok) throw new Error("Erro");
       return res.json();
     },
@@ -93,8 +107,11 @@ export default function ContagemPage() {
   const loadCycle = async (id: string) => {
     const res = await fetch(`/api/counting-cycles/${id}`, { credentials: "include" });
     if (res.ok) {
-      setSelectedCycle(await res.json());
-      setTimeout(() => scanRef.current?.focus(), 200);
+      const data = await res.json();
+      setSelectedCycle(data);
+      if (data.type === "por_produto") {
+        setTimeout(() => scanRef.current?.focus(), 200);
+      }
     }
   };
 
@@ -103,21 +120,60 @@ export default function ContagemPage() {
     if (!code || !selectedCycle) return;
     setScanLoading(true);
     try {
+      const body: any = {};
+      if (selectedCycle.type === "por_pallet") {
+        body.palletCode = code;
+      } else {
+        body.barcode = code;
+      }
+
       const res = await fetch(`/api/counting-cycles/${selectedCycle.id}/items`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ barcode: code }),
+        body: JSON.stringify(body),
         credentials: "include",
       });
       if (!res.ok) {
         const err = await res.json();
-        toast({ title: "Produto nao encontrado", description: err.error, variant: "destructive" });
+        toast({ title: "Erro", description: err.error, variant: "destructive" });
       } else {
-        const newItem = await res.json();
-        setSelectedCycle((prev: any) => ({ ...prev, items: [...(prev.items || []), newItem] }));
+        const result = await res.json();
+        const newItems = Array.isArray(result) ? result : [result];
+        setSelectedCycle((prev: any) => ({ ...prev, items: [...(prev.items || []), ...newItems] }));
         setScanInput("");
-        toast({ title: `Adicionado: ${newItem.product?.name || newItem.productId}` });
+        if (newItems.length === 1) {
+          toast({ title: `Adicionado: ${newItems[0].product?.name || "item"}` });
+        } else {
+          toast({ title: `${newItems.length} itens adicionados` });
+        }
         setTimeout(() => scanRef.current?.focus(), 50);
+      }
+    } catch {
+      toast({ title: "Erro de conexao", variant: "destructive" });
+    } finally {
+      setScanLoading(false);
+    }
+  };
+
+  const addItemByAddress = async () => {
+    if (!addressId || !selectedCycle) return;
+    setScanLoading(true);
+    try {
+      const res = await fetch(`/api/counting-cycles/${selectedCycle.id}/items`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ addressId }),
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        toast({ title: "Erro", description: err.error, variant: "destructive" });
+      } else {
+        const result = await res.json();
+        const newItems = Array.isArray(result) ? result : [result];
+        setSelectedCycle((prev: any) => ({ ...prev, items: [...(prev.items || []), ...newItems] }));
+        setAddressId("");
+        toast({ title: `${newItems.length} itens adicionados do endereço` });
       }
     } catch {
       toast({ title: "Erro de conexao", variant: "destructive" });
@@ -186,6 +242,19 @@ export default function ContagemPage() {
   const statusLabels: Record<string, string> = {
     pendente: "Pendente", em_andamento: "Em Andamento", concluido: "Concluido",
     aprovado: "Aprovado", rejeitado: "Rejeitado",
+  };
+
+  const getScanPlaceholder = () => {
+    if (!selectedCycle) return "";
+    if (selectedCycle.type === "por_pallet") return "Escanear código do pallet...";
+    return "Escanear produto...";
+  };
+
+  const getEmptyMessage = () => {
+    if (!selectedCycle) return "";
+    if (selectedCycle.type === "por_pallet") return "Escaneia um pallet para adicionar";
+    if (selectedCycle.type === "por_endereco") return "Selecione um endereço para adicionar";
+    return "Escaneia um produto para adicionar";
   };
 
   return (
@@ -307,29 +376,75 @@ export default function ContagemPage() {
                 </div>
               </div>
 
-              {selectedCycle.status !== "aprovado" && (
-                <div className="flex gap-2 px-4 py-3 border-b border-border/30">
-                  <div className="relative flex-1">
-                    <ScanBarcode className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/50" />
-                    <Input
-                      ref={scanRef}
-                      placeholder="Escanear produto..."
-                      value={scanInput}
-                      onChange={e => setScanInput(e.target.value)}
-                      onKeyDown={e => e.key === "Enter" && addItemByScan()}
-                      className="pl-10 h-11 rounded-xl text-sm"
-                      data-testid="input-scan-count"
-                    />
-                  </div>
-                  <Button className="h-11 px-4 rounded-xl" onClick={addItemByScan} disabled={!scanInput.trim() || scanLoading} data-testid="button-add-scan-item">
-                    {scanLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                  </Button>
-                </div>
+              {selectedCycle.status !== "aprovado" && selectedCycle.status !== "em_andamento" && (
+                <>
+                  {selectedCycle.type === "por_endereco" ? (
+                    <div className="px-4 py-3 border-b border-border/30 space-y-3">
+                      <AddressPicker
+                        availableAddresses={allAddresses}
+                        onAddressSelect={setAddressId}
+                        onClear={() => setAddressId("")}
+                        value={addressId}
+                      />
+                      <Button
+                        className="w-full h-11 rounded-xl"
+                        onClick={addItemByAddress}
+                        disabled={!addressId || scanLoading}
+                        data-testid="button-add-address-items"
+                      >
+                        {scanLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
+                        Adicionar itens do endereço
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="px-4 py-3 border-b border-border/30 space-y-2">
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <ScanBarcode className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/50" />
+                          <Input
+                            ref={scanRef}
+                            placeholder={getScanPlaceholder()}
+                            value={scanInput}
+                            onChange={e => setScanInput(e.target.value)}
+                            onKeyDown={e => e.key === "Enter" && addItemByScan()}
+                            className="pl-10 pr-12 h-11 rounded-xl text-sm font-mono"
+                            inputMode={keyboardEnabled ? "text" : "none"}
+                            readOnly={!keyboardEnabled}
+                            autoFocus
+                            data-testid="input-scan-count"
+                          />
+                          <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                            <Button
+                              variant={keyboardEnabled ? "default" : "ghost"}
+                              size="sm"
+                              className="h-8 w-8 p-0 rounded-lg"
+                              onClick={() => {
+                                setKeyboardEnabled(v => !v);
+                                setTimeout(() => scanRef.current?.focus(), 50);
+                              }}
+                              data-testid="button-keyboard-toggle"
+                            >
+                              <Keyboard className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        </div>
+                        <Button className="h-11 px-4 rounded-xl" onClick={addItemByScan} disabled={!scanInput.trim() || scanLoading} data-testid="button-add-scan-item">
+                          {scanLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                        </Button>
+                      </div>
+                      {!keyboardEnabled && (
+                        <p className="text-[10px] text-muted-foreground text-center">
+                          Bipe o {selectedCycle.type === "por_pallet" ? "pallet" : "produto"} ou use <Keyboard className="h-3 w-3 inline" /> p/ digitar
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
 
               {selectedCycle.items?.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-8">
-                  Escaneia um produto para adicionar
+                  {getEmptyMessage()}
                 </p>
               ) : (
                 <div className="divide-y divide-border/30">
@@ -338,6 +453,7 @@ export default function ContagemPage() {
                       key={item.id}
                       item={item}
                       cycleStatus={selectedCycle.status}
+                      cycleType={selectedCycle.type}
                       onCount={(countedQty, lot, expiryDate) => countItemMutation.mutate({ itemId: item.id, countedQty, lot, expiryDate })}
                       isPending={countItemMutation.isPending}
                     />
@@ -346,7 +462,7 @@ export default function ContagemPage() {
               )}
             </div>
 
-            <Button variant="outline" className="w-full h-11 rounded-xl" onClick={() => setSelectedCycle(null)} data-testid="button-back-to-list">
+            <Button variant="outline" className="w-full h-11 rounded-xl" onClick={() => { setSelectedCycle(null); setAddressId(""); }} data-testid="button-back-to-list">
               Voltar
             </Button>
           </div>
@@ -372,9 +488,10 @@ export default function ContagemPage() {
   );
 }
 
-function CountingItemCard({ item, cycleStatus, onCount, isPending }: {
+function CountingItemCard({ item, cycleStatus, cycleType, onCount, isPending }: {
   item: any;
   cycleStatus: string;
+  cycleType: string;
   onCount: (qty: number, lot?: string, expiry?: string) => void;
   isPending: boolean;
 }) {
@@ -415,6 +532,9 @@ function CountingItemCard({ item, cycleStatus, onCount, isPending }: {
                   <span className="flex items-center gap-0.5"><Barcode className="h-2.5 w-2.5" /><span className="font-mono">{product.barcode}</span></span>
                 )}
               </div>
+              {item.expectedQty != null && (
+                <p className="text-[10px] text-muted-foreground mt-0.5">Esperado: <span className="font-mono font-bold">{item.expectedQty}</span></p>
+              )}
             </>
           ) : (
             <p className="text-sm text-muted-foreground">Produto {item.productId?.slice(0, 12) || "-"}</p>

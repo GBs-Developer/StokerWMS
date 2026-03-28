@@ -86,7 +86,7 @@ export function registerWmsRoutes(app: Express) {
   const wmsCounterRoles = requireRole("conferente_wms", "supervisor", "administrador");
   const anyWmsRole = requireRole("recebedor", "empilhador", "conferente_wms", "supervisor", "administrador");
 
-  app.get("/api/wms-addresses", ...authMiddleware, supervisorRoles, async (req: Request, res: Response) => {
+  app.get("/api/wms-addresses", ...authMiddleware, anyWmsRole, async (req: Request, res: Response) => {
     try {
       const companyId = getCompanyId(req);
       const addresses = await db.select().from(wmsAddresses)
@@ -1270,7 +1270,7 @@ export function registerWmsRoutes(app: Express) {
     try {
       const companyId = getCompanyId(req);
       const { id } = req.params;
-      const { barcode, productId, palletId, addressId } = req.body;
+      const { barcode, productId, palletCode, addressId } = req.body;
 
       const [cycle] = await db.select().from(countingCycles)
         .where(and(eq(countingCycles.id, id), eq(countingCycles.companyId, companyId)));
@@ -1278,8 +1278,110 @@ export function registerWmsRoutes(app: Express) {
       if (cycle.status === "aprovado") return res.status(400).json({ error: "Ciclo já aprovado" });
       if (cycle.status === "em_andamento") return res.status(400).json({ error: "Não é possível adicionar itens a um ciclo em andamento" });
 
-      let resolvedProductId = productId || null;
+      if (cycle.type === "por_pallet" && palletCode) {
+        const [pallet] = await db.select().from(pallets)
+          .where(and(eq(pallets.code, palletCode), eq(pallets.companyId, companyId)));
+        if (!pallet) return res.status(404).json({ error: "Pallet não encontrado" });
+        if (pallet.status === "cancelado") return res.status(400).json({ error: "Pallet cancelado não pode ser contado" });
 
+        const existingByPallet = await db.select().from(countingCycleItems)
+          .where(and(eq(countingCycleItems.cycleId, id), eq(countingCycleItems.palletId, pallet.id)));
+        if (existingByPallet.length > 0) return res.status(400).json({ error: "Pallet já adicionado a este ciclo" });
+
+        const items = await db.select().from(palletItems)
+          .where(eq(palletItems.palletId, pallet.id));
+
+        if (items.length === 0) return res.status(400).json({ error: "Pallet sem itens" });
+
+        const now = new Date().toISOString();
+        const newItems: any[] = [];
+
+        await db.transaction(async (tx) => {
+          for (const pi of items) {
+            const [newItem] = await tx.insert(countingCycleItems).values({
+              id: `cci-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+              cycleId: id,
+              companyId,
+              productId: pi.productId,
+              palletId: pallet.id,
+              addressId: pallet.addressId || null,
+              expectedQty: Number(pi.quantity),
+              status: "pendente",
+              createdAt: now,
+            }).returning();
+
+            let productData = null;
+            if (pi.productId) {
+              const [p] = await tx.select().from(products).where(eq(products.id, pi.productId));
+              productData = p || null;
+            }
+            newItems.push({ ...newItem, product: productData });
+          }
+        });
+
+        return res.json(newItems);
+      }
+
+      if (cycle.type === "por_endereco" && addressId) {
+        const [address] = await db.select().from(wmsAddresses)
+          .where(and(eq(wmsAddresses.id, addressId), eq(wmsAddresses.companyId, companyId)));
+        if (!address) return res.status(404).json({ error: "Endereço não encontrado" });
+
+        const existingByAddr = await db.select().from(countingCycleItems)
+          .where(and(eq(countingCycleItems.cycleId, id), eq(countingCycleItems.addressId, addressId)));
+        if (existingByAddr.length > 0) return res.status(400).json({ error: "Endereço já adicionado a este ciclo" });
+
+        const palletsAtAddr = await db.select().from(pallets)
+          .where(and(
+            eq(pallets.addressId, addressId),
+            eq(pallets.companyId, companyId),
+            sql`${pallets.status} != 'cancelado'`
+          ));
+
+        if (palletsAtAddr.length === 0) return res.status(400).json({ error: "Nenhum pallet neste endereço" });
+
+        const now = new Date().toISOString();
+        const newItems: any[] = [];
+
+        await db.transaction(async (tx) => {
+          for (const plt of palletsAtAddr) {
+            const items = await tx.select().from(palletItems)
+              .where(eq(palletItems.palletId, plt.id));
+
+            for (const pi of items) {
+              const [newItem] = await tx.insert(countingCycleItems).values({
+                id: `cci-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                cycleId: id,
+                companyId,
+                productId: pi.productId,
+                palletId: plt.id,
+                addressId: addressId,
+                expectedQty: Number(pi.quantity),
+                status: "pendente",
+                createdAt: now,
+              }).returning();
+
+              let productData = null;
+              if (pi.productId) {
+                const [p] = await tx.select().from(products).where(eq(products.id, pi.productId));
+                productData = p || null;
+              }
+              newItems.push({ ...newItem, product: productData });
+            }
+          }
+        });
+
+        return res.json(newItems);
+      }
+
+      if (cycle.type === "por_pallet" && !palletCode) {
+        return res.status(400).json({ error: "Informe o código do pallet" });
+      }
+      if (cycle.type === "por_endereco" && !addressId) {
+        return res.status(400).json({ error: "Selecione um endereço" });
+      }
+
+      let resolvedProductId = productId || null;
       if (!resolvedProductId && barcode) {
         const [found] = await db.select().from(products).where(
           or(eq(products.barcode, barcode), eq(products.erpCode, barcode))
@@ -1293,8 +1395,8 @@ export function registerWmsRoutes(app: Express) {
         cycleId: id,
         companyId,
         productId: resolvedProductId,
-        palletId: palletId || null,
-        addressId: addressId || null,
+        palletId: null,
+        addressId: null,
         expectedQty: null,
         status: "pendente",
         createdAt: new Date().toISOString(),

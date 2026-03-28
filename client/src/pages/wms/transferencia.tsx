@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { GradientHeader } from "@/components/ui/gradient-header";
@@ -14,8 +14,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, ArrowRightLeft, MapPin, Loader2, Ban, QrCode, Package, Search, X, ArrowRight, Minus, Plus, Keyboard, PackagePlus } from "lucide-react";
-import { useRef } from "react";
+import { ArrowLeft, ArrowRightLeft, MapPin, Loader2, Ban, Package, X, ArrowRight, Minus, Plus } from "lucide-react";
 import { useLocation } from "wouter";
 import { AddressPicker } from "@/components/wms/address-picker";
 
@@ -24,16 +23,14 @@ export default function TransferenciaPage() {
   const { user, companyId, companiesData } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [scanInput, setScanInput] = useState("");
-  const [keyboardEnabled, setKeyboardEnabled] = useState(false);
-  const scanInputRef = useRef<HTMLInputElement>(null);
+
+  const [sourceAddressId, setSourceAddressId] = useState("");
   const [selectedPallet, setSelectedPallet] = useState<any>(null);
   const [palletDetail, setPalletDetail] = useState<any>(null);
   const [toAddressId, setToAddressId] = useState("");
   const [cancelReason, setCancelReason] = useState("");
   const [showCancel, setShowCancel] = useState(false);
   const [showTransferConfirm, setShowTransferConfirm] = useState(false);
-  const [filterText, setFilterText] = useState("");
   const [detailLoading, setDetailLoading] = useState(false);
   const [transferMode, setTransferMode] = useState<"full" | "partial">("full");
   const [selectedItems, setSelectedItems] = useState<Map<string, number>>(new Map());
@@ -58,9 +55,24 @@ export default function TransferenciaPage() {
     enabled: !!companyId,
   });
 
+  const { data: allAddresses = [] } = useQuery({
+    queryKey: ["all-addresses", companyId],
+    queryFn: async () => {
+      const res = await fetch("/api/wms-addresses", { credentials: "include" });
+      if (!res.ok) throw new Error("Erro");
+      return res.json();
+    },
+    enabled: !!companyId,
+  });
+
+  const palletsAtSource = sourceAddressId
+    ? allPallets.filter((p: any) => p.addressId === sourceAddressId && p.status === "alocado")
+    : [];
+
   const loadPalletDetail = async (pallet: any) => {
     setSelectedPallet(pallet);
     setShowCancel(false);
+    setCancelReason("");
     setToAddressId("");
     setTransferMode("full");
     setSelectedItems(new Map());
@@ -82,18 +94,6 @@ export default function TransferenciaPage() {
       setPalletDetail(null);
     } finally {
       setDetailLoading(false);
-    }
-  };
-
-  const loadPallet = (code: string) => {
-    const trimmed = code.trim();
-    if (!trimmed) return;
-    const pallet = allPallets.find((p: any) => p.code === trimmed || p.id === trimmed);
-    if (pallet) {
-      loadPalletDetail(pallet);
-      setScanInput("");
-    } else {
-      toast({ title: "Pallet nao encontrado", variant: "destructive" });
     }
   };
 
@@ -148,10 +148,12 @@ export default function TransferenciaPage() {
       queryClient.invalidateQueries({ queryKey: ["pallets"] });
       queryClient.invalidateQueries({ queryKey: ["available-addresses"] });
       queryClient.invalidateQueries({ queryKey: ["pallets-all"] });
+      queryClient.invalidateQueries({ queryKey: ["all-addresses"] });
       toast({ title: "Transferencia realizada!" });
       setSelectedPallet(null);
       setPalletDetail(null);
       setToAddressId("");
+      setSourceAddressId("");
       setShowTransferConfirm(false);
     },
     onError: (e: Error) => {
@@ -168,7 +170,10 @@ export default function TransferenciaPage() {
         body: JSON.stringify({ reason: cancelReason }),
         credentials: "include",
       });
-      if (!res.ok) { const data = await res.json(); throw new Error(data.error || "Erro"); }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: "Erro ao cancelar" }));
+        throw new Error(data.error || "Erro ao cancelar pallet");
+      }
       return res.json();
     },
     onSuccess: () => {
@@ -179,8 +184,9 @@ export default function TransferenciaPage() {
       setPalletDetail(null);
       setShowCancel(false);
       setCancelReason("");
+      setSourceAddressId("");
     },
-    onError: (e: Error) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
+    onError: (e: Error) => toast({ title: "Erro ao cancelar", description: e.message, variant: "destructive" }),
   });
 
   const isSupervisor = user?.role === "supervisor" || user?.role === "administrador";
@@ -195,15 +201,8 @@ export default function TransferenciaPage() {
     cancelado: "border-red-200 text-red-700 bg-red-50 dark:border-red-800 dark:text-red-400 dark:bg-red-950/30",
   };
 
-  const activePallets = allPallets.filter((p: any) => p.status !== "cancelado");
-  const filteredPallets = filterText
-    ? activePallets.filter((p: any) =>
-        p.code?.toLowerCase().includes(filterText.toLowerCase()) ||
-        p.address?.code?.toLowerCase().includes(filterText.toLowerCase())
-      )
-    : activePallets;
-
   const destinationAddress = toAddressId ? availableAddresses.find((a: any) => a.id === toAddressId) : null;
+  const sourceAddress = sourceAddressId ? allAddresses.find((a: any) => a.id === sourceAddressId) : null;
   const totalSelected = Array.from(selectedItems.values()).reduce((acc, v) => acc + v, 0);
   const canTransfer = !!toAddressId && (transferMode === "full" || totalSelected > 0);
 
@@ -216,91 +215,58 @@ export default function TransferenciaPage() {
       </GradientHeader>
 
       <main className="max-w-lg mx-auto px-4 py-4 space-y-3 safe-bottom">
-        <div className="rounded-2xl border border-border/50 bg-card p-4 animate-fade-in">
-          <div className="flex flex-col gap-2">
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <PackagePlus className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground/50" />
-                <Input
-                  ref={scanInputRef}
-                  placeholder="Escanear pallet..."
-                  value={scanInput}
-                  onChange={e => setScanInput(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && loadPallet(scanInput)}
-                  className="pl-10 pr-12 h-12 rounded-xl text-sm font-mono"
-                  inputMode={keyboardEnabled ? "text" : "none"}
-                  readOnly={!keyboardEnabled}
-                  autoFocus
-                  data-testid="input-scan-pallet"
-                />
-                <div className="absolute right-2 top-1/2 -translate-y-1/2">
-                  <Button
-                    variant={keyboardEnabled ? "default" : "ghost"}
-                    size="sm"
-                    className="h-8 w-8 p-0 rounded-lg"
-                    onClick={() => {
-                      setKeyboardEnabled(v => !v);
-                      setTimeout(() => scanInputRef.current?.focus(), 50);
-                    }}
-                    data-testid="button-keyboard-toggle"
-                  >
-                    <Keyboard className="h-3.5 w-3.5" />
-                  </Button>
+        {!selectedPallet && (
+          <div className="rounded-2xl border border-border/50 bg-card p-4 space-y-3 animate-fade-in">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Endereço de Origem</p>
+            <AddressPicker
+              availableAddresses={allAddresses}
+              onAddressSelect={setSourceAddressId}
+              onClear={() => setSourceAddressId("")}
+              value={sourceAddressId}
+            />
+
+            {sourceAddressId && sourceAddress && (
+              <div className="flex items-center gap-2 p-3 rounded-xl bg-primary/5 border border-primary/20">
+                <MapPin className="h-4 w-4 text-primary shrink-0" />
+                <span className="text-sm font-semibold">Origem:</span>
+                <span className="font-mono font-bold text-primary">{sourceAddress.code}</span>
+              </div>
+            )}
+
+            {sourceAddressId && palletsAtSource.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-4">Nenhum pallet alocado neste endereço</p>
+            )}
+
+            {sourceAddressId && palletsAtSource.length > 0 && (
+              <div className="rounded-xl border border-border/50 overflow-hidden">
+                <div className="px-3 py-2 bg-muted/30 border-b border-border/30">
+                  <span className="text-xs font-semibold text-muted-foreground">{palletsAtSource.length} pallet(s) neste endereço</span>
+                </div>
+                <div className="divide-y divide-border/30 max-h-[40vh] overflow-y-auto">
+                  {palletsAtSource.map((p: any) => (
+                    <button
+                      key={p.id}
+                      className="w-full flex items-center gap-3 px-4 py-3 active:bg-muted/50 transition-colors text-left"
+                      onClick={() => loadPalletDetail(p)}
+                      data-testid={`pallet-row-${p.id}`}
+                    >
+                      <div className="w-9 h-9 rounded-xl bg-primary/8 flex items-center justify-center shrink-0">
+                        <Package className="h-4 w-4 text-primary" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-mono font-semibold text-sm truncate">{p.code}</p>
+                        <p className="text-[10px] text-muted-foreground truncate mt-0.5">
+                          {p.items?.length || 0} itens
+                        </p>
+                      </div>
+                      <Badge variant="outline" className={`text-[10px] shrink-0 ${statusStyles[p.status] || ""}`}>
+                        {statusLabels[p.status] || p.status}
+                      </Badge>
+                    </button>
+                  ))}
                 </div>
               </div>
-              <Button className="h-12 px-4 rounded-xl shrink-0" onClick={() => loadPallet(scanInput)} disabled={!scanInput.trim()} data-testid="button-search-pallet">
-                <Search className="h-4 w-4" />
-              </Button>
-            </div>
-            {!keyboardEnabled && (
-              <p className="text-[10px] text-muted-foreground text-center mt-1">
-                Bipe o pallet ou use <Keyboard className="h-3 w-3 inline" /> p/ digitar
-              </p>
             )}
-          </div>
-        </div>
-
-        {!selectedPallet && (
-          <div className="rounded-2xl border border-border/50 bg-card overflow-hidden animate-slide-up">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border/30">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold">Pallets Ativos</span>
-                <Badge variant="secondary" className="text-[10px] font-bold h-5 px-1.5">{activePallets.length}</Badge>
-              </div>
-              <div className="relative w-32">
-                <Input placeholder="Filtrar..." value={filterText} onChange={e => setFilterText(e.target.value)} className="h-7 text-xs rounded-lg pl-2 pr-6" data-testid="input-filter-pallets" />
-                {filterText && (
-                  <button className="absolute right-1 top-1/2 -translate-y-1/2" onClick={() => setFilterText("")} data-testid="button-clear-filter">
-                    <X className="h-3 w-3 text-muted-foreground" />
-                  </button>
-                )}
-              </div>
-            </div>
-            <div className="divide-y divide-border/30 max-h-[50vh] overflow-y-auto">
-              {filteredPallets.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-8">Nenhum pallet encontrado</p>
-              ) : filteredPallets.map((p: any) => (
-                <button
-                  key={p.id}
-                  className="w-full flex items-center gap-3 px-4 py-3 active:bg-muted/50 transition-colors text-left"
-                  onClick={() => loadPalletDetail(p)}
-                  data-testid={`pallet-row-${p.id}`}
-                >
-                  <div className="w-9 h-9 rounded-xl bg-primary/8 flex items-center justify-center shrink-0">
-                    <Package className="h-4 w-4 text-primary" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-mono font-semibold text-sm truncate">{p.code}</p>
-                    <p className="text-[10px] text-muted-foreground truncate mt-0.5">
-                      {p.address?.code || "Sem endereco"} · {p.items?.length || 0} itens
-                    </p>
-                  </div>
-                  <Badge variant="outline" className={`text-[10px] shrink-0 ${statusStyles[p.status] || ""}`}>
-                    {statusLabels[p.status] || p.status}
-                  </Badge>
-                </button>
-              ))}
-            </div>
           </div>
         )}
 
@@ -317,11 +283,11 @@ export default function TransferenciaPage() {
                 </Badge>
               </div>
 
-              {selectedPallet.address && (
+              {sourceAddress && (
                 <div className="flex items-center gap-2 px-4 py-2.5 bg-muted/20 border-b border-border/30">
                   <MapPin className="h-3.5 w-3.5 text-primary shrink-0" />
-                  <span className="text-xs text-muted-foreground">Atual:</span>
-                  <span className="font-mono font-bold text-xs text-primary">{selectedPallet.address.code}</span>
+                  <span className="text-xs text-muted-foreground">Origem:</span>
+                  <span className="font-mono font-bold text-xs text-primary">{sourceAddress.code}</span>
                 </div>
               )}
 
@@ -446,8 +412,14 @@ export default function TransferenciaPage() {
                 Voltar
               </Button>
               {isSupervisor && selectedPallet.status !== "cancelado" && (
-                <Button variant="destructive" className="h-12 rounded-xl px-4" onClick={() => setShowCancel(!showCancel)} data-testid="button-show-cancel">
-                  <Ban className="h-4 w-4" />
+                <Button
+                  variant="destructive"
+                  className="h-12 rounded-xl px-4"
+                  onClick={() => { setShowCancel(!showCancel); setCancelReason(""); }}
+                  data-testid="button-show-cancel"
+                >
+                  <Ban className="h-4 w-4 mr-1.5" />
+                  <span className="text-xs">Cancelar</span>
                 </Button>
               )}
             </div>
@@ -455,11 +427,21 @@ export default function TransferenciaPage() {
             {showCancel && (
               <div className="space-y-2 p-4 rounded-2xl border border-destructive/20 bg-destructive/5">
                 <p className="text-sm font-semibold text-destructive">Cancelar Pallet</p>
-                <Input placeholder="Motivo (min. 3 caracteres)" value={cancelReason} onChange={e => setCancelReason(e.target.value)}
-                  className="h-11 rounded-xl" data-testid="input-cancel-reason" />
-                <Button variant="destructive" className="w-full h-11 rounded-xl" onClick={() => cancelMutation.mutate()}
-                  disabled={cancelMutation.isPending || cancelReason.trim().length < 3} data-testid="button-confirm-cancel">
-                  {cancelMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                <Input
+                  placeholder="Motivo (min. 3 caracteres)"
+                  value={cancelReason}
+                  onChange={e => setCancelReason(e.target.value)}
+                  className="h-11 rounded-xl"
+                  data-testid="input-cancel-reason"
+                />
+                <Button
+                  variant="destructive"
+                  className="w-full h-11 rounded-xl"
+                  onClick={() => cancelMutation.mutate()}
+                  disabled={cancelMutation.isPending || cancelReason.trim().length < 3}
+                  data-testid="button-confirm-cancel"
+                >
+                  {cancelMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Ban className="h-4 w-4 mr-2" />}
                   Confirmar Cancelamento
                 </Button>
               </div>
@@ -477,7 +459,7 @@ export default function TransferenciaPage() {
                 ? <>Transferir pallet <span className="font-mono font-semibold">{selectedPallet?.code}</span></>
                 : <>Transferir <span className="font-semibold">{totalSelected} un</span> do pallet <span className="font-mono font-semibold">{selectedPallet?.code}</span></>
               }
-              {selectedPallet?.address?.code && <> de <span className="font-mono font-semibold">{selectedPallet.address.code}</span></>}
+              {sourceAddress && <> de <span className="font-mono font-semibold">{sourceAddress.code}</span></>}
               {destinationAddress && <> para <span className="font-mono font-semibold">{destinationAddress.code}</span></>}?
             </DialogDescription>
           </DialogHeader>
