@@ -5,8 +5,9 @@ import { GradientHeader } from "@/components/ui/gradient-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Search, Loader2, Package, Barcode, Hash, Type, X, MapPin, Clock, AlertTriangle, Info, Layers, ShoppingCart } from "lucide-react";
+import { ArrowLeft, Search, Loader2, Package, Barcode, Hash, Type, X, MapPin, Clock, AlertTriangle, TrendingUp, TrendingDown } from "lucide-react";
 import { useLocation } from "wouter";
+import { ProductStockInfo, StockLegend } from "@/components/wms/product-stock-info";
 
 export default function ProdutosPage() {
   const [, navigate] = useLocation();
@@ -146,16 +147,7 @@ export default function ProdutosPage() {
               <p className="text-xs text-muted-foreground">
                 {products.length} resultado{products.length !== 1 ? "s" : ""}
               </p>
-              <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
-                <span className="flex items-center gap-1">
-                  <span className="bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 font-bold px-1 rounded text-[9px] leading-[14px]">PAL</span>
-                  Paletizado
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 font-bold px-1 rounded text-[9px] leading-[14px]">PICK</span>
-                  Gôndola
-                </span>
-              </div>
+              <StockLegend />
             </div>
             <div className="rounded-2xl border border-border/50 bg-card overflow-hidden divide-y divide-border/30">
               {products.map((p: any) => (
@@ -199,6 +191,25 @@ export default function ProdutosPage() {
                           <span className="font-mono font-bold text-orange-600 dark:text-orange-400">{Number(p.pickingStock || 0).toLocaleString("pt-BR")}</span>
                         </span>
                       </div>
+                      {(() => {
+                        const pal = Number(p.palletizedStock || 0);
+                        const pick = Number(p.pickingStock || 0);
+                        const real = Number(p.totalStock || 0);
+                        const diff = (pal + pick) - real;
+                        if (diff !== 0) {
+                          return (
+                            <Badge variant="outline" className={`text-[9px] font-mono font-bold ${
+                              diff > 0
+                                ? "border-red-300 text-red-600 bg-red-50 dark:border-red-700 dark:text-red-400 dark:bg-red-950/30"
+                                : "border-amber-300 text-amber-600 bg-amber-50 dark:border-amber-700 dark:text-amber-400 dark:bg-amber-950/30"
+                            }`} data-testid={`badge-diff-${p.id}`}>
+                              {diff > 0 ? <TrendingUp className="h-2 w-2 mr-0.5" /> : <TrendingDown className="h-2 w-2 mr-0.5" />}
+                              {diff > 0 ? "+" : ""}{diff}
+                            </Badge>
+                          );
+                        }
+                        return null;
+                      })()}
                       {p.hasNoAddress && (
                         <Badge variant="outline" className="text-[9px] border-amber-300 text-amber-600 dark:border-amber-700 dark:text-amber-400">
                           <AlertTriangle className="h-2 w-2 mr-0.5" />Sem end.
@@ -207,10 +218,33 @@ export default function ProdutosPage() {
                     </div>
                   </div>
 
+                  {(() => {
+                    const pal = Number(p.palletizedStock || 0);
+                    const pick = Number(p.pickingStock || 0);
+                    const real = Number(p.totalStock || 0);
+                    const diff = (pal + pick) - real;
+                    if (diff !== 0) {
+                      return (
+                        <div className={`mt-2 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold flex items-center gap-1.5 ${
+                          diff > 0
+                            ? "bg-red-50 dark:bg-red-950/30 border border-red-200/60 dark:border-red-800/40 text-red-700 dark:text-red-400"
+                            : "bg-amber-50 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40 text-amber-700 dark:text-amber-400"
+                        }`}>
+                          <AlertTriangle className="h-3 w-3 shrink-0" />
+                          {diff > 0
+                            ? `Excesso WMS: Real ${real} | PAL ${pal} + PICK ${pick} = ${pal + pick} (+${diff} ${p.unit})`
+                            : `Falta WMS: Real ${real} | PAL ${pal} + PICK ${pick} = ${pal + pick} (${diff} ${p.unit})`
+                          }
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+
                   {p.addresses && p.addresses.length > 0 && (
                     <div className="mt-2 pt-2 border-t border-dashed border-border/30">
                       <p className="text-[9px] font-bold text-muted-foreground uppercase mb-1.5 flex items-center gap-0.5">
-                        <MapPin className="h-2.5 w-2.5" /> Enderecos
+                        <MapPin className="h-2.5 w-2.5" /> Endereços ({p.addresses.length})
                       </p>
                       <div className="flex flex-wrap gap-1">
                         {p.addresses.map((addr: any, i: number) => (

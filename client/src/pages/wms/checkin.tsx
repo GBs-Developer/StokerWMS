@@ -17,6 +17,8 @@ import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, QrCode, MapPin, Loader2, Package, CheckCircle, Trash2, Ban, Search, X, Clock, Minus, Plus, Save, Keyboard, PackagePlus } from "lucide-react";
 import { useLocation } from "wouter";
 import { AddressPicker } from "@/components/wms/address-picker";
+import { ProductStockInfo } from "@/components/wms/product-stock-info";
+import { useProductStockBatch } from "@/hooks/use-product-stock";
 
 export default function CheckinPage() {
   const [, navigate] = useLocation();
@@ -187,6 +189,9 @@ export default function CheckinPage() {
     },
   });
 
+  const itemProductIds = editableItems.map((i: any) => i.productId || i.product?.id).filter(Boolean);
+  const { data: stockInfoMap = {} } = useProductStockBatch(itemProductIds);
+
   const selectedAddressObj = selectedAddress ? allAddresses.find((a: any) => a.id === selectedAddress) : null;
   const occupantPallet = addressOccupants.find((p: any) => p.id !== selectedPallet?.id) || null;
   const addressOccupied = !!occupantPallet;
@@ -313,29 +318,38 @@ export default function CheckinPage() {
               </div>
 
               <div className="divide-y divide-border/30">
-                {editableItems.map((item: any, idx: number) => (
-                  <div key={idx} className="flex items-center gap-2 px-4 py-2.5">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{item.product?.name || "Produto"}</p>
-                      <p className="text-[10px] text-muted-foreground font-mono truncate">
-                        {item.product?.erpCode || ""}
-                        {item.lot && ` | L: ${item.lot}`}
-                      </p>
+                {editableItems.map((item: any, idx: number) => {
+                  const pid = item.productId || item.product?.id;
+                  const si = pid ? stockInfoMap[pid] : null;
+                  return (
+                    <div key={idx} className="px-4 py-2.5 space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{item.product?.name || "Produto"}</p>
+                          <p className="text-[10px] text-muted-foreground font-mono truncate">
+                            {item.product?.erpCode || ""}
+                            {item.lot && ` | L: ${item.lot}`}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-0.5 shrink-0">
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg" onClick={() => updateItemQty(idx, -1)} data-testid={`button-qty-minus-${idx}`}>
+                            <Minus className="h-3.5 w-3.5" />
+                          </Button>
+                          <span className="font-mono font-bold text-sm w-9 text-center">{item.quantity}</span>
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg" onClick={() => updateItemQty(idx, 1)} data-testid={`button-qty-plus-${idx}`}>
+                            <Plus className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg text-destructive hover:bg-destructive/10" onClick={() => removeItemFromPallet(idx)} data-testid={`button-remove-item-${idx}`}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                      {si && (
+                        <ProductStockInfo totalStock={si.totalStock} palletizedStock={si.palletizedStock} pickingStock={si.pickingStock} unit={si.unit} compact />
+                      )}
                     </div>
-                    <div className="flex items-center gap-0.5 shrink-0">
-                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg" onClick={() => updateItemQty(idx, -1)} data-testid={`button-qty-minus-${idx}`}>
-                        <Minus className="h-3.5 w-3.5" />
-                      </Button>
-                      <span className="font-mono font-bold text-sm w-9 text-center">{item.quantity}</span>
-                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg" onClick={() => updateItemQty(idx, 1)} data-testid={`button-qty-plus-${idx}`}>
-                        <Plus className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg text-destructive hover:bg-destructive/10" onClick={() => removeItemFromPallet(idx)} data-testid={`button-remove-item-${idx}`}>
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
                 {editableItems.length === 0 && (
                   <p className="text-sm text-muted-foreground text-center py-6">Nenhum item</p>
                 )}

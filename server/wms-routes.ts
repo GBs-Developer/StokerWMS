@@ -1900,6 +1900,78 @@ export function registerWmsRoutes(app: Express) {
     }
   });
 
+  app.post("/api/products/stock-batch", ...authMiddleware, anyWmsRole, async (req: Request, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const { productIds } = req.body;
+      if (!Array.isArray(productIds) || productIds.length === 0) {
+        return res.json({});
+      }
+
+      const ids = productIds.slice(0, 100);
+
+      const companyStockRows = await db.select().from(productCompanyStock)
+        .where(and(
+          sql`${productCompanyStock.productId} IN (${sql.join(ids.map(id => sql`${id}`), sql`, `)})`,
+          eq(productCompanyStock.companyId, companyId)
+        ));
+
+      const stockMap = new Map<string, number>();
+      for (const cs of companyStockRows) {
+        stockMap.set(cs.productId, Number(cs.stockQty));
+      }
+
+      const productsRows = await db.select({ id: products.id, stockQty: products.stockQty, unit: products.unit })
+        .from(products)
+        .where(sql`${products.id} IN (${sql.join(ids.map(id => sql`${id}`), sql`, `)})`);
+
+      const productMap = new Map<string, { stockQty: number; unit: string }>();
+      for (const p of productsRows) {
+        productMap.set(p.id, { stockQty: Number(p.stockQty ?? 0), unit: p.unit || "UN" });
+      }
+
+      const addressStock = await db.select({
+          productId: palletItems.productId,
+          quantity: sql<number>`SUM(${palletItems.quantity})`,
+        })
+        .from(palletItems)
+        .innerJoin(pallets, eq(palletItems.palletId, pallets.id))
+        .where(and(
+          sql`${palletItems.productId} IN (${sql.join(ids.map(id => sql`${id}`), sql`, `)})`,
+          eq(palletItems.companyId, companyId),
+          sql`${pallets.status} != 'cancelado'`,
+          sql`${pallets.addressId} IS NOT NULL`
+        ))
+        .groupBy(palletItems.productId);
+
+      const palletizedMap = new Map<string, number>();
+      for (const row of addressStock) {
+        palletizedMap.set(row.productId, Number(row.quantity));
+      }
+
+      const result: Record<string, { totalStock: number; palletizedStock: number; pickingStock: number; difference: number; unit: string }> = {};
+      for (const pid of ids) {
+        const pInfo = productMap.get(pid);
+        const totalStock = stockMap.get(pid) ?? pInfo?.stockQty ?? 0;
+        const palletizedStock = palletizedMap.get(pid) || 0;
+        const pickingStock = Math.max(0, totalStock - palletizedStock);
+        const wmsTotal = palletizedStock + pickingStock;
+        result[pid] = {
+          totalStock,
+          palletizedStock,
+          pickingStock,
+          difference: wmsTotal - totalStock,
+          unit: pInfo?.unit || "UN",
+        };
+      }
+
+      res.json(result);
+    } catch (error) {
+      console.error("Batch stock info error:", error);
+      res.status(500).json({ error: "Erro ao buscar info de estoque" });
+    }
+  });
+
   app.get("/api/reports/counting-cycles", ...authMiddleware, supervisorRoles, async (req: Request, res: Response) => {
     try {
       const companyId = getCompanyId(req);
@@ -2183,6 +2255,101 @@ export function registerWmsRoutes(app: Express) {
     } catch (error) {
       console.error("Pallet movements report error:", error);
       res.status(500).json({ error: "Erro ao gerar relatório de movimentações" });
+    }
+  });
+
+  app.get("/api/reports/stock-discrepancy", ...authMiddleware, supervisorRoles, async (req: Request, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const filterType = req.query.filter as string || "all";
+
+      const allProducts = await db.select().from(products);
+      const productIds = allProducts.map(p => p.id);
+
+      const companyStock = productIds.length > 0
+        ? await db.select().from(productCompanyStock)
+            .where(and(
+              sql`${productCompanyStock.productId} IN (${sql.join(productIds.map(id => sql`${id}`), sql`, `)})`,
+              eq(productCompanyStock.companyId, companyId)
+            ))
+        : [];
+
+      const stockMap = new Map<string, number>();
+      for (const cs of companyStock) {
+        stockMap.set(cs.productId, Number(cs.stockQty));
+      }
+
+      const addressStockAll = productIds.length > 0
+        ? await db.select({
+            productId: palletItems.productId,
+            addressId: wmsAddresses.id,
+            addressCode: wmsAddresses.code,
+            quantity: sql<number>`SUM(${palletItems.quantity})`,
+            palletCode: sql<string>`STRING_AGG(DISTINCT ${pallets.code}, ', ')`,
+          })
+          .from(palletItems)
+          .innerJoin(pallets, eq(palletItems.palletId, pallets.id))
+          .innerJoin(wmsAddresses, eq(pallets.addressId, wmsAddresses.id))
+          .where(and(
+            sql`${palletItems.productId} IN (${sql.join(productIds.map(id => sql`${id}`), sql`, `)})`,
+            eq(palletItems.companyId, companyId),
+            sql`${pallets.status} != 'cancelado'`
+          ))
+          .groupBy(palletItems.productId, wmsAddresses.id, wmsAddresses.code)
+        : [];
+
+      const addressStockByProduct = new Map<string, Array<{ addressCode: string; quantity: number; palletCode: string }>>();
+      const palletizedByProduct = new Map<string, number>();
+      for (const row of addressStockAll) {
+        const list = addressStockByProduct.get(row.productId) || [];
+        list.push({ addressCode: row.addressCode, quantity: Number(row.quantity), palletCode: row.palletCode });
+        addressStockByProduct.set(row.productId, list);
+        palletizedByProduct.set(row.productId, (palletizedByProduct.get(row.productId) || 0) + Number(row.quantity));
+      }
+
+      const results = allProducts.map(p => {
+        const totalStock = stockMap.get(p.id) ?? Number(p.stockQty ?? 0);
+        const palletizedStock = palletizedByProduct.get(p.id) || 0;
+        const pickingStock = Math.max(0, totalStock - palletizedStock);
+        const wmsTotal = palletizedStock + pickingStock;
+        const difference = wmsTotal - totalStock;
+        const addresses = addressStockByProduct.get(p.id) || [];
+
+        return {
+          id: p.id,
+          name: p.name,
+          erpCode: p.erpCode,
+          barcode: p.barcode,
+          section: p.section,
+          manufacturer: p.manufacturer,
+          unit: p.unit,
+          totalStock,
+          palletizedStock,
+          pickingStock,
+          wmsTotal,
+          difference,
+          addressCount: addresses.length,
+          addresses,
+        };
+      }).filter(p => {
+        if (filterType === "positive") return p.difference > 0;
+        if (filterType === "negative") return p.difference < 0;
+        if (filterType === "all_discrepancy") return p.difference !== 0;
+        return p.difference !== 0;
+      }).sort((a, b) => Math.abs(b.difference) - Math.abs(a.difference));
+
+      const summary = {
+        totalProducts: results.length,
+        positiveCount: results.filter(p => p.difference > 0).length,
+        negativeCount: results.filter(p => p.difference < 0).length,
+        totalPositiveUnits: results.filter(p => p.difference > 0).reduce((s, p) => s + p.difference, 0),
+        totalNegativeUnits: results.filter(p => p.difference < 0).reduce((s, p) => s + p.difference, 0),
+      };
+
+      res.json({ products: results, summary });
+    } catch (error) {
+      console.error("Stock discrepancy report error:", error);
+      res.status(500).json({ error: "Erro ao gerar relatório de divergências" });
     }
   });
 }

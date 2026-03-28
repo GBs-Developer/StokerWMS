@@ -24,6 +24,7 @@ import OrderVolumesReportPage from "@/pages/supervisor/reports/order-volumes";
 import CountingCyclesReportPage from "@/pages/supervisor/reports/counting-cycles";
 import WmsAddressesReportPage from "@/pages/supervisor/reports/wms-addresses";
 import PalletMovementsReportPage from "@/pages/supervisor/reports/pallet-movements";
+import StockDiscrepancyReportPage from "@/pages/supervisor/reports/stock-discrepancy";
 import MappingStudioPage from "@/pages/supervisor/mapping-studio";
 import SeparacaoPage from "@/pages/separacao/index";
 import ConferenciaPage from "@/pages/conferencia/index";
@@ -202,6 +203,12 @@ function Router() {
       <Route path="/supervisor/reports/pallet-movements">
         <ProtectedRoute allowedRoles={["supervisor", "administrador"]}>
           <PalletMovementsReportPage />
+        </ProtectedRoute>
+      </Route>
+
+      <Route path="/supervisor/reports/stock-discrepancy">
+        <ProtectedRoute allowedRoles={["supervisor", "administrador"]}>
+          <StockDiscrepancyReportPage />
         </ProtectedRoute>
       </Route>
 

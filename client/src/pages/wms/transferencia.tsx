@@ -17,6 +17,8 @@ import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, ArrowRightLeft, MapPin, Loader2, Ban, Package, X, ArrowRight, Minus, Plus } from "lucide-react";
 import { useLocation } from "wouter";
 import { AddressPicker } from "@/components/wms/address-picker";
+import { ProductStockInfo } from "@/components/wms/product-stock-info";
+import { useProductStockBatch } from "@/hooks/use-product-stock";
 
 export default function TransferenciaPage() {
   const [, navigate] = useLocation();
@@ -96,6 +98,9 @@ export default function TransferenciaPage() {
       setDetailLoading(false);
     }
   };
+
+  const detailProductIds = (palletDetail?.items || []).map((i: any) => i.productId || i.product?.id).filter(Boolean);
+  const { data: stockInfoMap = {} } = useProductStockBatch(detailProductIds);
 
   const updateSelectedQty = (productId: string, delta: number, maxQty: number) => {
     setSelectedItems(prev => {
@@ -316,33 +321,40 @@ export default function TransferenciaPage() {
                     {palletDetail.items.map((item: any, idx: number) => {
                       const maxQty = Number(item.quantity);
                       const selectedQty = selectedItems.get(item.productId) || 0;
+                      const pid = item.productId || item.product?.id;
+                      const si = pid ? stockInfoMap[pid] : null;
                       return (
-                        <div key={idx} className="flex items-center gap-2 px-4 py-2.5">
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">{item.product?.name || "Produto"}</p>
-                            <p className="text-[10px] text-muted-foreground font-mono truncate">
-                              {item.product?.erpCode || ""} · {maxQty} {item.product?.unit || "UN"}
-                              {item.lot && ` · L:${item.lot}`}
-                            </p>
-                          </div>
-                          {transferMode === "partial" ? (
-                            <div className="flex items-center gap-0.5 shrink-0">
-                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg" onClick={() => updateSelectedQty(item.productId, -1, maxQty)} data-testid={`button-qty-minus-${idx}`}>
-                                <Minus className="h-3.5 w-3.5" />
-                              </Button>
-                              <Input
-                                value={selectedQty}
-                                onChange={e => setSelectedQty(item.productId, parseInt(e.target.value.replace(/\D/g, "")) || 0, maxQty)}
-                                className="h-8 w-12 text-center font-mono font-bold text-sm p-0 rounded-lg"
-                                data-testid={`input-qty-${idx}`}
-                              />
-                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg" onClick={() => updateSelectedQty(item.productId, 1, maxQty)} data-testid={`button-qty-plus-${idx}`}>
-                                <Plus className="h-3.5 w-3.5" />
-                              </Button>
-                              <span className="text-[10px] text-muted-foreground w-7 text-right">/{maxQty}</span>
+                        <div key={idx} className="px-4 py-2.5 space-y-1.5">
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium truncate">{item.product?.name || "Produto"}</p>
+                              <p className="text-[10px] text-muted-foreground font-mono truncate">
+                                {item.product?.erpCode || ""} · {maxQty} {item.product?.unit || "UN"}
+                                {item.lot && ` · L:${item.lot}`}
+                              </p>
                             </div>
-                          ) : (
-                            <span className="font-mono font-bold text-sm shrink-0">{maxQty}</span>
+                            {transferMode === "partial" ? (
+                              <div className="flex items-center gap-0.5 shrink-0">
+                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg" onClick={() => updateSelectedQty(item.productId, -1, maxQty)} data-testid={`button-qty-minus-${idx}`}>
+                                  <Minus className="h-3.5 w-3.5" />
+                                </Button>
+                                <Input
+                                  value={selectedQty}
+                                  onChange={e => setSelectedQty(item.productId, parseInt(e.target.value.replace(/\D/g, "")) || 0, maxQty)}
+                                  className="h-8 w-12 text-center font-mono font-bold text-sm p-0 rounded-lg"
+                                  data-testid={`input-qty-${idx}`}
+                                />
+                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg" onClick={() => updateSelectedQty(item.productId, 1, maxQty)} data-testid={`button-qty-plus-${idx}`}>
+                                  <Plus className="h-3.5 w-3.5" />
+                                </Button>
+                                <span className="text-[10px] text-muted-foreground w-7 text-right">/{maxQty}</span>
+                              </div>
+                            ) : (
+                              <span className="font-mono font-bold text-sm shrink-0">{maxQty}</span>
+                            )}
+                          </div>
+                          {si && (
+                            <ProductStockInfo totalStock={si.totalStock} palletizedStock={si.palletizedStock} pickingStock={si.pickingStock} unit={si.unit} compact />
                           )}
                         </div>
                       );
@@ -359,15 +371,24 @@ export default function TransferenciaPage() {
 
               {palletDetail?.items && palletDetail.items.length > 0 && selectedPallet.status !== "alocado" && (
                 <div className="divide-y divide-border/30">
-                  {palletDetail.items.map((item: any, idx: number) => (
-                    <div key={idx} className="flex items-center justify-between px-4 py-2.5">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{item.product?.name || "Produto"}</p>
-                        <p className="text-[10px] text-muted-foreground font-mono">{item.product?.erpCode || ""}</p>
+                  {palletDetail.items.map((item: any, idx: number) => {
+                    const pid = item.productId || item.product?.id;
+                    const si = pid ? stockInfoMap[pid] : null;
+                    return (
+                      <div key={idx} className="px-4 py-2.5 space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{item.product?.name || "Produto"}</p>
+                            <p className="text-[10px] text-muted-foreground font-mono">{item.product?.erpCode || ""}</p>
+                          </div>
+                          <span className="font-mono font-bold text-sm shrink-0">{item.quantity} {item.product?.unit || "UN"}</span>
+                        </div>
+                        {si && (
+                          <ProductStockInfo totalStock={si.totalStock} palletizedStock={si.palletizedStock} pickingStock={si.pickingStock} unit={si.unit} compact />
+                        )}
                       </div>
-                      <span className="font-mono font-bold text-sm shrink-0">{item.quantity} {item.product?.unit || "UN"}</span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

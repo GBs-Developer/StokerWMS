@@ -1,6 +1,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileText, Package, ArrowLeft, PackageOpen, ClipboardList, MapPin, ArrowRightLeft } from "lucide-react";
+import { FileText, Package, ArrowLeft, PackageOpen, ClipboardList, MapPin, ArrowRightLeft, AlertTriangle } from "lucide-react";
 import { useLocation, Link } from "wouter";
 import { GradientHeader } from "@/components/ui/gradient-header";
 import { SectionCard } from "@/components/ui/section-card";
@@ -226,6 +226,31 @@ export default function Reports() {
                                 <Button className="w-full bg-indigo-600 hover:bg-indigo-700" data-testid="button-pallet-movements-report">
                                     <ArrowRightLeft className="mr-2 h-4 w-4" />
                                     Ver Movimentações
+                                </Button>
+                            </CardContent>
+                        </SectionCard>
+                    </div>
+                    )}
+
+                    {canSeeReport("stock-discrepancy") && (
+                    <div
+                        className="cursor-pointer"
+                        onClick={() => setLocation("/supervisor/reports/stock-discrepancy")}
+                    >
+                        <SectionCard className="hover:shadow-lg transition-shadow border-red-200">
+                            <CardHeader>
+                                <div className="flex items-center gap-2">
+                                    <AlertTriangle className="h-5 w-5 text-red-600" />
+                                    <CardTitle>Divergências de Estoque</CardTitle>
+                                </div>
+                                <CardDescription>
+                                    Produtos com diferença entre estoque real (ERP) e estoque paletizado + picking no WMS.
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <Button className="w-full bg-red-600 hover:bg-red-700" data-testid="button-stock-discrepancy-report">
+                                    <AlertTriangle className="mr-2 h-4 w-4" />
+                                    Ver Divergências
                                 </Button>
                             </CardContent>
                         </SectionCard>
