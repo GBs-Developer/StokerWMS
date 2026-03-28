@@ -772,14 +772,14 @@ export default function ConferenciaPage() {
             usePendingDeltaStore.getState().clearItem("conferencia", matchedItem.id);
             usePendingDeltaStore.getState().resetBaseline("conferencia", matchedItem.id);
 
-            const targetQty = Number(matchedItem.separatedQty) - Number(matchedItem.exceptionQty ?? 0);
+            const targetQty = Number(matchedItem.quantity) - Number(matchedItem.exceptionQty ?? 0);
 
             setOverQtyContext({
               productName: matchedItem.product.name,
               itemIds: [matchedItem.id],
               workUnitId: finalUnit.id,
               barcode: barcode,
-              targetQty: Number(targetQty),
+              targetQty,
               message: result.message || `Conferência de "${matchedItem.product.name}" excedeu a quantidade separada.`,
               serverAlreadyReset: true,
             });
@@ -830,10 +830,9 @@ export default function ConferenciaPage() {
 
   const handleIncrementProduct = async (ap: AggregatedProduct, qty: number = 1) => {
     if (overQtyModalOpenRef.current) return;
-    const remaining = ap.totalSeparatedQty - ap.checkedQty - ap.exceptionQty;
+    const remaining = ap.totalSeparatedQty - ap.checkedQty;
     if (remaining <= 0) return;
 
-    // Verificar permissão para quantidade manual
     if (!hasManualQtyPermission) {
       toast({
         title: "Permissão Negada",
@@ -847,52 +846,71 @@ export default function ConferenciaPage() {
     if (!barcode) return;
 
     try {
-      const incompleteItem = ap.items.find(it => {
-        const iExc = Number(it.exceptionQty || 0);
-        const iTarget = Number(it.quantity) - iExc;
-        return Number(it.checkedQty) + iExc < iTarget;
-      });
-      if (!incompleteItem) return;
-
-      const wu = allMyUnits.find(w => w.items.some(it => it.id === incompleteItem.id));
-      if (!wu) return;
+      let qtyLeft = qty;
+      let anySuccess = false;
+      let overQtyResult: any = null;
+      let overQtyWu: any = null;
 
       const currentToken = activeSessionTokenRef.current;
-      const result = await scanItemMutation.mutateAsync({
-        workUnitId: wu.id,
-        barcode,
-        quantity: qty
-      });
 
-      if (activeSessionTokenRef.current !== currentToken) {
-        console.warn("Stale response descartada na contagem manual.");
-        return;
+      for (const item of ap.items) {
+        if (qtyLeft <= 0) break;
+        const iExc = Number(item.exceptionQty || 0);
+        const iTarget = Number(item.quantity) - iExc;
+        const itemRemaining = iTarget - Number(item.checkedQty);
+        if (itemRemaining <= 0) continue;
+
+        const wu = allMyUnits.find(w => w.items.some(it => it.id === item.id));
+        if (!wu) continue;
+
+        const chunk = Math.min(qtyLeft, itemRemaining);
+        const result = await scanItemMutation.mutateAsync({
+          workUnitId: wu.id,
+          barcode,
+          quantity: chunk
+        });
+
+        if (activeSessionTokenRef.current !== currentToken) {
+          console.warn("Stale response descartada na contagem manual.");
+          return;
+        }
+
+        if (result.status === "success") {
+          anySuccess = true;
+          qtyLeft -= chunk;
+        } else if (result.status === "over_quantity" || result.status === "over_quantity_with_exception") {
+          overQtyResult = result;
+          overQtyWu = wu;
+          break;
+        } else {
+          break;
+        }
       }
 
-      if (result.status === "success") {
-        setScanStatus("idle");
-        setScanMessage("");
-        setMultiplierValue(1);
-      } else if (result.status === "over_quantity" || result.status === "over_quantity_with_exception") {
+      if (overQtyResult) {
         ap.items.forEach(item => {
           usePendingDeltaStore.getState().clearItem("conferencia", item.id);
           usePendingDeltaStore.getState().resetBaseline("conferencia", item.id);
         });
         setMultiplierValue(1);
         queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
-        
-        const targetQty = ap.totalSeparatedQty - ap.exceptionQty;
+
+        const targetQty = ap.totalSeparatedQty;
         setOverQtyContext({
           productName: ap.product.name,
           itemIds: ap.items.map(i => i.id),
-          workUnitId: wu.id,
+          workUnitId: overQtyWu.id,
           barcode: ap.product.barcode || "",
           targetQty,
-          message: result.message || `Conferência de "${ap.product.name}" excedeu a quantidade solicitada (${targetQty}).`,
+          message: overQtyResult.message || `Conferência de "${ap.product.name}" excedeu a quantidade solicitada (${targetQty}).`,
           serverAlreadyReset: true,
         });
         setOverQtyModalOpen(true);
         overQtyModalOpenRef.current = true;
+      } else if (anySuccess) {
+        setScanStatus("idle");
+        setScanMessage("");
+        setMultiplierValue(1);
       } else {
         setScanStatus("error");
         setScanMessage("Erro ao incrementar");
@@ -959,7 +977,7 @@ export default function ConferenciaPage() {
     if (total === 0) return;
     const nextIncompleteIdx = aggregatedProducts.findIndex((ap, idx) => {
       if (idx <= currentProductIndex) return false;
-      return ap.totalSeparatedQty - ap.checkedQty - ap.exceptionQty > 0;
+      return ap.totalSeparatedQty - ap.checkedQty > 0;
     });
 
     if (nextIncompleteIdx >= 0) {
@@ -969,7 +987,7 @@ export default function ConferenciaPage() {
 
     const wrapIncompleteIdx = aggregatedProducts.findIndex((ap, idx) => {
       if (idx === currentProductIndex) return false;
-      return ap.totalSeparatedQty - ap.checkedQty - ap.exceptionQty > 0;
+      return ap.totalSeparatedQty - ap.checkedQty > 0;
     });
 
     if (wrapIncompleteIdx >= 0) {
@@ -985,12 +1003,12 @@ export default function ConferenciaPage() {
   const getProgress = () => {
     if (aggregatedProducts.length === 0) return 0;
     const total = aggregatedProducts.reduce((s, ap) => s + ap.totalSeparatedQty, 0);
-    const done = aggregatedProducts.reduce((s, ap) => s + ap.checkedQty + ap.exceptionQty, 0);
+    const done = aggregatedProducts.reduce((s, ap) => s + Math.min(ap.checkedQty, ap.totalSeparatedQty), 0);
     return total > 0 ? (done / total) * 100 : 0;
   };
 
   const allItemsComplete = aggregatedProducts.length > 0 && aggregatedProducts.every(ap =>
-    ap.checkedQty + ap.exceptionQty >= ap.totalSeparatedQty
+    ap.checkedQty >= ap.totalSeparatedQty
   );
 
   const handleApplyDateFilter = () => {
@@ -1237,7 +1255,7 @@ export default function ConferenciaPage() {
                               <Input
                                 type="number"
                                 min={1}
-                                max={currentProduct.totalSeparatedQty - currentProduct.checkedQty - currentProduct.exceptionQty}
+                                max={currentProduct.totalSeparatedQty - currentProduct.checkedQty}
                                 value={multiplierValue}
                                 onChange={(e) => setMultiplierValue(Math.max(1, parseInt(e.target.value) || 1))}
                                 onFocus={(e) => e.target.select()}
@@ -1250,7 +1268,7 @@ export default function ConferenciaPage() {
                               onClick={() => handleIncrementProduct(currentProduct, multiplierValue)}
                               disabled={
                                 scanItemMutation.isPending ||
-                                (currentProduct.checkedQty + currentProduct.exceptionQty >= currentProduct.totalSeparatedQty) ||
+                                (currentProduct.checkedQty >= currentProduct.totalSeparatedQty) ||
                                 !currentProduct.product.barcode
                               }
                             >
@@ -1319,7 +1337,7 @@ export default function ConferenciaPage() {
                   ) : (
                     <div className="space-y-1">
                       {aggregatedProducts.map((ap, idx) => {
-                        const remaining = ap.totalSeparatedQty - ap.checkedQty - ap.exceptionQty;
+                        const remaining = ap.totalSeparatedQty - ap.checkedQty;
                         const isComplete = remaining <= 0;
                         const hasException = ap.exceptionQty > 0;
 

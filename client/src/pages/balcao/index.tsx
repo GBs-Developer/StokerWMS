@@ -403,8 +403,9 @@ export default function BalcaoPage() {
   });
 
   const scanItemMutation = useMutation({
-    mutationFn: async ({ workUnitId, barcode }: { workUnitId: string; barcode: string }) => {
-      const res = await apiRequest("POST", `/api/work-units/${workUnitId}/scan-item`, { barcode });
+    mutationFn: async ({ workUnitId, barcode, quantity }: { workUnitId: string; barcode: string; quantity?: number }) => {
+      const body = quantity ? { barcode, quantity } : { barcode };
+      const res = await apiRequest("POST", `/api/work-units/${workUnitId}/scan-item`, body);
       return res.json();
     },
     onSuccess: () => {
@@ -752,38 +753,69 @@ export default function BalcaoPage() {
     const remaining = ap.totalQty - ap.separatedQty - ap.exceptionQty;
     if (remaining <= 0) return;
 
-    const effectiveQty = Math.min(qty, remaining);
+    if (!canUseManualQty) {
+      toast({
+        title: "Permissão Negada",
+        description: "Você não tem permissão para alterar quantidade manual",
+        variant: "destructive"
+      });
+      return;
+    }
+
     const barcode = ap.product.barcode;
     if (!barcode) return;
 
     try {
-      let successCount = 0;
-      for (let i = 0; i < effectiveQty; i++) {
-        const incompleteItem = ap.items.find(it =>
-          Number(it.separatedQty) + Number(it.exceptionQty || 0) + successCount < Number(it.quantity)
-        );
-        if (!incompleteItem) break;
-        const wu = allMyUnits.find(w => w.items.some(it => it.id === incompleteItem.id));
-        if (!wu) break;
+      let qtyLeft = qty;
+      let anySuccess = false;
+      let overQtyResult: any = null;
 
-        try {
-          const result = await scanItemMutation.mutateAsync({ workUnitId: wu.id, barcode });
-          if (result.status === "success") {
-            successCount++;
-          } else {
-            break;
-          }
-        } catch {
+      for (const item of ap.items) {
+        if (qtyLeft <= 0) break;
+        const itemRemaining = Number(item.quantity) - Number(item.separatedQty) - Number(item.exceptionQty || 0);
+        if (itemRemaining <= 0) continue;
+
+        const wu = allMyUnits.find(w => w.items.some(it => it.id === item.id));
+        if (!wu) continue;
+
+        const chunk = Math.min(qtyLeft, itemRemaining);
+        const result = await scanItemMutation.mutateAsync({
+          workUnitId: wu.id,
+          barcode,
+          quantity: chunk
+        });
+
+        if (result.status === "success") {
+          anySuccess = true;
+          qtyLeft -= chunk;
+        } else if (result.status === "over_quantity" || result.status === "over_quantity_with_exception") {
+          overQtyResult = result;
+          break;
+        } else {
           break;
         }
       }
-      if (successCount > 0) {
+
+      if (overQtyResult) {
+        ap.items.forEach(item => {
+          usePendingDeltaStore.getState().clearItem("balcao", item.id);
+          usePendingDeltaStore.getState().resetBaseline("balcao", item.id);
+        });
+        setMultiplierValue(1);
+        queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+        setResultDialogConfig({
+          type: "warning",
+          title: "Quantidade Excedida",
+          message: overQtyResult.message || "Quantidade excedida. Separação resetada."
+        });
+        setShowResultDialog(true);
+      } else if (anySuccess) {
         setScanStatus("idle");
         setScanMessage("");
         setMultiplierValue(1);
       } else {
         setScanStatus("error");
-        setScanMessage("Quantidade excedida!");
+        setScanMessage("Erro ao incrementar");
       }
     } catch {
       setScanStatus("error");

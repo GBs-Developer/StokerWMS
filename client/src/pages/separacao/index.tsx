@@ -870,25 +870,37 @@ export default function SeparacaoPage() {
     if (!barcode) return;
 
     try {
-      const incompleteItem = ap.items.find(it =>
-        Number(it.separatedQty) + Number(it.exceptionQty || 0) < Number(it.quantity)
-      );
-      if (!incompleteItem) return;
+      let qtyLeft = qty;
+      let anySuccess = false;
+      let overQtyResult: any = null;
 
-      const wu = allMyUnits.find(w => w.items.some(it => it.id === incompleteItem.id));
-      if (!wu) return;
+      for (const item of ap.items) {
+        if (qtyLeft <= 0) break;
+        const itemRemaining = Number(item.quantity) - Number(item.separatedQty) - Number(item.exceptionQty || 0);
+        if (itemRemaining <= 0) continue;
 
-      const result = await scanItemMutation.mutateAsync({
-        workUnitId: wu.id,
-        barcode,
-        quantity: qty
-      });
+        const wu = allMyUnits.find(w => w.items.some(it => it.id === item.id));
+        if (!wu) continue;
 
-      if (result.status === "success") {
-        setScanStatus("idle");
-        setScanMessage("");
-        setMultiplierValue(1);
-      } else if (result.status === "over_quantity" || result.status === "over_quantity_with_exception") {
+        const chunk = Math.min(qtyLeft, itemRemaining);
+        const result = await scanItemMutation.mutateAsync({
+          workUnitId: wu.id,
+          barcode,
+          quantity: chunk
+        });
+
+        if (result.status === "success") {
+          anySuccess = true;
+          qtyLeft -= chunk;
+        } else if (result.status === "over_quantity" || result.status === "over_quantity_with_exception") {
+          overQtyResult = { result, wu };
+          break;
+        } else {
+          break;
+        }
+      }
+
+      if (overQtyResult) {
         ap.items.forEach(item => {
           usePendingDeltaStore.getState().clearItem("separacao", item.id);
           usePendingDeltaStore.getState().resetBaseline("separacao", item.id);
@@ -899,14 +911,18 @@ export default function SeparacaoPage() {
         setOverQtyContext({
           productName: ap.product.name,
           itemIds: ap.items.map(i => i.id),
-          workUnitId: wu.id,
+          workUnitId: overQtyResult.wu.id,
           barcode: ap.product.barcode || "",
           targetQty,
-          message: result.message || `Coleta de "${ap.product.name}" excedeu a quantidade solicitada (${targetQty}).`,
+          message: overQtyResult.result.message || `Coleta de "${ap.product.name}" excedeu a quantidade solicitada (${targetQty}).`,
           serverAlreadyReset: true,
         });
         setOverQtyModalOpen(true);
         overQtyModalOpenRef.current = true;
+      } else if (anySuccess) {
+        setScanStatus("idle");
+        setScanMessage("");
+        setMultiplierValue(1);
       } else {
         setScanStatus("error");
         setScanMessage("Erro ao incrementar");
