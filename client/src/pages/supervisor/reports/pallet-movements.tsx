@@ -34,18 +34,20 @@ export default function PalletMovementsReportPage() {
   const summary = data?.summary || {};
 
   const movTypeLabels: Record<string, string> = {
-    recebimento: "Recebimento",
-    alocacao: "Alocação",
-    transferencia: "Transferência",
-    cancelamento: "Cancelamento",
-    contagem: "Contagem",
+    created: "Criado",
+    allocated: "Alocação",
+    transferred: "Transferência",
+    split: "Divisão",
+    cancelled: "Cancelamento",
+    counted: "Contagem",
   };
   const movTypeColors: Record<string, string> = {
-    recebimento: "bg-green-100 text-green-800",
-    alocacao: "bg-blue-100 text-blue-800",
-    transferencia: "bg-purple-100 text-purple-800",
-    cancelamento: "bg-red-100 text-red-800",
-    contagem: "bg-yellow-100 text-yellow-800",
+    created: "bg-green-100 text-green-800",
+    allocated: "bg-blue-100 text-blue-800",
+    transferred: "bg-purple-100 text-purple-800",
+    split: "bg-orange-100 text-orange-800",
+    cancelled: "bg-red-100 text-red-800",
+    counted: "bg-yellow-100 text-yellow-800",
   };
 
   const esc = (str: string) => {
@@ -119,11 +121,12 @@ export default function PalletMovementsReportPage() {
               <SelectTrigger className="w-40" data-testid="select-type-filter"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos</SelectItem>
-                <SelectItem value="recebimento">Recebimento</SelectItem>
-                <SelectItem value="alocacao">Alocação</SelectItem>
-                <SelectItem value="transferencia">Transferência</SelectItem>
-                <SelectItem value="cancelamento">Cancelamento</SelectItem>
-                <SelectItem value="contagem">Contagem</SelectItem>
+                <SelectItem value="created">Criado</SelectItem>
+                <SelectItem value="allocated">Alocação</SelectItem>
+                <SelectItem value="transferred">Transferência</SelectItem>
+                <SelectItem value="split">Divisão</SelectItem>
+                <SelectItem value="cancelled">Cancelamento</SelectItem>
+                <SelectItem value="counted">Contagem</SelectItem>
               </SelectContent>
             </Select>
           </div>

@@ -2080,11 +2080,12 @@ export function registerWmsRoutes(app: Express) {
       }));
 
       const movementTypeLabels: Record<string, string> = {
-        recebimento: "Recebimento",
-        alocacao: "Alocação",
-        transferencia: "Transferência",
-        cancelamento: "Cancelamento",
-        contagem: "Contagem",
+        created: "Criado",
+        allocated: "Alocação",
+        transferred: "Transferência",
+        split: "Divisão",
+        cancelled: "Cancelamento",
+        counted: "Contagem",
       };
 
       const byType = movements.reduce((acc, m) => {
