@@ -15,25 +15,28 @@ export function ProductStockInfo({ totalStock, palletizedStock, pickingStock, un
 
   if (compact) {
     return (
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px]">
-        <span className="flex items-center gap-1">
-          <span className="text-muted-foreground">Real:</span>
-          <span className="font-mono font-bold">{totalStock.toLocaleString("pt-BR")}</span>
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 font-bold px-1 rounded text-[9px] leading-[14px]">PAL</span>
-          <span className="font-mono font-bold text-violet-600 dark:text-violet-400">{palletizedStock.toLocaleString("pt-BR")}</span>
-        </span>
-        <span className="flex items-center gap-1">
-          <span className="bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 font-bold px-1 rounded text-[9px] leading-[14px]">PICK</span>
-          <span className="font-mono font-bold text-orange-600 dark:text-orange-400">{pickingStock.toLocaleString("pt-BR")}</span>
-        </span>
-        {hasDifference && (
-          <span className={`flex items-center gap-0.5 font-mono font-bold ${difference > 0 ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`}>
-            {difference > 0 ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
-            {difference > 0 ? "+" : ""}{difference.toLocaleString("pt-BR")}
+      <div className="space-y-1">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px]">
+          <span className="flex items-center gap-1">
+            <span className="text-muted-foreground">Real:</span>
+            <span className="font-mono font-bold">{totalStock.toLocaleString("pt-BR")}</span>
           </span>
-        )}
+          <span className="flex items-center gap-1">
+            <span className="bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 font-bold px-1 rounded text-[9px] leading-[14px]">PALETT</span>
+            <span className="font-mono font-bold text-violet-600 dark:text-violet-400">{palletizedStock.toLocaleString("pt-BR")}</span>
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 font-bold px-1 rounded text-[9px] leading-[14px]">PICK</span>
+            <span className="font-mono font-bold text-orange-600 dark:text-orange-400">{pickingStock.toLocaleString("pt-BR")}</span>
+          </span>
+          {hasDifference && (
+            <span className={`flex items-center gap-0.5 font-mono font-bold ${difference > 0 ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}`}>
+              {difference > 0 ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
+              {difference > 0 ? "+" : ""}{difference.toLocaleString("pt-BR")}
+            </span>
+          )}
+        </div>
+        <StockLegend />
       </div>
     );
   }
@@ -46,7 +49,7 @@ export function ProductStockInfo({ totalStock, palletizedStock, pickingStock, un
       </div>
       <div className="flex items-center gap-3 text-[10px]">
         <span className="flex items-center gap-1">
-          <span className="bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 font-bold px-1 rounded text-[9px] leading-[14px]">PAL</span>
+          <span className="bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 font-bold px-1 rounded text-[9px] leading-[14px]">PALETT</span>
           <span className="font-mono font-bold text-violet-600 dark:text-violet-400">{palletizedStock.toLocaleString("pt-BR")}</span>
         </span>
         <span className="flex items-center gap-1">
@@ -54,6 +57,7 @@ export function ProductStockInfo({ totalStock, palletizedStock, pickingStock, un
           <span className="font-mono font-bold text-orange-600 dark:text-orange-400">{pickingStock.toLocaleString("pt-BR")}</span>
         </span>
       </div>
+      <StockLegend />
       {hasDifference && (
         <div className={`flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-semibold ${
           difference > 0
@@ -75,14 +79,14 @@ export function ProductStockInfo({ totalStock, palletizedStock, pickingStock, un
 
 export function StockLegend() {
   return (
-    <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+    <div className="flex items-center gap-3 text-[9px] text-muted-foreground">
       <span className="flex items-center gap-1">
-        <span className="bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 font-bold px-1 rounded text-[9px] leading-[14px]">PAL</span>
-        Paletizado
+        <span className="bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 font-bold px-1 rounded text-[9px] leading-[14px]">PALETT</span>
+        Unidades em pallets
       </span>
       <span className="flex items-center gap-1">
         <span className="bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 font-bold px-1 rounded text-[9px] leading-[14px]">PICK</span>
-        Gôndola
+        Unidades em gôndola/picking
       </span>
     </div>
   );

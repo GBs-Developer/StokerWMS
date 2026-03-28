@@ -88,6 +88,9 @@ export default function StockDiscrepancyReportPage() {
             <div class="summary-value negative">${summary.negativeCount || 0} (${summary.totalNegativeUnits || 0} un)</div>
           </div>
         </div>
+        <div style="font-size:9px;color:#888;margin-bottom:8px;">
+          <strong>PALETT</strong> = Unidades em pallets &nbsp;|&nbsp; <strong>PICK</strong> = Unidades em gôndola/picking
+        </div>
         <table>
           <thead>
             <tr>
@@ -95,7 +98,7 @@ export default function StockDiscrepancyReportPage() {
               <th>Produto</th>
               <th>Seção</th>
               <th class="right">Real</th>
-              <th class="right">PAL</th>
+              <th class="right">PALETT</th>
               <th class="right">PICK</th>
               <th class="right">WMS Total</th>
               <th class="right">Diferença</th>
@@ -257,7 +260,7 @@ export default function StockDiscrepancyReportPage() {
                               <p className="font-mono font-bold text-sm">{p.totalStock}</p>
                             </div>
                             <div className="rounded-lg bg-violet-50 dark:bg-violet-950/30 p-2">
-                              <p className="text-[9px] text-violet-600 dark:text-violet-400 uppercase font-semibold">PAL</p>
+                              <p className="text-[9px] text-violet-600 dark:text-violet-400 uppercase font-semibold">PALETT</p>
                               <p className="font-mono font-bold text-sm text-violet-600 dark:text-violet-400">{p.palletizedStock}</p>
                             </div>
                             <div className="rounded-lg bg-orange-50 dark:bg-orange-950/30 p-2">
@@ -270,6 +273,17 @@ export default function StockDiscrepancyReportPage() {
                                 {isPositive ? "+" : ""}{p.difference}
                               </p>
                             </div>
+                          </div>
+
+                          <div className="flex items-center gap-3 text-[9px] text-muted-foreground">
+                            <span className="flex items-center gap-1">
+                              <span className="bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 font-bold px-1 rounded text-[9px] leading-[14px]">PALETT</span>
+                              Unidades em pallets
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <span className="bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 font-bold px-1 rounded text-[9px] leading-[14px]">PICK</span>
+                              Unidades em gôndola/picking
+                            </span>
                           </div>
 
                           <div className={`rounded-lg p-2.5 text-[11px] font-medium ${
@@ -314,7 +328,7 @@ export default function StockDiscrepancyReportPage() {
                           )}
 
                           <div className="text-[10px] text-muted-foreground">
-                            <span className="font-mono">Fórmula: Real ({p.totalStock}) - PAL ({p.palletizedStock}) = PICK ({p.pickingStock}) | PAL ({p.palletizedStock}) + PICK ({p.pickingStock}) = WMS ({p.wmsTotal}) | WMS ({p.wmsTotal}) - Real ({p.totalStock}) = Diferença ({isPositive ? "+" : ""}{p.difference})</span>
+                            <span className="font-mono">Fórmula: Real ({p.totalStock}) - PALETT ({p.palletizedStock}) = PICK ({p.pickingStock}) | PALETT ({p.palletizedStock}) + PICK ({p.pickingStock}) = WMS ({p.wmsTotal}) | WMS ({p.wmsTotal}) - Real ({p.totalStock}) = Diferença ({isPositive ? "+" : ""}{p.difference})</span>
                           </div>
                         </div>
                       )}

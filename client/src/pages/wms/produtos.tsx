@@ -183,7 +183,7 @@ export default function ProdutosPage() {
                       </Badge>
                       <div className="flex flex-col items-end gap-0.5 text-[10px]">
                         <span className="flex items-center gap-1">
-                          <span className="bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 font-bold px-1 rounded text-[9px] leading-[14px]">PAL</span>
+                          <span className="bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 font-bold px-1 rounded text-[9px] leading-[14px]">PALETT</span>
                           <span className="font-mono font-bold text-violet-600 dark:text-violet-400">{Number(p.palletizedStock || 0).toLocaleString("pt-BR")}</span>
                         </span>
                         <span className="flex items-center gap-1">
