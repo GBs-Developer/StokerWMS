@@ -1,8 +1,8 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { MapPin, CheckCircle2, XCircle, Keyboard } from "lucide-react";
+import { MapPin, CheckCircle2, XCircle, Keyboard, AlertTriangle } from "lucide-react";
 
 interface WmsAddress {
   id: string;
@@ -18,9 +18,11 @@ interface AddressPickerProps {
   onAddressSelect: (addressId: string) => void;
   onClear: () => void;
   value?: string;
+  label?: string;
+  occupiedWarning?: string;
 }
 
-export function AddressPicker({ availableAddresses, onAddressSelect, onClear, value }: AddressPickerProps) {
+export function AddressPicker({ availableAddresses, onAddressSelect, onClear, value, label, occupiedWarning }: AddressPickerProps) {
   const [bairro, setBairro] = useState("");
   const [rua, setRua] = useState("");
   const [bloco, setBloco] = useState("");
@@ -35,9 +37,16 @@ export function AddressPicker({ availableAddresses, onAddressSelect, onClear, va
   const bairroRef = useRef<HTMLInputElement>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
 
+  const onAddressSelectRef = useRef(onAddressSelect);
+  onAddressSelectRef.current = onAddressSelect;
+  const onClearRef = useRef(onClear);
+  onClearRef.current = onClear;
+  const addressesRef = useRef(availableAddresses);
+  addressesRef.current = availableAddresses;
+
   useEffect(() => {
     if (value) {
-      const match = availableAddresses.find(a => a.id === value);
+      const match = addressesRef.current.find(a => a.id === value);
       if (match) {
         setBairro(match.bairro);
         setRua(match.rua);
@@ -50,25 +59,23 @@ export function AddressPicker({ availableAddresses, onAddressSelect, onClear, va
       setBloco("");
       setNivel("");
     }
-  }, [value, availableAddresses]);
+  }, [value]);
 
   const alphaNumOnly = (v: string) => v.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
 
-  const findMatch = (b: string, r: string, bl: string, n: string) => {
+  const currentMatch = useMemo(() => {
     return availableAddresses.find(
-      a => a.bairro === b && a.rua === r && a.bloco === bl && a.nivel === n
+      a => a.bairro === bairro && a.rua === rua && a.bloco === bloco && a.nivel === nivel
     );
-  };
-
-  const currentMatch = findMatch(bairro, rua, bloco, nivel);
+  }, [bairro, rua, bloco, nivel, availableAddresses]);
 
   useEffect(() => {
     if (currentMatch) {
-      onAddressSelect(currentMatch.id);
-    } else {
-      onClear();
+      onAddressSelectRef.current(currentMatch.id);
+    } else if (bairro || rua || bloco || nivel) {
+      onClearRef.current();
     }
-  }, [bairro, rua, bloco, nivel]);
+  }, [currentMatch, bairro, rua, bloco, nivel]);
 
   const clearAll = () => {
     setBairro("");
@@ -80,7 +87,7 @@ export function AddressPicker({ availableAddresses, onAddressSelect, onClear, va
   };
 
   const suggestions = useMemo(() => {
-    if (!activeField || !keyboardOpen) return [];
+    if (!activeField) return [];
 
     const filtered = availableAddresses.filter(a => {
       if (activeField === "bairro") return !bairro || a.bairro.startsWith(bairro);
@@ -93,7 +100,7 @@ export function AddressPicker({ availableAddresses, onAddressSelect, onClear, va
     const fieldKey = activeField === "bairro" ? "bairro" : activeField === "rua" ? "rua" : activeField === "bloco" ? "bloco" : "nivel";
     const unique = [...new Set(filtered.map(a => a[fieldKey]))].sort();
     return unique.slice(0, 8);
-  }, [activeField, bairro, rua, bloco, nivel, availableAddresses, keyboardOpen]);
+  }, [activeField, bairro, rua, bloco, nivel, availableAddresses]);
 
   useEffect(() => {
     setHighlightIndex(-1);
@@ -153,7 +160,7 @@ export function AddressPicker({ availableAddresses, onAddressSelect, onClear, va
     <div className="space-y-3 p-4 border rounded-xl bg-muted/20">
       <div className="flex items-center justify-between">
         <Label className="flex items-center gap-2 text-primary font-semibold">
-          <MapPin className="h-4 w-4" /> Endereço de Destino
+          <MapPin className="h-4 w-4" /> {label || "Endereço de Destino"}
         </Label>
         <div className="flex items-center gap-2">
           {currentMatch ? (
@@ -181,9 +188,9 @@ export function AddressPicker({ availableAddresses, onAddressSelect, onClear, va
       </div>
 
       <div className="grid grid-cols-4 gap-2">
-        {fields.map(({ label, name, ref, value: val, set, next }) => (
-          <div key={label} className="space-y-1 relative">
-            <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</Label>
+        {fields.map(({ label: fieldLabel, name, ref, value: val, set, next }) => (
+          <div key={fieldLabel} className="space-y-1 relative">
+            <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">{fieldLabel}</Label>
             <Input
               ref={ref}
               placeholder=""
@@ -192,12 +199,12 @@ export function AddressPicker({ availableAddresses, onAddressSelect, onClear, va
               className={fieldClass}
               inputMode={inputMode}
               readOnly={!keyboardOpen}
-              onFocus={() => keyboardOpen && setActiveField(name)}
+              onFocus={() => setActiveField(name)}
               onBlur={() => setTimeout(() => setActiveField(prev => prev === name ? null : prev), 150)}
               onKeyDown={e => handleKeyDown(e, name, next)}
-              data-testid={`input-address-${label.toLowerCase()}`}
+              data-testid={`input-address-${fieldLabel.toLowerCase()}`}
             />
-            {activeField === name && suggestions.length > 0 && keyboardOpen && (
+            {activeField === name && suggestions.length > 0 && (
               <div
                 ref={suggestionsRef}
                 className="absolute z-50 top-full mt-1 w-full bg-popover border rounded-md shadow-lg max-h-40 overflow-y-auto"
@@ -226,6 +233,13 @@ export function AddressPicker({ availableAddresses, onAddressSelect, onClear, va
         <p className="text-[10px] text-muted-foreground text-center">
           Bipe o endereço ou toque em <Keyboard className="h-3 w-3 inline" /> para digitar
         </p>
+      )}
+
+      {occupiedWarning && (
+        <div className="flex items-center gap-2 p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40">
+          <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+          <span className="text-[11px] text-amber-700 dark:text-amber-400">{occupiedWarning}</span>
+        </div>
       )}
 
       {(bairro || rua || bloco || nivel) && (

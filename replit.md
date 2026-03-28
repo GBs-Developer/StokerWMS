@@ -108,11 +108,12 @@ Routes are registered in `server/routes.ts` (legacy + auth) and `server/wms-rout
 - Item summary shown in confirmation
 
 #### Check-in/Allocation
-- Scan pallet → select available address → allocate
-- Rule: 1 pallet per address max
+- Scan pallet → select address → allocate or merge
+- **Smart allocation**: if destination address is empty → normal allocation; if occupied → products are transferred/merged into the existing pallet (matching by product+lot+expiry), incoming pallet is cancelled
+- **Merge UI**: AddressPicker shows all addresses (not just empty); amber warning when address is occupied with occupant pallet code; confirmation dialog explains merge behavior; button changes to "Transferir Produtos"
+- **Occupancy detection**: uses targeted `/api/pallets/by-address/:id` query (not full pallet list) for reliable, lightweight detection
 - Address must belong to same company
 - Forklift operator or supervisor access
-- **Confirmation dialog** before allocation
 - **Item details**: shows products with ERP code, quantity, lot info
 - **Timestamps**: created date shown on pending pallets
 - **Filter/search**: for large pending pallet lists

@@ -44,14 +44,24 @@ export default function CheckinPage() {
     enabled: !!companyId,
   });
 
-  const { data: availableAddresses = [] } = useQuery({
-    queryKey: ["available-addresses", companyId],
+  const { data: allAddresses = [] } = useQuery({
+    queryKey: ["all-addresses", companyId],
     queryFn: async () => {
-      const res = await fetch("/api/wms-addresses/available", { credentials: "include" });
+      const res = await fetch("/api/wms-addresses", { credentials: "include" });
       if (!res.ok) throw new Error("Erro");
       return res.json();
     },
     enabled: !!companyId,
+  });
+
+  const { data: addressOccupants = [] } = useQuery({
+    queryKey: ["pallets-by-address", selectedAddress],
+    queryFn: async () => {
+      const res = await fetch(`/api/pallets/by-address/${selectedAddress}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Erro");
+      return res.json();
+    },
+    enabled: !!selectedAddress,
   });
 
   const loadPallet = async (code: string) => {
@@ -135,9 +145,10 @@ export default function CheckinPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["pallets"] });
-      queryClient.invalidateQueries({ queryKey: ["available-addresses"] });
+      queryClient.invalidateQueries({ queryKey: ["pallets-by-address"] });
+      queryClient.invalidateQueries({ queryKey: ["all-addresses"] });
       queryClient.invalidateQueries({ queryKey: ["pallets-no-address"] });
-      toast({ title: "Pallet alocado com sucesso!" });
+      toast({ title: addressOccupied ? "Produtos transferidos com sucesso!" : "Pallet alocado com sucesso!" });
       setSelectedPallet(null);
       setEditableItems([]);
       setSelectedAddress("");
@@ -176,7 +187,9 @@ export default function CheckinPage() {
     },
   });
 
-  const selectedAddressObj = selectedAddress ? availableAddresses.find((a: any) => a.id === selectedAddress) : null;
+  const selectedAddressObj = selectedAddress ? allAddresses.find((a: any) => a.id === selectedAddress) : null;
+  const occupantPallet = addressOccupants.find((p: any) => p.id !== selectedPallet?.id) || null;
+  const addressOccupied = !!occupantPallet;
   const filteredPallets = filterText
     ? palletsWithoutAddress.filter((p: any) => p.code?.toLowerCase().includes(filterText.toLowerCase()))
     : palletsWithoutAddress;
@@ -332,9 +345,10 @@ export default function CheckinPage() {
             <div className="rounded-2xl border border-border/50 bg-card p-4">
               <p className="text-xs font-semibold text-muted-foreground uppercase mb-3 tracking-wider">Endereco de destino</p>
               <AddressPicker
-                availableAddresses={availableAddresses}
+                availableAddresses={allAddresses}
                 onAddressSelect={setSelectedAddress}
                 onClear={() => setSelectedAddress("")}
+                occupiedWarning={addressOccupied ? `Endereço ocupado pelo pallet ${occupantPallet?.code || ""}. Os produtos serão transferidos para o pallet existente.` : undefined}
               />
 
               {selectedAddress && selectedAddressObj && (
@@ -356,13 +370,13 @@ export default function CheckinPage() {
             </div>
 
             <Button
-              className="w-full h-14 text-sm font-semibold rounded-xl shadow-lg shadow-primary/15 active:scale-[0.98] transition-all"
+              className={`w-full h-14 text-sm font-semibold rounded-xl shadow-lg active:scale-[0.98] transition-all ${addressOccupied ? "bg-amber-600 hover:bg-amber-700 shadow-amber-600/15" : "shadow-primary/15"}`}
               onClick={() => setShowAllocateConfirm(true)}
               disabled={!selectedAddress || allocateMutation.isPending || itemsChanged}
               data-testid="button-allocate"
             >
               {allocateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle className="h-4 w-4 mr-2" />}
-              {itemsChanged ? "Salve as alteracoes primeiro" : "Alocar Pallet"}
+              {itemsChanged ? "Salve as alteracoes primeiro" : addressOccupied ? "Transferir Produtos" : "Alocar Pallet"}
             </Button>
           </div>
         )}
@@ -371,17 +385,26 @@ export default function CheckinPage() {
       <Dialog open={showAllocateConfirm} onOpenChange={setShowAllocateConfirm}>
         <DialogContent className="rounded-2xl">
           <DialogHeader>
-            <DialogTitle>Confirmar Alocacao</DialogTitle>
+            <DialogTitle>{addressOccupied ? "Transferir Produtos" : "Confirmar Alocação"}</DialogTitle>
             <DialogDescription>
-              Alocar <span className="font-mono font-semibold">{selectedPallet?.code}</span>
-              {selectedAddressObj && <> em <span className="font-mono font-semibold">{selectedAddressObj.code}</span></>}?
+              {addressOccupied ? (
+                <>
+                  O endereço <span className="font-mono font-semibold">{selectedAddressObj?.code}</span> já possui o pallet <span className="font-mono font-semibold">{occupantPallet?.code}</span>.
+                  Os produtos do pallet <span className="font-mono font-semibold">{selectedPallet?.code}</span> serão transferidos para o pallet existente.
+                </>
+              ) : (
+                <>
+                  Alocar <span className="font-mono font-semibold">{selectedPallet?.code}</span>
+                  {selectedAddressObj && <> em <span className="font-mono font-semibold">{selectedAddressObj.code}</span></>}?
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setShowAllocateConfirm(false)} className="rounded-xl" data-testid="button-cancel-allocate">Cancelar</Button>
-            <Button onClick={() => allocateMutation.mutate()} disabled={allocateMutation.isPending} className="rounded-xl" data-testid="button-confirm-allocate">
+            <Button onClick={() => allocateMutation.mutate()} disabled={allocateMutation.isPending} className={`rounded-xl ${addressOccupied ? "bg-amber-600 hover:bg-amber-700" : ""}`} data-testid="button-confirm-allocate">
               {allocateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle className="h-4 w-4 mr-2" />}
-              Confirmar
+              {addressOccupied ? "Transferir" : "Confirmar"}
             </Button>
           </DialogFooter>
         </DialogContent>

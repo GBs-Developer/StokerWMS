@@ -610,15 +610,84 @@ export function registerWmsRoutes(app: Express) {
 
       const now = new Date().toISOString();
 
+      const userId = getUserId(req);
+
       const allocationResult = await db.transaction(async (tx) => {
-        const occupant = await tx.select().from(pallets)
+        const occupants = await tx.select().from(pallets)
           .where(and(
             eq(pallets.addressId, addressId),
             sql`${pallets.status} != 'cancelado'`,
             sql`${pallets.id} != ${id}`,
           ));
-        if (occupant.length > 0) {
-          return { error: "Endereço já ocupado por outro pallet" } as const;
+
+        if (occupants.length > 0) {
+          const targetPallet = occupants[0];
+          const incomingItems = await tx.select().from(palletItems)
+            .where(eq(palletItems.palletId, id));
+
+          if (incomingItems.length === 0) {
+            return { error: "Pallet sem itens para transferir" } as const;
+          }
+
+          for (const item of incomingItems) {
+            const matchConditions = [
+              eq(palletItems.palletId, targetPallet.id),
+              eq(palletItems.productId, item.productId),
+            ];
+            if (item.lot) {
+              matchConditions.push(eq(palletItems.lot, item.lot));
+            } else {
+              matchConditions.push(sql`${palletItems.lot} IS NULL`);
+            }
+            if (item.expiryDate) {
+              matchConditions.push(eq(palletItems.expiryDate, item.expiryDate));
+            } else {
+              matchConditions.push(sql`${palletItems.expiryDate} IS NULL`);
+            }
+
+            const [existing] = await tx.select().from(palletItems)
+              .where(and(...matchConditions));
+
+            if (existing) {
+              await tx.update(palletItems).set({
+                quantity: Number(existing.quantity) + Number(item.quantity),
+              }).where(eq(palletItems.id, existing.id));
+            } else {
+              await tx.insert(palletItems).values({
+                id: `pi-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                palletId: targetPallet.id,
+                productId: item.productId,
+                quantity: item.quantity,
+                lot: item.lot,
+                expiryDate: item.expiryDate,
+                erpNfId: item.erpNfId,
+                fefoEnabled: item.fefoEnabled,
+                companyId: item.companyId,
+              });
+            }
+          }
+
+          await tx.delete(palletItems).where(eq(palletItems.palletId, id));
+
+          await tx.update(pallets).set({
+            status: "cancelado",
+            cancelledAt: now,
+            cancelledBy: userId,
+            cancelReason: `Produtos transferidos para pallet ${targetPallet.code} no endereço ${address.code}`,
+          }).where(eq(pallets.id, id));
+
+          await tx.insert(palletMovements).values({
+            palletId: id,
+            companyId,
+            movementType: "transferred",
+            fromAddressId: null,
+            toAddressId: addressId,
+            userId,
+            notes: `Produtos mesclados ao pallet ${targetPallet.code}`,
+            createdAt: now,
+          });
+
+          return { success: true, merged: true, targetPalletCode: targetPallet.code } as const;
         }
 
         await tx.update(pallets).set({
@@ -633,18 +702,22 @@ export function registerWmsRoutes(app: Express) {
           movementType: "allocated",
           fromAddressId: pallet.addressId || null,
           toAddressId: addressId,
-          userId: getUserId(req),
+          userId,
           createdAt: now,
         });
 
-        return { success: true } as const;
+        return { success: true, merged: false } as const;
       });
 
       if ("error" in allocationResult) {
         return res.status(400).json({ error: allocationResult.error });
       }
 
-      await createAuditLog(req, "allocate", "pallet", id, `Pallet ${pallet.code} alocado em ${address.code}`);
+      if (allocationResult.merged) {
+        await createAuditLog(req, "merge_allocate", "pallet", id, `Produtos do pallet ${pallet.code} mesclados ao pallet ${allocationResult.targetPalletCode} em ${address.code}`);
+      } else {
+        await createAuditLog(req, "allocate", "pallet", id, `Pallet ${pallet.code} alocado em ${address.code}`);
+      }
       broadcastSSE("pallet_allocated", { palletId: id, addressId, companyId });
 
       res.json({ success: true });
