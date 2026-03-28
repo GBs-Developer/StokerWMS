@@ -1222,9 +1222,9 @@ export default function ConferenciaPage() {
                         <span className="text-xs text-muted-foreground">Conferido</span>
                         <p className="text-lg font-bold">
                           {currentProduct.checkedQty}
-                          <span className="text-muted-foreground font-normal text-sm">/{currentProduct.totalQty}</span>
+                          <span className="text-muted-foreground font-normal text-sm">/{currentProduct.totalSeparatedQty}</span>
                           {currentProduct.exceptionQty > 0 && (
-                            <span className="text-orange-500 text-xs ml-1">(-{currentProduct.exceptionQty} exc)</span>
+                            <span className="text-orange-500 text-xs ml-1">({currentProduct.exceptionQty} exc)</span>
                           )}
                         </p>
                       </div>
@@ -1374,10 +1374,10 @@ export default function ConferenciaPage() {
                             </div>
                             <div className="text-right shrink-0">
                               <p className="text-xs font-medium">
-                                {ap.checkedQty}/{ap.totalQty}
+                                {ap.checkedQty}/{ap.totalSeparatedQty}
                               </p>
                               {ap.exceptionQty > 0 && (
-                                <span className="text-[10px] text-orange-500">-{ap.exceptionQty}</span>
+                                <span className="text-[10px] text-orange-500">{ap.exceptionQty} exc</span>
                               )}
                             </div>
                           </div>
