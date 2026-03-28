@@ -390,13 +390,14 @@ export default function PickingListReport() {
 <table>
     <thead>
         <tr>
-            <th style="width:10%">Cód. Produto</th>
-            <th style="width:25%">Descrição do Produto</th>
-            <th style="width:15%">Cód. de Barras</th>
-            <th style="width:13%">Pedidos</th>
-            <th style="width:8%">Lote</th>
-            <th style="width:19%">Fornecedor</th>
-            <th style="width:10%">Separar</th>
+            <th style="width:9%">Cód. Produto</th>
+            <th style="width:22%">Descrição do Produto</th>
+            <th style="width:12%">Cód. de Barras</th>
+            <th style="width:10%">Cód. Fabricante</th>
+            <th style="width:11%">Pedidos</th>
+            <th style="width:7%">Lote</th>
+            <th style="width:17%">Fornecedor</th>
+            <th style="width:9%">Separar</th>
         </tr>
     </thead>
     <tbody>${bodyHtml}</tbody>
@@ -409,6 +410,7 @@ export default function PickingListReport() {
         name: string;
         barcode: string;
         manufacturer: string;
+        factoryCode: string;
         section: string;
         totalQty: number;
         orderIds: string[];
@@ -454,6 +456,7 @@ export default function PickingListReport() {
                         name: item.product?.name || "",
                         barcode: item.product?.barcode || "",
                         manufacturer: item.product?.manufacturer || "",
+                        factoryCode: item.product?.factoryCode || "",
                         section: sectionName,
                         totalQty: Number(item.quantity) || 0,
                         orderIds: orderId ? [orderId] : [],
@@ -463,7 +466,7 @@ export default function PickingListReport() {
 
             const aggregatedItems = Array.from(productMap.values()).sort((a, b) => a.erpCode.localeCompare(b.erpCode));
 
-            bodyHtml += `<tr class="section-row"><td colspan="7" style="text-align:left;">
+            bodyHtml += `<tr class="section-row"><td colspan="8" style="text-align:left;">
                 <strong>Seção:</strong> ${sectionName.toUpperCase()}
             </td></tr>`;
 
@@ -474,6 +477,7 @@ export default function PickingListReport() {
                     <td>${item.erpCode}</td>
                     <td>${item.name}</td>
                     <td>${item.barcode}</td>
+                    <td>${item.factoryCode}</td>
                     <td style="font-size: 9px;">${ordersList}</td>
                     <td></td>
                     <td>${item.manufacturer}</td>

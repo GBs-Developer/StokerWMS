@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -26,11 +26,14 @@ export function AddressPicker({ availableAddresses, onAddressSelect, onClear, va
   const [bloco, setBloco] = useState("");
   const [nivel, setNivel] = useState("");
   const [keyboardOpen, setKeyboardOpen] = useState(false);
+  const [activeField, setActiveField] = useState<string | null>(null);
+  const [highlightIndex, setHighlightIndex] = useState(-1);
 
   const ruaRef = useRef<HTMLInputElement>(null);
   const blocoRef = useRef<HTMLInputElement>(null);
   const nivelRef = useRef<HTMLInputElement>(null);
   const bairroRef = useRef<HTMLInputElement>(null);
+  const suggestionsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (value) {
@@ -76,9 +79,75 @@ export function AddressPicker({ availableAddresses, onAddressSelect, onClear, va
     bairroRef.current?.focus();
   };
 
-  const inputMode = keyboardOpen ? "text" : "none";
+  const suggestions = useMemo(() => {
+    if (!activeField || !keyboardOpen) return [];
 
+    const filtered = availableAddresses.filter(a => {
+      if (activeField === "bairro") return !bairro || a.bairro.startsWith(bairro);
+      if (activeField === "rua") return a.bairro === bairro && (!rua || a.rua.startsWith(rua));
+      if (activeField === "bloco") return a.bairro === bairro && a.rua === rua && (!bloco || a.bloco.startsWith(bloco));
+      if (activeField === "nível") return a.bairro === bairro && a.rua === rua && a.bloco === bloco && (!nivel || a.nivel.startsWith(nivel));
+      return false;
+    });
+
+    const fieldKey = activeField === "bairro" ? "bairro" : activeField === "rua" ? "rua" : activeField === "bloco" ? "bloco" : "nivel";
+    const unique = [...new Set(filtered.map(a => a[fieldKey]))].sort();
+    return unique.slice(0, 8);
+  }, [activeField, bairro, rua, bloco, nivel, availableAddresses, keyboardOpen]);
+
+  useEffect(() => {
+    setHighlightIndex(-1);
+  }, [suggestions]);
+
+  const selectSuggestion = (val: string) => {
+    if (activeField === "bairro") { setBairro(val); ruaRef.current?.focus(); }
+    else if (activeField === "rua") { setRua(val); blocoRef.current?.focus(); }
+    else if (activeField === "bloco") { setBloco(val); nivelRef.current?.focus(); }
+    else if (activeField === "nível") { setNivel(val); }
+    setActiveField(null);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent, fieldName: string, nextRef: React.RefObject<HTMLInputElement> | null) => {
+    if (suggestions.length > 0 && activeField === fieldName) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setHighlightIndex(prev => Math.min(prev + 1, suggestions.length - 1));
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setHighlightIndex(prev => Math.max(prev - 1, 0));
+        return;
+      }
+      if (e.key === "Enter" && highlightIndex >= 0) {
+        e.preventDefault();
+        selectSuggestion(suggestions[highlightIndex]);
+        return;
+      }
+      if (e.key === "Tab" && suggestions.length === 1 && nextRef) {
+        e.preventDefault();
+        selectSuggestion(suggestions[0]);
+        return;
+      }
+    }
+    if (e.key === "Enter" && nextRef) {
+      e.preventDefault();
+      nextRef.current?.focus();
+    }
+    if (e.key === "Escape") {
+      setActiveField(null);
+    }
+  };
+
+  const inputMode = keyboardOpen ? "text" : "none";
   const fieldClass = `text-center font-bold text-lg h-12 ${!keyboardOpen ? "cursor-default" : ""}`;
+
+  const fields = [
+    { label: "Bairro", name: "bairro", ref: bairroRef, value: bairro, set: setBairro, next: ruaRef },
+    { label: "Rua", name: "rua", ref: ruaRef, value: rua, set: setRua, next: blocoRef },
+    { label: "Bloco", name: "bloco", ref: blocoRef, value: bloco, set: setBloco, next: nivelRef },
+    { label: "Nível", name: "nível", ref: nivelRef, value: nivel, set: setNivel, next: null },
+  ];
 
   return (
     <div className="space-y-3 p-4 border rounded-xl bg-muted/20">
@@ -112,13 +181,8 @@ export function AddressPicker({ availableAddresses, onAddressSelect, onClear, va
       </div>
 
       <div className="grid grid-cols-4 gap-2">
-        {[
-          { label: "Bairro", ref: bairroRef, value: bairro, set: setBairro, next: ruaRef },
-          { label: "Rua", ref: ruaRef, value: rua, set: setRua, next: blocoRef },
-          { label: "Bloco", ref: blocoRef, value: bloco, set: setBloco, next: nivelRef },
-          { label: "Nível", ref: nivelRef, value: nivel, set: setNivel, next: null },
-        ].map(({ label, ref, value: val, set, next }) => (
-          <div key={label} className="space-y-1">
+        {fields.map(({ label, name, ref, value: val, set, next }) => (
+          <div key={label} className="space-y-1 relative">
             <Label className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</Label>
             <Input
               ref={ref}
@@ -128,9 +192,32 @@ export function AddressPicker({ availableAddresses, onAddressSelect, onClear, va
               className={fieldClass}
               inputMode={inputMode}
               readOnly={!keyboardOpen}
-              onKeyDown={e => e.key === "Enter" && next && next.current?.focus()}
+              onFocus={() => keyboardOpen && setActiveField(name)}
+              onBlur={() => setTimeout(() => setActiveField(prev => prev === name ? null : prev), 150)}
+              onKeyDown={e => handleKeyDown(e, name, next)}
               data-testid={`input-address-${label.toLowerCase()}`}
             />
+            {activeField === name && suggestions.length > 0 && keyboardOpen && (
+              <div
+                ref={suggestionsRef}
+                className="absolute z-50 top-full mt-1 w-full bg-popover border rounded-md shadow-lg max-h-40 overflow-y-auto"
+                data-testid={`suggestions-${name}`}
+              >
+                {suggestions.map((s, i) => (
+                  <button
+                    key={s}
+                    type="button"
+                    className={`w-full text-center text-sm py-1.5 px-2 cursor-pointer transition-colors ${
+                      i === highlightIndex ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
+                    }`}
+                    onMouseDown={e => { e.preventDefault(); selectSuggestion(s); }}
+                    data-testid={`suggestion-${name}-${s}`}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         ))}
       </div>

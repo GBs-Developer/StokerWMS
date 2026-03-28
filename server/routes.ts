@@ -2577,6 +2577,7 @@ export async function registerRoutes(
         name: u.name,
         role: u.role,
         allowedModules: u.allowedModules ? (typeof u.allowedModules === "string" ? JSON.parse(u.allowedModules) : u.allowedModules) : null,
+        allowedReports: u.allowedReports ? (typeof u.allowedReports === "string" ? JSON.parse(u.allowedReports) : u.allowedReports) : null,
       }));
       res.json(result);
     } catch (error) {
@@ -2588,13 +2589,21 @@ export async function registerRoutes(
   app.put("/api/admin/permissions/:userId", isAuthenticated, requireRole("administrador"), async (req: Request, res: Response) => {
     try {
       const { userId } = req.params;
-      const { allowedModules } = req.body;
+      const { allowedModules, allowedReports } = req.body;
 
-      if (allowedModules !== null && !Array.isArray(allowedModules)) {
+      if (allowedModules !== null && allowedModules !== undefined && !Array.isArray(allowedModules)) {
         return res.status(400).json({ error: "allowedModules deve ser um array ou null" });
       }
 
-      await storage.updateUser(userId, { allowedModules });
+      if (allowedReports !== null && allowedReports !== undefined && !Array.isArray(allowedReports)) {
+        return res.status(400).json({ error: "allowedReports deve ser um array ou null" });
+      }
+
+      const updates: any = {};
+      if (allowedModules !== undefined) updates.allowedModules = allowedModules;
+      if (allowedReports !== undefined) updates.allowedReports = allowedReports;
+
+      await storage.updateUser(userId, updates);
       res.json({ success: true });
     } catch (error) {
       console.error("Update permissions error:", error);

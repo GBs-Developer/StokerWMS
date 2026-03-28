@@ -29,7 +29,7 @@ export type PalletMovementType = typeof palletMovementTypeEnum[number];
 export const wmsAddressTypeEnum = ["standard", "picking", "recebimento", "expedicao"] as const;
 export type WmsAddressType = typeof wmsAddressTypeEnum[number];
 
-export const countingCycleTypeEnum = ["por_endereco", "por_produto"] as const;
+export const countingCycleTypeEnum = ["por_endereco", "por_produto", "por_pallet"] as const;
 export type CountingCycleType = typeof countingCycleTypeEnum[number];
 
 export const countingCycleStatusEnum = ["pendente", "em_andamento", "concluido", "aprovado", "rejeitado"] as const;
@@ -69,6 +69,7 @@ export const users = pgTable("users", {
   defaultCompanyId: integer("default_company_id"),
   allowedCompanies: jsonb("allowed_companies").$type<number[]>().default([1, 3]),
   allowedModules: jsonb("allowed_modules").$type<string[]>(),
+  allowedReports: jsonb("allowed_reports").$type<string[]>(),
   createdAt: text("created_at").notNull().default(new Date().toISOString()),
 });
 

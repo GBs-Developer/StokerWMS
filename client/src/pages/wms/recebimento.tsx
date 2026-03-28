@@ -212,10 +212,6 @@ export default function RecebimentoPage() {
     }
   };
 
-  useEffect(() => {
-    if (activeTab === "nf" && nfList.length === 0) searchNfList();
-  }, [activeTab]);
-
   const toggleNfItem = (idx: number) => {
     setSelectedNfItems(prev => {
       const next = new Set(prev);
@@ -709,40 +705,58 @@ export default function RecebimentoPage() {
               {showItemList && (
                 <div className="divide-y divide-border/30">
                   {palletItems.map((item, idx) => (
-                    <div key={idx} className="flex items-center gap-2 px-4 py-2.5" data-testid={`pallet-item-${idx}`}>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{item.productName}</p>
-                        <p className="text-[10px] text-muted-foreground font-mono truncate">{item.erpCode}{item.lot && ` · L:${item.lot}`}</p>
+                    <div key={idx} className="px-4 py-2.5 space-y-1.5" data-testid={`pallet-item-${idx}`}>
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{item.productName}</p>
+                          <p className="text-[10px] text-muted-foreground font-mono truncate">{item.erpCode}</p>
+                        </div>
+                        <div className="flex items-center gap-0.5 shrink-0">
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg" onClick={() => updateItemQty(idx, -1)} data-testid={`button-dec-${idx}`}>
+                            <Minus className="h-3.5 w-3.5" />
+                          </Button>
+                          {editingQtyIdx === idx ? (
+                            <Input
+                              value={editingQtyValue}
+                              onChange={e => setEditingQtyValue(e.target.value.replace(/\D/g, ""))}
+                              onBlur={commitEditQty}
+                              onKeyDown={e => e.key === "Enter" && commitEditQty()}
+                              className="h-8 w-12 text-center font-mono font-bold text-sm p-0 rounded-lg"
+                              autoFocus
+                              data-testid={`input-qty-${idx}`}
+                            />
+                          ) : (
+                            <span
+                              className="font-mono font-bold text-sm w-9 text-center cursor-pointer hover:bg-muted rounded-lg px-1 py-0.5"
+                              onClick={() => startEditQty(idx)}
+                              data-testid={`qty-display-${idx}`}
+                            >
+                              {Number(item.quantity).toString()}
+                            </span>
+                          )}
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg" onClick={() => updateItemQty(idx, 1)} data-testid={`button-inc-${idx}`}>
+                            <Plus className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg text-muted-foreground hover:text-destructive" onClick={() => removeItem(idx)} data-testid={`button-remove-${idx}`}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-0.5 shrink-0">
-                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg" onClick={() => updateItemQty(idx, -1)} data-testid={`button-dec-${idx}`}>
-                          <Minus className="h-3.5 w-3.5" />
-                        </Button>
-                        {editingQtyIdx === idx ? (
-                          <Input
-                            value={editingQtyValue}
-                            onChange={e => setEditingQtyValue(e.target.value.replace(/\D/g, ""))}
-                            onBlur={commitEditQty}
-                            onKeyDown={e => e.key === "Enter" && commitEditQty()}
-                            className="h-8 w-12 text-center font-mono font-bold text-sm p-0 rounded-lg"
-                            autoFocus
-                            data-testid={`input-qty-${idx}`}
-                          />
-                        ) : (
-                          <span
-                            className="font-mono font-bold text-sm w-9 text-center cursor-pointer hover:bg-muted rounded-lg px-1 py-0.5"
-                            onClick={() => startEditQty(idx)}
-                            data-testid={`qty-display-${idx}`}
-                          >
-                            {Number(item.quantity).toString()}
-                          </span>
-                        )}
-                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg" onClick={() => updateItemQty(idx, 1)} data-testid={`button-inc-${idx}`}>
-                          <Plus className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button variant="ghost" size="sm" className="h-8 w-8 p-0 rounded-lg text-muted-foreground hover:text-destructive" onClick={() => removeItem(idx)} data-testid={`button-remove-${idx}`}>
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <Input
+                          placeholder="Lote"
+                          value={item.lot || ""}
+                          onChange={e => setPalletItems(prev => prev.map((it, i) => i === idx ? { ...it, lot: e.target.value || undefined } : it))}
+                          className="h-7 text-[10px] rounded-lg"
+                          data-testid={`input-item-lot-${idx}`}
+                        />
+                        <Input
+                          type="date"
+                          value={item.expiryDate || ""}
+                          onChange={e => setPalletItems(prev => prev.map((it, i) => i === idx ? { ...it, expiryDate: e.target.value || undefined } : it))}
+                          className="h-7 text-[10px] rounded-lg"
+                          data-testid={`input-item-expiry-${idx}`}
+                        />
                       </div>
                     </div>
                   ))}

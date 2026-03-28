@@ -59,6 +59,7 @@ export default function CountingCyclesReportPage() {
   const typeLabels: Record<string, string> = {
     por_endereco: "Por Endereço",
     por_produto: "Por Produto",
+    por_pallet: "Por Pallet",
   };
 
   const esc = (str: string) => {

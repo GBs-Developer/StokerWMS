@@ -31,6 +31,7 @@ interface UserPermission {
   name: string;
   role: string;
   allowedModules: string[] | null;
+  allowedReports: string[] | null;
 }
 
 const ALL_MODULES = [
@@ -55,6 +56,17 @@ const ALL_MODULES = [
 
 const SECTIONS = ["Operação", "Logística", "Administração"];
 
+const ALL_REPORTS = [
+  { id: "picking-list", label: "Romaneio de Separação" },
+  { id: "badge-generation", label: "Cartões de Acesso" },
+  { id: "loading-map", label: "Mapa de Carregamento" },
+  { id: "loading-map-products", label: "Mapa de Carregamento (Produto)" },
+  { id: "order-volumes", label: "Etiquetas de Volume" },
+  { id: "counting-cycles", label: "Ciclos de Contagem" },
+  { id: "wms-addresses", label: "Endereços WMS" },
+  { id: "pallet-movements", label: "Movimentações de Pallets" },
+];
+
 const roleLabels: Record<string, string> = {
   administrador: "Administrador",
   supervisor: "Supervisor",
@@ -74,14 +86,15 @@ export default function PermissoesPage() {
 
   const [editingUser, setEditingUser] = useState<UserPermission | null>(null);
   const [selectedModules, setSelectedModules] = useState<string[]>([]);
+  const [selectedReports, setSelectedReports] = useState<string[]>([]);
 
   const { data: users, isLoading } = useQuery<UserPermission[]>({
     queryKey: usersQueryKey,
   });
 
   const saveMutation = useMutation({
-    mutationFn: async ({ userId, modules }: { userId: string; modules: string[] | null }) => {
-      const res = await apiRequest("PUT", `/api/admin/permissions/${userId}`, { allowedModules: modules });
+    mutationFn: async ({ userId, modules, reports }: { userId: string; modules: string[] | null; reports?: string[] | null }) => {
+      const res = await apiRequest("PUT", `/api/admin/permissions/${userId}`, { allowedModules: modules, allowedReports: reports });
       if (!res.ok) throw new Error("Falha ao salvar permissões");
       return res.json();
     },
@@ -98,6 +111,7 @@ export default function PermissoesPage() {
   const openEditor = (user: UserPermission) => {
     setEditingUser(user);
     setSelectedModules(user.allowedModules || []);
+    setSelectedReports(user.allowedReports || []);
   };
 
   const toggleModule = (moduleId: string) => {
@@ -116,12 +130,20 @@ export default function PermissoesPage() {
     }
   };
 
+  const toggleReport = (reportId: string) => {
+    setSelectedReports((prev) =>
+      prev.includes(reportId) ? prev.filter((r) => r !== reportId) : [...prev, reportId]
+    );
+  };
+
   const selectAll = () => {
     setSelectedModules(ALL_MODULES.map((m) => m.id));
+    setSelectedReports(ALL_REPORTS.map((r) => r.id));
   };
 
   const clearAll = () => {
     setSelectedModules([]);
+    setSelectedReports([]);
   };
 
   return (
@@ -256,12 +278,42 @@ export default function PermissoesPage() {
             })}
           </div>
 
+          <div className="border rounded-lg p-3">
+            <div className="flex items-center gap-2 mb-2">
+              <Checkbox
+                checked={ALL_REPORTS.every((r) => selectedReports.includes(r.id))}
+                ref={undefined}
+                onCheckedChange={() => {
+                  const allSelected = ALL_REPORTS.every((r) => selectedReports.includes(r.id));
+                  setSelectedReports(allSelected ? [] : ALL_REPORTS.map((r) => r.id));
+                }}
+                data-testid="checkbox-section-reports"
+              />
+              <span className="font-semibold text-sm">Relatórios</span>
+              {selectedReports.length > 0 && selectedReports.length < ALL_REPORTS.length && (
+                <span className="text-xs text-muted-foreground">(parcial)</span>
+              )}
+            </div>
+            <div className="space-y-1.5 ml-6">
+              {ALL_REPORTS.map((rep) => (
+                <label key={rep.id} className="flex items-center gap-2 cursor-pointer">
+                  <Checkbox
+                    checked={selectedReports.includes(rep.id)}
+                    onCheckedChange={() => toggleReport(rep.id)}
+                    data-testid={`checkbox-report-${rep.id}`}
+                  />
+                  <span className="text-sm">{rep.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
           <div className="flex justify-between gap-2 pt-4 border-t">
             <Button
               variant="ghost"
               size="sm"
               className="text-muted-foreground"
-              onClick={() => editingUser && saveMutation.mutate({ userId: editingUser.id, modules: null })}
+              onClick={() => editingUser && saveMutation.mutate({ userId: editingUser.id, modules: null, reports: null })}
               disabled={saveMutation.isPending}
               data-testid="button-reset-permissions"
             >
@@ -272,7 +324,7 @@ export default function PermissoesPage() {
                 Cancelar
               </Button>
               <Button
-                onClick={() => editingUser && saveMutation.mutate({ userId: editingUser.id, modules: selectedModules })}
+                onClick={() => editingUser && saveMutation.mutate({ userId: editingUser.id, modules: selectedModules, reports: selectedReports })}
                 disabled={saveMutation.isPending}
                 data-testid="button-save-permissions"
               >

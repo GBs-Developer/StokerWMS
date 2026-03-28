@@ -13,10 +13,10 @@ import { broadcastSSE } from "./sse";
 import { randomUUID } from "crypto";
 
 const addressSchema = z.object({
-  bairro: z.string().min(1).max(50),
-  rua: z.string().min(1).max(50),
-  bloco: z.string().min(1).max(50),
-  nivel: z.string().min(1).max(50),
+  bairro: z.string().min(1).max(50).transform(v => v.toUpperCase()),
+  rua: z.string().min(1).max(50).transform(v => v.toUpperCase()),
+  bloco: z.string().min(1).max(50).transform(v => v.toUpperCase()),
+  nivel: z.string().min(1).max(50).transform(v => v.toUpperCase()),
   type: z.string().max(30).optional(),
 });
 
@@ -409,7 +409,8 @@ export function registerWmsRoutes(app: Express) {
         }
       }
 
-      const code = `PLT-${companyId}-${Date.now().toString(36).toUpperCase()}`;
+      const seq = Date.now().toString(36).toUpperCase().slice(-6);
+      const code = `P${companyId}-${seq}`;
       const now = new Date().toISOString();
 
       const { pallet, createdItems } = await db.transaction(async (tx) => {
@@ -761,7 +762,7 @@ export function registerWmsRoutes(app: Express) {
         return res.status(400).json({ error: "Não é possível mover todos os itens" });
       }
 
-      const newCode = `PLT-${companyId}-${Date.now().toString(36).toUpperCase()}`;
+      const newCode = `P${companyId}-${Date.now().toString(36).toUpperCase().slice(-6)}`;
       const now = new Date().toISOString();
 
       const [newPallet] = await db.insert(pallets).values({
@@ -926,7 +927,7 @@ export function registerWmsRoutes(app: Express) {
       const now = new Date().toISOString();
       const userId = getUserId(req);
 
-      const newCode = `PLT-${companyId}-${Date.now().toString(36).toUpperCase()}`;
+      const newCode = `P${companyId}-${Date.now().toString(36).toUpperCase().slice(-6)}`;
 
       const newPallet = await db.transaction(async (tx) => {
         const [newPallet] = await tx.insert(pallets).values({
@@ -1275,6 +1276,7 @@ export function registerWmsRoutes(app: Express) {
         .where(and(eq(countingCycles.id, id), eq(countingCycles.companyId, companyId)));
       if (!cycle) return res.status(404).json({ error: "Ciclo não encontrado" });
       if (cycle.status === "aprovado") return res.status(400).json({ error: "Ciclo já aprovado" });
+      if (cycle.status === "em_andamento") return res.status(400).json({ error: "Não é possível adicionar itens a um ciclo em andamento" });
 
       let resolvedProductId = productId || null;
 

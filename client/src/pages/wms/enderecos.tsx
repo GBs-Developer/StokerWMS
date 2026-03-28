@@ -237,10 +237,10 @@ export default function EnderecosPage() {
             <CardHeader><CardTitle className="text-base">Novo Endereço</CardTitle></CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-                <Input placeholder="Bairro" value={bairro} onChange={e => setBairro(e.target.value)} data-testid="input-bairro" />
-                <Input placeholder="Rua" value={rua} onChange={e => setRua(e.target.value)} data-testid="input-rua" />
-                <Input placeholder="Bloco" value={bloco} onChange={e => setBloco(e.target.value)} data-testid="input-bloco" />
-                <Input placeholder="Nível" value={nivel} onChange={e => setNivel(e.target.value)} data-testid="input-nivel" />
+                <Input placeholder="Bairro" value={bairro} onChange={e => setBairro(e.target.value.toUpperCase())} data-testid="input-bairro" />
+                <Input placeholder="Rua" value={rua} onChange={e => setRua(e.target.value.toUpperCase())} data-testid="input-rua" />
+                <Input placeholder="Bloco" value={bloco} onChange={e => setBloco(e.target.value.toUpperCase())} data-testid="input-bloco" />
+                <Input placeholder="Nível" value={nivel} onChange={e => setNivel(e.target.value.toUpperCase())} data-testid="input-nivel" />
               </div>
               <div className="flex items-center gap-3">
                 <Select value={type} onValueChange={setType}>

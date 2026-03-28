@@ -10,6 +10,8 @@ export default function Reports() {
     const [, setLocation] = useLocation();
     const { user } = useAuth();
     const isAdmin = user?.role === "administrador";
+    const allowedReports: string[] | null = (user as any)?.allowedReports ?? null;
+    const canSeeReport = (id: string) => allowedReports === null || allowedReports.includes(id);
 
     return (
         <div className="min-h-screen bg-background">
@@ -30,6 +32,7 @@ export default function Reports() {
 
             <div className="p-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {canSeeReport("picking-list") && (
                     <div
                         className="cursor-pointer"
                         onClick={() => setLocation("/supervisor/reports/picking-list")}
@@ -52,8 +55,9 @@ export default function Reports() {
                             </CardContent>
                         </SectionCard>
                     </div>
+                    )}
 
-                    {isAdmin && (
+                    {isAdmin && canSeeReport("badge-generation") && (
                         <div
                             className="cursor-pointer"
                             onClick={() => setLocation("/supervisor/reports/badge-generation")}
@@ -78,6 +82,7 @@ export default function Reports() {
                         </div>
                     )}
 
+                    {canSeeReport("loading-map") && (
                     <div
                         className="cursor-pointer"
                         onClick={() => setLocation("/supervisor/reports/loading-map")}
@@ -100,7 +105,9 @@ export default function Reports() {
                             </CardContent>
                         </SectionCard>
                     </div>
+                    )}
 
+                    {canSeeReport("loading-map-products") && (
                     <div
                         className="cursor-pointer"
                         onClick={() => setLocation("/supervisor/reports/loading-map-products")}
@@ -123,6 +130,9 @@ export default function Reports() {
                             </CardContent>
                         </SectionCard>
                     </div>
+                    )}
+
+                    {canSeeReport("order-volumes") && (
                     <div
                         className="cursor-pointer"
                         onClick={() => setLocation("/supervisor/reports/order-volumes")}
@@ -145,6 +155,9 @@ export default function Reports() {
                             </CardContent>
                         </SectionCard>
                     </div>
+                    )}
+
+                    {canSeeReport("counting-cycles") && (
                     <div
                         className="cursor-pointer"
                         onClick={() => setLocation("/supervisor/reports/counting-cycles")}
@@ -167,7 +180,9 @@ export default function Reports() {
                             </CardContent>
                         </SectionCard>
                     </div>
+                    )}
 
+                    {canSeeReport("wms-addresses") && (
                     <div
                         className="cursor-pointer"
                         onClick={() => setLocation("/supervisor/reports/wms-addresses")}
@@ -190,7 +205,9 @@ export default function Reports() {
                             </CardContent>
                         </SectionCard>
                     </div>
+                    )}
 
+                    {canSeeReport("pallet-movements") && (
                     <div
                         className="cursor-pointer"
                         onClick={() => setLocation("/supervisor/reports/pallet-movements")}
@@ -213,6 +230,7 @@ export default function Reports() {
                             </CardContent>
                         </SectionCard>
                     </div>
+                    )}
                 </div>
             </div>
         </div>
