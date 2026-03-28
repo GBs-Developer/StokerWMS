@@ -5,7 +5,7 @@ import { GradientHeader } from "@/components/ui/gradient-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Search, Loader2, Package, Barcode, Hash, Type, X, MapPin, Clock, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Search, Loader2, Package, Barcode, Hash, Type, X, MapPin, Clock, AlertTriangle, Info, Layers, ShoppingCart } from "lucide-react";
 import { useLocation } from "wouter";
 
 export default function ProdutosPage() {
@@ -142,9 +142,21 @@ export default function ProdutosPage() {
 
         {products.length > 0 && (
           <div className="space-y-2 animate-slide-up">
-            <p className="text-xs text-muted-foreground px-1">
-              {products.length} resultado{products.length !== 1 ? "s" : ""}
-            </p>
+            <div className="flex items-center justify-between px-1">
+              <p className="text-xs text-muted-foreground">
+                {products.length} resultado{products.length !== 1 ? "s" : ""}
+              </p>
+              <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+                <span className="flex items-center gap-1">
+                  <span className="bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 font-bold px-1 rounded text-[9px] leading-[14px]">PAL</span>
+                  Paletizado
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 font-bold px-1 rounded text-[9px] leading-[14px]">PICK</span>
+                  Gôndola
+                </span>
+              </div>
+            </div>
             <div className="rounded-2xl border border-border/50 bg-card overflow-hidden divide-y divide-border/30">
               {products.map((p: any) => (
                 <div key={p.id} className={`px-4 py-3 ${p.hasNoAddress ? "border-l-[3px] border-l-amber-400" : ""}`} data-testid={`row-product-${p.id}`}>
@@ -173,13 +185,19 @@ export default function ProdutosPage() {
                       </div>
                     </div>
 
-                    <div className="shrink-0 text-right space-y-1">
+                    <div className="shrink-0 text-right space-y-1.5">
                       <Badge variant="outline" className="font-mono font-bold text-xs px-1.5 py-0.5 bg-primary/5 border-primary/20 text-primary">
                         {Number(p.totalStock || 0).toLocaleString("pt-BR")} {p.unit}
                       </Badge>
-                      <div className="flex items-center justify-end gap-2 text-[10px]">
-                        <span className="font-mono text-orange-600 dark:text-orange-400">P:{Number(p.pickingStock || 0)}</span>
-                        <span className="font-mono text-blue-600 dark:text-blue-400">E:{p.addressCount || 0}</span>
+                      <div className="flex flex-col items-end gap-0.5 text-[10px]">
+                        <span className="flex items-center gap-1">
+                          <span className="bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 font-bold px-1 rounded text-[9px] leading-[14px]">PAL</span>
+                          <span className="font-mono font-bold text-violet-600 dark:text-violet-400">{Number(p.palletizedStock || 0).toLocaleString("pt-BR")}</span>
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <span className="bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 font-bold px-1 rounded text-[9px] leading-[14px]">PICK</span>
+                          <span className="font-mono font-bold text-orange-600 dark:text-orange-400">{Number(p.pickingStock || 0).toLocaleString("pt-BR")}</span>
+                        </span>
                       </div>
                       {p.hasNoAddress && (
                         <Badge variant="outline" className="text-[9px] border-amber-300 text-amber-600 dark:border-amber-700 dark:text-amber-400">

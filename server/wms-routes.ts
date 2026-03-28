@@ -1849,6 +1849,7 @@ export function registerWmsRoutes(app: Express) {
           ...p,
           companyStockQty: totalStock,
           totalStock,
+          palletizedStock: totalInAddresses,
           pickingStock,
           addressCount: addresses.length,
           hasNoAddress: addresses.length === 0 && totalStock > 0,
