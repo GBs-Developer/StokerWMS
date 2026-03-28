@@ -873,6 +873,7 @@ export default function SeparacaoPage() {
       let qtyLeft = qty;
       let anySuccess = false;
       let overQtyResult: any = null;
+      let overQtyWuId: string | null = null;
 
       for (const item of ap.items) {
         if (qtyLeft <= 0) break;
@@ -893,14 +894,15 @@ export default function SeparacaoPage() {
           anySuccess = true;
           qtyLeft -= chunk;
         } else if (result.status === "over_quantity" || result.status === "over_quantity_with_exception") {
-          overQtyResult = { result, wu };
+          overQtyResult = result;
+          overQtyWuId = wu.id;
           break;
         } else {
           break;
         }
       }
 
-      if (overQtyResult) {
+      if (overQtyResult || (qtyLeft > 0 && anySuccess)) {
         ap.items.forEach(item => {
           usePendingDeltaStore.getState().clearItem("separacao", item.id);
           usePendingDeltaStore.getState().resetBaseline("separacao", item.id);
@@ -908,14 +910,15 @@ export default function SeparacaoPage() {
         setMultiplierValue(1);
         queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
         const targetQty = ap.totalQty - ap.exceptionQty;
+        const wuId = overQtyWuId || allMyUnits[0]?.id || "";
         setOverQtyContext({
           productName: ap.product.name,
           itemIds: ap.items.map(i => i.id),
-          workUnitId: overQtyResult.wu.id,
+          workUnitId: wuId,
           barcode: ap.product.barcode || "",
           targetQty,
-          message: overQtyResult.result.message || `Coleta de "${ap.product.name}" excedeu a quantidade solicitada (${targetQty}).`,
-          serverAlreadyReset: true,
+          message: overQtyResult?.message || `Quantidade informada (${qty}) excede o disponível (${remaining}). A contagem foi mantida, bipe novamente.`,
+          serverAlreadyReset: !!overQtyResult,
         });
         setOverQtyModalOpen(true);
         overQtyModalOpenRef.current = true;

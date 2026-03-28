@@ -849,7 +849,7 @@ export default function ConferenciaPage() {
       let qtyLeft = qty;
       let anySuccess = false;
       let overQtyResult: any = null;
-      let overQtyWu: any = null;
+      let overQtyWuId: string | null = null;
 
       const currentToken = activeSessionTokenRef.current;
 
@@ -880,14 +880,14 @@ export default function ConferenciaPage() {
           qtyLeft -= chunk;
         } else if (result.status === "over_quantity" || result.status === "over_quantity_with_exception") {
           overQtyResult = result;
-          overQtyWu = wu;
+          overQtyWuId = wu.id;
           break;
         } else {
           break;
         }
       }
 
-      if (overQtyResult) {
+      if (overQtyResult || (qtyLeft > 0 && anySuccess)) {
         ap.items.forEach(item => {
           usePendingDeltaStore.getState().clearItem("conferencia", item.id);
           usePendingDeltaStore.getState().resetBaseline("conferencia", item.id);
@@ -896,14 +896,15 @@ export default function ConferenciaPage() {
         queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
 
         const targetQty = ap.totalSeparatedQty;
+        const wuId = overQtyWuId || allMyUnits[0]?.id || "";
         setOverQtyContext({
           productName: ap.product.name,
           itemIds: ap.items.map(i => i.id),
-          workUnitId: overQtyWu.id,
+          workUnitId: wuId,
           barcode: ap.product.barcode || "",
           targetQty,
-          message: overQtyResult.message || `Conferência de "${ap.product.name}" excedeu a quantidade solicitada (${targetQty}).`,
-          serverAlreadyReset: true,
+          message: overQtyResult?.message || `Quantidade informada (${qty}) excede o disponível (${remaining}). A contagem foi mantida, bipe novamente.`,
+          serverAlreadyReset: !!overQtyResult,
         });
         setOverQtyModalOpen(true);
         overQtyModalOpenRef.current = true;

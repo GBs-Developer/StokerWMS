@@ -796,7 +796,7 @@ export default function BalcaoPage() {
         }
       }
 
-      if (overQtyResult) {
+      if (overQtyResult || (qtyLeft > 0 && anySuccess)) {
         ap.items.forEach(item => {
           usePendingDeltaStore.getState().clearItem("balcao", item.id);
           usePendingDeltaStore.getState().resetBaseline("balcao", item.id);
@@ -806,7 +806,7 @@ export default function BalcaoPage() {
         setResultDialogConfig({
           type: "warning",
           title: "Quantidade Excedida",
-          message: overQtyResult.message || "Quantidade excedida. Separação resetada."
+          message: overQtyResult?.message || `Quantidade informada (${qty}) excede o disponível (${remaining}). A contagem foi mantida.`
         });
         setShowResultDialog(true);
       } else if (anySuccess) {
