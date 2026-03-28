@@ -31,10 +31,15 @@ The frontend is organized with pages under `client/src/pages/` grouped by functi
 - **WMS / Operação modules**: `wms/recebimento.tsx`, `wms/checkin.tsx` (Endereçamento), `wms/transferencia.tsx`, `wms/contagem.tsx`, `wms/enderecos.tsx`, `wms/produtos.tsx`
 - **Logística modules**: `fila-pedidos/`, `supervisor/orders.tsx`, `supervisor/routes.tsx`, `supervisor/route-orders.tsx` (Expedição), `supervisor/exceptions.tsx`
 - **Administração modules**: `supervisor/users.tsx`, `supervisor/manual-qty-rules.tsx`, `supervisor/mapping-studio.tsx`, `supervisor/reports.tsx`, `supervisor/audit.tsx`, `admin/permissoes.tsx`
-- **WMS Report pages** (under `supervisor/reports/`): `counting-cycles.tsx` (contagem), `wms-addresses.tsx` (endereços), `pallet-movements.tsx` (movimentações) — accessible from the Reports hub with filters, summary stats, expandable details, and print support
+- **WMS Report pages** (under `supervisor/reports/`): `counting-cycles.tsx` (contagem), `wms-addresses.tsx` (endereços), `pallet-movements.tsx` (movimentações), `stock-discrepancy.tsx` (divergências de estoque) — accessible from the Reports hub with filters, summary stats, expandable details, and print support
 - **Legacy operator modules**: `separacao/`, `conferencia/`, `balcao/`, `handheld/`
 
-Home page (`home.tsx`) organizes modules into three collapsible sections: Operação, Logística, Administração. Module visibility is controlled by role-based defaults or per-user `allowedModules` overrides set in the Permissões de Acesso page.
+Home page (`home.tsx`) organizes modules into three collapsible sections: Operação, Logística, Administração. Module visibility is controlled by role-based defaults or per-user `allowedModules` overrides set in the Permissões de Acesso page. Legacy standalone modules (separação, conferência, balcão) are shown based on role OR `allowedModules` inclusion.
+
+### Stock Info Components
+- **ProductStockInfo** (`client/src/components/wms/product-stock-info.tsx`): Shows Real stock, PALETT (palletized units), PICK (gondola/picking units), and discrepancy indicator. Has `compact` prop for inline display.
+- **StockLegend**: Displays once per section explaining PALETT and PICK meanings. Used in recebimento, checkin, transferência, produtos, and stock discrepancy report.
+- **useProductStockBatch** hook (`client/src/hooks/use-product-stock.ts`): Batch fetches stock info for multiple product IDs via `/api/products/stock-batch`.
 
 Reusable UI components are in `client/src/components/ui/` following shadcn conventions.
 

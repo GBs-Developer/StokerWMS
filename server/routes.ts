@@ -73,7 +73,7 @@ export async function registerRoutes(
   }, 5000);
 
   // System Sync Route
-  app.post("/api/sync", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/sync", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
     try {
       console.log("[API] Triggering manual DB sync...");
       runSync((error, success) => {
@@ -267,7 +267,6 @@ export async function registerRoutes(
       res.json({
         user: safeUser,
         sessionKey,
-        token,
         companyId: companyId || null,
         allowedCompanies,
         companiesData,

@@ -1,16 +1,13 @@
-
 import { useEffect, useRef } from 'react';
-
-type SSEEvent<T = any> = {
-    type: string;
-    data: T;
-};
 
 export function useSSE(url: string, eventTypes: string[], onMessage: (type: string, data: any) => void) {
     const eventSourceRef = useRef<EventSource | null>(null);
+    const onMessageRef = useRef(onMessage);
+    onMessageRef.current = onMessage;
+
+    const eventTypesKey = JSON.stringify(eventTypes);
 
     useEffect(() => {
-        // cleanup previous
         if (eventSourceRef.current) {
             eventSourceRef.current.close();
         }
@@ -24,7 +21,7 @@ export function useSSE(url: string, eventTypes: string[], onMessage: (type: stri
             const listener = (event: MessageEvent) => {
                 try {
                     const parsedData = JSON.parse(event.data);
-                    onMessage(type, parsedData);
+                    onMessageRef.current(type, parsedData);
                 } catch (error) {
                     console.error(`Error parsing SSE data for ${type}:`, error);
                 }
@@ -35,10 +32,7 @@ export function useSSE(url: string, eventTypes: string[], onMessage: (type: stri
 
         eventSource.onerror = (error) => {
             console.error('SSE error:', error);
-            // Optional: Logic to reconnect or handle error
-            // EventSource auto-reconnects by default usually, but close on fatal
             if (eventSource.readyState === EventSource.CLOSED) {
-                // managed by browser
             }
         };
 
@@ -48,7 +42,7 @@ export function useSSE(url: string, eventTypes: string[], onMessage: (type: stri
             });
             eventSource.close();
         };
-    }, [url, JSON.stringify(eventTypes), onMessage]); // JSON.stringify to avoid loop on array dependency
+    }, [url, eventTypesKey]);
 
     return eventSourceRef.current;
 }

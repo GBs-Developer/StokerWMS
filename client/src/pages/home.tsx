@@ -142,13 +142,13 @@ export default function HomePage() {
     : (roleModuleAccess[userRole] || []);
 
   const legacyStandaloneModules: ModuleItem[] = [];
-  if (userRole === "separacao") {
+  if (userRole === "separacao" || allowedHrefs.includes("/separacao")) {
     legacyStandaloneModules.push({ icon: Package, title: "Separacao", description: "Separar pedidos de entrega", href: "/separacao" });
   }
-  if (userRole === "conferencia") {
+  if (userRole === "conferencia" || allowedHrefs.includes("/conferencia")) {
     legacyStandaloneModules.push({ icon: ClipboardCheck, title: "Conferencia", description: "Conferir pedidos separados", href: "/conferencia" });
   }
-  if (userRole === "balcao") {
+  if (userRole === "balcao" || allowedHrefs.includes("/balcao")) {
     legacyStandaloneModules.push({ icon: Store, title: "Balcao", description: "Atendimento ao cliente", href: "/balcao" });
   }
 

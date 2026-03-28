@@ -1591,37 +1591,44 @@ export function registerWmsRoutes(app: Express) {
           approvedAt: now,
         }).where(eq(countingCycles.id, id));
 
+        const stockByProduct = new Map<string, number>();
         for (const item of items) {
           if (item.countedQty !== null && item.productId) {
-            const existing = await tx.select().from(productCompanyStock)
-              .where(and(
-                eq(productCompanyStock.productId, item.productId),
-                eq(productCompanyStock.companyId, companyId),
-              ));
+            stockByProduct.set(item.productId, (stockByProduct.get(item.productId) || 0) + item.countedQty);
+          }
+        }
 
-            if (existing.length > 0) {
-              await tx.update(productCompanyStock).set({
-                stockQty: item.countedQty,
-                erpUpdatedAt: now,
-              }).where(eq(productCompanyStock.id, existing[0].id));
-            } else {
-              await tx.insert(productCompanyStock).values({
-                productId: item.productId,
-                companyId,
-                stockQty: item.countedQty,
-                erpUpdatedAt: now,
-              });
-            }
+        for (const [productId, totalQty] of stockByProduct.entries()) {
+          const existing = await tx.select().from(productCompanyStock)
+            .where(and(
+              eq(productCompanyStock.productId, productId),
+              eq(productCompanyStock.companyId, companyId),
+            ));
 
-            if (item.palletId && item.lot !== undefined) {
-              await tx.update(palletItems).set({
-                lot: item.lot,
-                expiryDate: item.expiryDate,
-              }).where(and(
-                eq(palletItems.palletId, item.palletId),
-                eq(palletItems.productId, item.productId),
-              ));
-            }
+          if (existing.length > 0) {
+            await tx.update(productCompanyStock).set({
+              stockQty: totalQty,
+              erpUpdatedAt: now,
+            }).where(eq(productCompanyStock.id, existing[0].id));
+          } else {
+            await tx.insert(productCompanyStock).values({
+              productId,
+              companyId,
+              stockQty: totalQty,
+              erpUpdatedAt: now,
+            });
+          }
+        }
+
+        for (const item of items) {
+          if (item.palletId && item.productId && item.lot !== undefined) {
+            await tx.update(palletItems).set({
+              lot: item.lot,
+              expiryDate: item.expiryDate,
+            }).where(and(
+              eq(palletItems.palletId, item.palletId),
+              eq(palletItems.productId, item.productId),
+            ));
           }
 
           await tx.update(countingCycleItems).set({ status: "aprovado" })

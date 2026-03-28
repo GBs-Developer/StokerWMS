@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { MapPin, CheckCircle2, XCircle, Keyboard, AlertTriangle } from "lucide-react";
+import { MapPin, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
 
 interface WmsAddress {
   id: string;
@@ -27,7 +27,6 @@ export function AddressPicker({ availableAddresses, onAddressSelect, onClear, va
   const [rua, setRua] = useState("");
   const [bloco, setBloco] = useState("");
   const [nivel, setNivel] = useState("");
-  const [keyboardOpen, setKeyboardOpen] = useState(false);
   const [activeField, setActiveField] = useState<string | null>(null);
   const [highlightIndex, setHighlightIndex] = useState(-1);
 
@@ -146,8 +145,7 @@ export function AddressPicker({ availableAddresses, onAddressSelect, onClear, va
     }
   };
 
-  const inputMode = keyboardOpen ? "text" : "none";
-  const fieldClass = `text-center font-bold text-lg h-12 ${!keyboardOpen ? "cursor-default" : ""}`;
+  const fieldClass = "text-center font-bold text-lg h-12";
 
   const fields = [
     { label: "Bairro", name: "bairro", ref: bairroRef, value: bairro, set: setBairro, next: ruaRef },
@@ -174,16 +172,6 @@ export function AddressPicker({ availableAddresses, onAddressSelect, onClear, va
               </span>
             )
           )}
-          <Button
-            variant={keyboardOpen ? "default" : "outline"}
-            size="sm"
-            className="h-8 w-8 p-0"
-            onClick={() => setKeyboardOpen(v => !v)}
-            title={keyboardOpen ? "Fechar teclado" : "Abrir teclado para digitar"}
-            data-testid="button-toggle-keyboard"
-          >
-            <Keyboard className="h-4 w-4" />
-          </Button>
         </div>
       </div>
 
@@ -197,8 +185,6 @@ export function AddressPicker({ availableAddresses, onAddressSelect, onClear, va
               value={val}
               onChange={e => set(alphaNumOnly(e.target.value))}
               className={fieldClass}
-              inputMode={inputMode}
-              readOnly={!keyboardOpen}
               onFocus={() => setActiveField(name)}
               onBlur={() => setTimeout(() => setActiveField(prev => prev === name ? null : prev), 150)}
               onKeyDown={e => handleKeyDown(e, name, next)}
@@ -229,11 +215,9 @@ export function AddressPicker({ availableAddresses, onAddressSelect, onClear, va
         ))}
       </div>
 
-      {!keyboardOpen && (
-        <p className="text-[10px] text-muted-foreground text-center">
-          Bipe o endereço ou toque em <Keyboard className="h-3 w-3 inline" /> para digitar
-        </p>
-      )}
+      <p className="text-[10px] text-muted-foreground text-center">
+        Bipe o endereço ou digite o código
+      </p>
 
       {occupiedWarning && (
         <div className="flex items-center gap-2 p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40">
