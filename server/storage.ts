@@ -524,11 +524,16 @@ export class DatabaseStorage implements IStorage {
       exceptionMap.set(exc.orderItemId, list);
     }
 
-    return items.map(item => ({
-      ...item,
-      product: productMap.get(item.productId)!,
-      exceptions: exceptionMap.get(item.id) || [],
-    }));
+    return items.map(item => {
+      const itemExceptions = exceptionMap.get(item.id) || [];
+      const exceptionQty = itemExceptions.reduce((sum, e) => sum + Number(e.quantity), 0);
+      return {
+        ...item,
+        product: productMap.get(item.productId)!,
+        exceptionQty,
+        exceptions: itemExceptions,
+      };
+    });
   }
 
   async updateOrderItem(id: string, data: Partial<OrderItem>): Promise<OrderItem | undefined> {

@@ -746,26 +746,11 @@ export default function SeparacaoPage() {
           alreadyComplete
         });
 
-        // COMMENTED OUT TO FORCE SERVER SIDE CHECK
-        // if (alreadyComplete) {
-        //   const targetQty = Number(matchedItem.quantity) - exceptionQty;
-        //   setOverQtyContext({
-        //     productName: matchedItem.product.name,
-        //     itemIds: [matchedItem.id],
-        //     workUnitId: finalUnit.id,
-        //     barcode,
-        //     targetQty,
-        //     message: `Coleta de "${matchedItem.product.name}" excedeu a quantidade solicitada (${targetQty}).`,
-        //     serverAlreadyReset: false,
-        //   });
-        //   setOverQtyModalOpen(true);
-        //   overQtyModalOpenRef.current = true;
-        //   const productId = matchedItem.product.id;
-        //   const idx = filteredAggregatedProducts.findIndex(ap => ap.product.id === productId);
-        //   if (idx >= 0) setCurrentProductIndex(idx);
-        //   setPickingTab("product");
-        //   break;
-        // }
+        if (alreadyComplete) {
+          setScanStatus("warning");
+          setScanMessage(`"${matchedItem.product.name}" já atingiu a quantidade máxima.`);
+          break;
+        }
 
         let multiplier = 1;
         if (matchedItem.product.barcode !== barcode && matchedItem.product.boxBarcodes && Array.isArray(matchedItem.product.boxBarcodes)) {

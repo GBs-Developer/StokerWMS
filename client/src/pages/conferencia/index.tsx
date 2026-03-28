@@ -719,23 +719,17 @@ export default function ConferenciaPage() {
         const serverChecked = Number(matchedItem.checkedQty);
         const itemDelta = getDelta("conferencia", matchedItem.id);
         const exceptionQty = Number(matchedItem.exceptionQty || 0);
-        const mSep = Number(matchedItem.separatedQty);
-        const effectiveTarget = mSep > 0 ? mSep : (exceptionQty > 0 ? 0 : Number(matchedItem.quantity));
-        // COMMENTED OUT TO FORCE SERVER SIDE CHECK
-        // if (serverChecked + itemDelta + exceptionQty >= effectiveTarget) {
-        //   setOverQtyContext({
-        //     productName: matchedItem.product.name,
-        //     itemIds: [matchedItem.id],
-        //     workUnitId: finalUnit.id,
-        //     barcode: barcode,
-        //     targetQty: effectiveTarget - exceptionQty,
-        //     message: `Conferência de "${matchedItem.product.name}" excedeu a quantidade separada.`,
-        //     serverAlreadyReset: false,
-        //   });
-        //   setOverQtyModalOpen(true);
-        //   overQtyModalOpenRef.current = true;
-        //   break;
-        // }
+        const targetQty = Number(matchedItem.quantity) - exceptionQty;
+        const alreadyComplete = serverChecked + itemDelta >= targetQty;
+
+        if (alreadyComplete) {
+          setScanStatus("warning");
+          setScanMessage(targetQty <= 0
+            ? `"${matchedItem.product.name}" está totalmente em exceção. Conferência bloqueada.`
+            : `"${matchedItem.product.name}" já atingiu a quantidade máxima (${targetQty}).`
+          );
+          break;
+        }
 
         let multiplier = 1;
         if (matchedItem.product.barcode !== barcode && matchedItem.product.boxBarcodes && Array.isArray(matchedItem.product.boxBarcodes)) {

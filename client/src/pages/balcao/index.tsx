@@ -683,6 +683,17 @@ export default function BalcaoPage() {
 
         if (!matchedItem) continue;
 
+        const serverSeparated = Number(matchedItem.separatedQty);
+        const itemDelta = getDelta("balcao", matchedItem.id);
+        const exceptionQty = Number(matchedItem.exceptionQty || 0);
+        const alreadyComplete = serverSeparated + itemDelta + exceptionQty >= Number(matchedItem.quantity);
+
+        if (alreadyComplete) {
+          setScanStatus("warning");
+          setScanMessage(`"${matchedItem.product.name}" já atingiu a quantidade máxima.`);
+          break;
+        }
+
         let multiplier = 1;
         if (matchedItem.product.barcode !== barcode && matchedItem.product.boxBarcodes && Array.isArray(matchedItem.product.boxBarcodes)) {
           const bx = matchedItem.product.boxBarcodes.find((b: any) => b.code === barcode);
