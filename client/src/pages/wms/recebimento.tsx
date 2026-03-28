@@ -21,7 +21,7 @@ import {
   Pencil, X, ScanBarcode, Store,
 } from "lucide-react";
 import { useLocation } from "wouter";
-import { ProductStockInfo } from "@/components/wms/product-stock-info";
+import { ProductStockInfo, StockLegend } from "@/components/wms/product-stock-info";
 import { useProductStockBatch } from "@/hooks/use-product-stock";
 
 interface PalletItemDraft {
@@ -710,6 +710,7 @@ export default function RecebimentoPage() {
             <>
               {showItemList && (
                 <div className="divide-y divide-border/30">
+                  <div className="px-4 py-2"><StockLegend /></div>
                   {palletItems.map((item, idx) => {
                     const si = item.productId ? stockInfoMap[item.productId] : null;
                     return (

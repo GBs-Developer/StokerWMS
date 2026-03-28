@@ -275,17 +275,6 @@ export default function StockDiscrepancyReportPage() {
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-3 text-[9px] text-muted-foreground">
-                            <span className="flex items-center gap-1">
-                              <span className="bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 font-bold px-1 rounded text-[9px] leading-[14px]">PALETT</span>
-                              Unidades em pallets
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <span className="bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 font-bold px-1 rounded text-[9px] leading-[14px]">PICK</span>
-                              Unidades em gôndola/picking
-                            </span>
-                          </div>
-
                           <div className={`rounded-lg p-2.5 text-[11px] font-medium ${
                             isPositive
                               ? "bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400 border border-red-200/60 dark:border-red-800/40"

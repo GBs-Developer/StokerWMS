@@ -17,7 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, ArrowRightLeft, MapPin, Loader2, Ban, Package, X, ArrowRight, Minus, Plus } from "lucide-react";
 import { useLocation } from "wouter";
 import { AddressPicker } from "@/components/wms/address-picker";
-import { ProductStockInfo } from "@/components/wms/product-stock-info";
+import { ProductStockInfo, StockLegend } from "@/components/wms/product-stock-info";
 import { useProductStockBatch } from "@/hooks/use-product-stock";
 
 export default function TransferenciaPage() {
@@ -317,6 +317,7 @@ export default function TransferenciaPage() {
                     </button>
                   </div>
 
+                  <div className="px-4 py-2"><StockLegend /></div>
                   <div className="divide-y divide-border/30 mt-1">
                     {palletDetail.items.map((item: any, idx: number) => {
                       const maxQty = Number(item.quantity);
@@ -371,6 +372,7 @@ export default function TransferenciaPage() {
 
               {palletDetail?.items && palletDetail.items.length > 0 && selectedPallet.status !== "alocado" && (
                 <div className="divide-y divide-border/30">
+                  <div className="px-4 py-2"><StockLegend /></div>
                   {palletDetail.items.map((item: any, idx: number) => {
                     const pid = item.productId || item.product?.id;
                     const si = pid ? stockInfoMap[pid] : null;

@@ -17,7 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, QrCode, MapPin, Loader2, Package, CheckCircle, Trash2, Ban, Search, X, Clock, Minus, Plus, Save, Keyboard, PackagePlus } from "lucide-react";
 import { useLocation } from "wouter";
 import { AddressPicker } from "@/components/wms/address-picker";
-import { ProductStockInfo } from "@/components/wms/product-stock-info";
+import { ProductStockInfo, StockLegend } from "@/components/wms/product-stock-info";
 import { useProductStockBatch } from "@/hooks/use-product-stock";
 
 export default function CheckinPage() {
@@ -317,6 +317,9 @@ export default function CheckinPage() {
                 </div>
               </div>
 
+              {editableItems.length > 0 && (
+                <div className="px-4 py-2 border-b border-border/20"><StockLegend /></div>
+              )}
               <div className="divide-y divide-border/30">
                 {editableItems.map((item: any, idx: number) => {
                   const pid = item.productId || item.product?.id;
