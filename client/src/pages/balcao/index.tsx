@@ -37,7 +37,7 @@ import { usePendingDeltaStore } from "@/lib/pendingDeltaStore";
 import { useProductAddressesBatch, type ProductAddress } from "@/hooks/use-product-stock";
 import { MapPin } from "lucide-react";
 
-type BalcaoStep = "select" | "scan_cart" | "picking";
+type BalcaoStep = "select" | "picking";
 type PickingTab = "product" | "list";
 
 const STORAGE_KEY = "wms:balcao-session";
@@ -148,7 +148,11 @@ export default function BalcaoPage() {
     queryKey: workUnitsQueryKey,
     refetchInterval: () =>
       scanWorkerRunningRef.current || scanQueueRef.current.length > 0 ? false : 1000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
+
+  const pendingInvalidateRef = useRef(false);
 
   useEffect(() => {
     if (!workUnits || !user) return;
@@ -172,11 +176,15 @@ export default function BalcaoPage() {
     window.addEventListener("online", handleOnline);
     return () => {
       window.removeEventListener("online", handleOnline);
+      scanWorkerRunningRef.current = false;
+      scanQueueRef.current = [];
+      if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
     };
   }, [queryClient, workUnitsQueryKey]);
 
   const handleSSEMessage = useCallback((type: string, _data: any) => {
     if (scanWorkerRunningRef.current || scanQueueRef.current.length > 0) {
+      pendingInvalidateRef.current = true;
       return;
     }
     queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
@@ -204,12 +212,11 @@ export default function BalcaoPage() {
 
   const allMyUnits = useMemo(() => {
     if (!workUnits || !user) return [];
-    return workUnits.filter(wu => wu.lockedBy === user.id);
+    return workUnits.filter(wu => wu.lockedBy === user.id && wu.status !== "concluido");
   }, [workUnits, user]);
 
-  // Safety: se não houver unidades travadas, voltar para seleção
   useEffect(() => {
-    if ((step === "picking" || step === "scan_cart") && allMyUnits.length === 0 && !isLoading) {
+    if (step === "picking" && allMyUnits.length === 0 && !isLoading) {
       setStep("select");
       setSelectedWorkUnits([]);
     }
@@ -258,6 +265,34 @@ export default function BalcaoPage() {
   }, [allMyUnits, user, pendingBalcao]);
 
   const currentProduct = aggregatedProducts[currentProductIndex] || aggregatedProducts[0] || null;
+
+  useEffect(() => {
+    if (currentProduct && step === "picking") {
+      const remaining = currentProduct.totalQty - currentProduct.separatedQty - currentProduct.exceptionQty;
+      const isComplete = remaining <= 0;
+      if (isComplete && currentProduct.separatedQty > 0) {
+        const nextIdx = aggregatedProducts.findIndex((ap, idx) => {
+          if (idx <= currentProductIndex) return false;
+          const r = ap.totalQty - ap.separatedQty - ap.exceptionQty;
+          return r > 0;
+        });
+
+        if (nextIdx >= 0 && nextIdx !== currentProductIndex) {
+          const timer = setTimeout(() => setCurrentProductIndex(nextIdx), 500);
+          return () => clearTimeout(timer);
+        } else {
+          const wrapIdx = aggregatedProducts.findIndex((ap) => {
+            const r = ap.totalQty - ap.separatedQty - ap.exceptionQty;
+            return r > 0;
+          });
+          if (wrapIdx >= 0 && wrapIdx !== currentProductIndex) {
+            const timer = setTimeout(() => setCurrentProductIndex(wrapIdx), 500);
+            return () => clearTimeout(timer);
+          }
+        }
+      }
+    }
+  }, [currentProduct?.separatedQty, currentProduct?.totalQty, step, aggregatedProducts, currentProductIndex]);
 
   useEffect(() => {
     if (aggregatedProducts.length > 0 && currentProductIndex >= aggregatedProducts.length) {
@@ -345,19 +380,6 @@ export default function BalcaoPage() {
       const res = await apiRequest("POST", "/api/work-units/lock", { workUnitIds });
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
-    },
-  });
-
-  const batchScanCartMutation = useMutation({
-    mutationFn: async ({ workUnitIds, qrCode }: { workUnitIds: string[]; qrCode: string }) => {
-      const res = await apiRequest("POST", "/api/work-units/batch/scan-cart", { workUnitIds, qrCode });
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
-    },
   });
 
   const unlockMutation = useMutation({
@@ -382,17 +404,11 @@ export default function BalcaoPage() {
 
   const scanItemMutation = useMutation({
     mutationFn: async ({ workUnitId, barcode }: { workUnitId: string; barcode: string }) => {
-      const res = await apiRequest("POST", `/api/work-units/${workUnitId}/balcao-item`, { barcode });
+      const res = await apiRequest("POST", `/api/work-units/${workUnitId}/scan-item`, { barcode });
       return res.json();
     },
-    onSuccess: (data) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
-      if (data.workUnit) {
-        queryClient.setQueryData(workUnitsQueryKey, (oldData: any[]) => {
-          if (!oldData) return oldData;
-          return oldData.map(wu => wu.id === data.workUnit.id ? data.workUnit : wu);
-        });
-      }
     },
   });
 
@@ -407,13 +423,13 @@ export default function BalcaoPage() {
       const res = await apiRequest("POST", "/api/exceptions", data);
       return { ...(await res.json()), _orderItemId: data.orderItemId };
     },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+    onSuccess: async (data) => {
+      usePendingDeltaStore.getState().clearItem("balcao", data._orderItemId);
+      usePendingDeltaStore.getState().resetBaseline("balcao", data._orderItemId);
+      await queryClient.refetchQueries({ queryKey: workUnitsQueryKey });
       toast({ title: "Problema Registrado", description: "O problema foi reportado com sucesso" });
       setShowExceptionDialog(false);
       setExceptionItem(null);
-      usePendingDeltaStore.getState().clearItem("balcao", data._orderItemId);
-      usePendingDeltaStore.getState().resetBaseline("balcao", data._orderItemId);
     },
     onError: (error: Error) => {
       let message = "Falha ao registrar problema";
@@ -442,10 +458,12 @@ export default function BalcaoPage() {
   const clearExceptionsMutation = useMutation({
     mutationFn: async (orderItemId: string) => {
       const res = await apiRequest("DELETE", `/api/exceptions/item/${orderItemId}`);
-      return res.json();
+      return { ...(await res.json()), _orderItemId: orderItemId };
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+    onSuccess: async (data) => {
+      usePendingDeltaStore.getState().clearItem("balcao", data._orderItemId);
+      usePendingDeltaStore.getState().resetBaseline("balcao", data._orderItemId);
+      await queryClient.refetchQueries({ queryKey: workUnitsQueryKey });
       toast({ title: "Exceções Limpas", description: "As exceções foram removidas com sucesso" });
     },
     onError: () => {
@@ -515,9 +533,22 @@ export default function BalcaoPage() {
     }
     try {
       await lockMutation.mutateAsync(selectedWorkUnits);
-      setStep("scan_cart");
+      const selectedSet = new Set(selectedWorkUnits);
+      queryClient.setQueryData<WorkUnitWithDetails[]>(workUnitsQueryKey, (old) => {
+        if (!old) return old;
+        return old.map(wu =>
+          selectedSet.has(wu.id)
+            ? { ...wu, lockedBy: user!.id, status: wu.status === "pendente" ? "em_andamento" : wu.status }
+            : wu
+        );
+      });
+      setStep("picking");
+      setPickingTab("list");
+      setCurrentProductIndex(0);
+      setElapsedTime(0);
       setScanStatus("idle");
       setScanMessage("");
+      queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
     } catch {
       toast({ title: "Erro", description: "Falha ao bloquear unidades de trabalho", variant: "destructive" });
     }
@@ -566,6 +597,7 @@ export default function BalcaoPage() {
   };
 
   const finalizeWorkUnits = async () => {
+    usePendingDeltaStore.getState().clear("balcao");
     try {
       let anyUnlock = false;
       for (const wu of allMyUnits) {
@@ -602,29 +634,6 @@ export default function BalcaoPage() {
     await finalizeWorkUnits();
   };
 
-  const handleScanCart = async (qrCode: string) => {
-    const units = allMyUnits.length > 0 ? allMyUnits : selectedWorkUnits.map(id => workUnits?.find(wu => wu.id === id)).filter(Boolean) as WorkUnitWithDetails[];
-    if (units.length === 0) return;
-
-    try {
-      const workUnitIds = units.map(wu => wu.id);
-      await batchScanCartMutation.mutateAsync({ workUnitIds, qrCode });
-      setScanStatus("idle");
-      setScanMessage("");
-      setTimeout(() => {
-        setStep("picking");
-        setPickingTab("list");
-        setCurrentProductIndex(0);
-        setElapsedTime(0);
-        setScanStatus("idle");
-        setScanMessage("");
-      }, 800);
-    } catch {
-      setScanStatus("error");
-      setScanMessage("Erro ao registrar cesto/carrinho");
-    }
-  };
-
   const processScanQueue = useCallback(async () => {
     if (scanWorkerRunningRef.current) return;
     scanWorkerRunningRef.current = true;
@@ -659,7 +668,6 @@ export default function BalcaoPage() {
           );
           if (!item) return false;
           const serverSeparated = Number(item.separatedQty);
-          // NEW: use "balcao" namespace
           const delta = getDelta("balcao", item.id);
           const exceptionQty = Number(item.exceptionQty || 0);
           return serverSeparated + delta + exceptionQty < Number(item.quantity);
@@ -674,7 +682,6 @@ export default function BalcaoPage() {
 
         if (!matchedItem) continue;
 
-        // Optimistic update
         let multiplier = 1;
         if (matchedItem.product.barcode !== barcode && matchedItem.product.boxBarcodes && Array.isArray(matchedItem.product.boxBarcodes)) {
           const bx = matchedItem.product.boxBarcodes.find((b: any) => b.code === barcode);
@@ -686,28 +693,26 @@ export default function BalcaoPage() {
         setScanStatus("idle");
         setScanMessage("");
 
-        // Switch to product tab
         const productId = matchedItem.product.id;
         const idx = aggregatedProducts.findIndex(ap => ap.product.id === productId);
         if (idx >= 0) setCurrentProductIndex(idx);
         setPickingTab("product");
 
         try {
-          const result = await scanItemMutation.mutateAsync({ workUnitId: finalUnit.id, barcode });
+          const res = await apiRequest("POST", `/api/work-units/${finalUnit.id}/scan-item`, { barcode });
+          const result = await res.json();
 
           if (result.status === "success") {
-            // success
-            const updatedUnits = units.map((wu: any) => wu.id === result.workUnit.id ? result.workUnit : wu);
-            const allCompleted = updatedUnits.every((wu: any) => wu.status === "concluido");
-            if (allCompleted) {
-              handleCompleteAll();
-            }
           } else if (result.status === "over_quantity_with_exception" || result.status === "over_quantity") {
             usePendingDeltaStore.getState().dec("balcao", matchedItem.id, multiplier);
+            usePendingDeltaStore.getState().clearItem("balcao", matchedItem.id);
+            usePendingDeltaStore.getState().resetBaseline("balcao", matchedItem.id);
             setScanStatus("error");
-            setScanMessage(result.message || "Quantidade excedida considerando exceções");
-            setResultDialogConfig({ type: "warning", title: "Exceções Registradas", message: result.message || "Este item tem exceções registradas." });
+            setScanMessage(result.message || "Quantidade excedida");
+            setResultDialogConfig({ type: "warning", title: "Quantidade Excedida", message: result.message || "Quantidade excedida." });
             setShowResultDialog(true);
+            queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+            break;
           } else if (result.status === "not_found") {
             usePendingDeltaStore.getState().dec("balcao", matchedItem.id, multiplier);
             setScanStatus("warning");
@@ -722,13 +727,15 @@ export default function BalcaoPage() {
     } finally {
       scanWorkerRunningRef.current = false;
     }
+
     if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
     syncTimerRef.current = setTimeout(() => {
       if (scanQueueRef.current.length === 0 && !scanWorkerRunningRef.current) {
         queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+        pendingInvalidateRef.current = false;
       }
     }, 300);
-  }, [queryClient, workUnitsQueryKey, user, aggregatedProducts, scanItemMutation]);
+  }, [queryClient, workUnitsQueryKey, user, aggregatedProducts]);
 
   const handleScanItem = useCallback((barcode: string) => {
     if (syncTimerRef.current) {
@@ -739,15 +746,7 @@ export default function BalcaoPage() {
     processScanQueue();
   }, [processScanQueue]);
 
-  const globalScanHandler = useCallback((barcode: string) => {
-    if (step === "picking") {
-      handleScanItem(barcode);
-    } else if (step === "scan_cart") {
-      handleScanCart(barcode);
-    }
-  }, [step, handleScanItem]);
-
-  useBarcodeScanner(globalScanHandler, step === "picking" || step === "scan_cart");
+  useBarcodeScanner(handleScanItem, step === "picking");
 
   const handleIncrementProduct = async (ap: AggregatedProduct, qty: number = 1) => {
     const remaining = ap.totalQty - ap.separatedQty - ap.exceptionQty;
@@ -986,45 +985,6 @@ export default function BalcaoPage() {
               <p className="text-xs">Aguarde novos clientes</p>
             </div>
           )}
-        </div>
-      )}
-
-      {step === "scan_cart" && (
-        <div className="flex-1 flex items-center justify-center px-4">
-          <div className="w-full max-w-md space-y-6 text-center">
-            <div className="space-y-2">
-              <div className="w-20 h-20 rounded-full bg-amber-500/10 flex items-center justify-center mx-auto">
-                <Store className="h-10 w-10 text-amber-500" />
-              </div>
-              <h2 className="text-lg font-semibold">Leia o Cesto/Carrinho</h2>
-              <p className="text-sm text-muted-foreground">
-                Escaneie o código do cesto ou carrinho onde os produtos separados serão colocados
-              </p>
-            </div>
-            <ScanInput
-              placeholder="Leia o código do cesto/carrinho..."
-              onScan={handleScanCart}
-              status={scanStatus}
-              statusMessage={scanMessage}
-              autoFocus
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                const ids = allMyUnits.map(wu => wu.id);
-                if (ids.length > 0) {
-                  unlockMutation.mutate({ ids, reset: true });
-                } else {
-                  setStep("select");
-                  setSelectedWorkUnits([]);
-                }
-              }}
-              className="text-xs"
-            >
-              Abandonar
-            </Button>
-          </div>
         </div>
       )}
 
