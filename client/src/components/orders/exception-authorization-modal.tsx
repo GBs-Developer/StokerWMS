@@ -168,9 +168,9 @@ export function ExceptionAuthorizationModal({
         <Dialog open={open} onOpenChange={(isOpen) => !isOpen && handleClose()}>
             <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
                 <DialogHeader className="pb-2">
-                    <DialogTitle className="text-base sm:text-lg">{"Autorização de Exceções"}</DialogTitle>
+                    <DialogTitle className="text-base sm:text-lg">{"Autorização de Problemas"}</DialogTitle>
                     <DialogDescription className="text-xs sm:text-sm">
-                        {exceptions.length} {"exceção(ões) detectada(s). Supervisor ou Administrador deve autorizar."}
+                        {exceptions.length} {"problema(s) detectado(s). Supervisor ou Administrador deve autorizar."}
                     </DialogDescription>
                 </DialogHeader>
 

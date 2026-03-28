@@ -218,8 +218,8 @@ export default function SeparacaoPage() {
     queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
     if (type === "exception_created") {
       toast({
-        title: "Nova Exceção",
-        description: "Uma exceção foi registrada",
+        title: "Novo Problema Relatado",
+        description: "Um problema foi registrado",
         variant: "destructive",
       });
     }
@@ -469,12 +469,12 @@ export default function SeparacaoPage() {
       usePendingDeltaStore.getState().clearItem("separacao", data._orderItemId);
       usePendingDeltaStore.getState().resetBaseline("separacao", data._orderItemId);
       await queryClient.refetchQueries({ queryKey: workUnitsQueryKey });
-      toast({ title: "Exceção Registrada", description: "A exceção foi reportada com sucesso" });
+      toast({ title: "Problema Registrado", description: "O problema foi reportado com sucesso" });
       setShowExceptionDialog(false);
       setExceptionItem(null);
     },
     onError: (error: Error) => {
-      let message = "Falha ao registrar exceção";
+      let message = "Falha ao registrar problema";
       try {
         const errorData = JSON.parse(error.message);
         if (errorData.error) message = errorData.error;
@@ -1270,7 +1270,7 @@ export default function SeparacaoPage() {
                       }}
                     >
                       <AlertTriangle className="h-3.5 w-3.5 mr-1" />
-                      {"Exceção"}
+                      {"Relatar Problema"}
                     </Button>
                     <Button
                       size="sm"
@@ -1290,7 +1290,7 @@ export default function SeparacaoPage() {
                       disabled={unlockMutation.isPending}
                       data-testid="button-cancel-picking"
                     >
-                      {"Cancelar"}
+                      {"Abandonar"}
                     </Button>
                     <Button
                       size="sm"
@@ -1420,7 +1420,7 @@ export default function SeparacaoPage() {
                       onClick={handleCancelPicking}
                       disabled={unlockMutation.isPending}
                     >
-                      Cancelar
+                      Abandonar
                     </Button>
                     <Button
                       size="sm"

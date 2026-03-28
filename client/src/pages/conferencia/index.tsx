@@ -206,8 +206,8 @@ export default function ConferenciaPage() {
     queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
     if (type === "exception_created") {
       toast({
-        title: "Nova Exceção",
-        description: "Uma exceção foi registrada",
+        title: "Novo Problema Relatado",
+        description: "Um problema foi registrado",
         variant: "destructive",
       });
     }
@@ -444,12 +444,12 @@ export default function ConferenciaPage() {
       usePendingDeltaStore.getState().clearItem("conferencia", data._orderItemId);
       usePendingDeltaStore.getState().resetBaseline("conferencia", data._orderItemId);
       await queryClient.refetchQueries({ queryKey: workUnitsQueryKey });
-      toast({ title: "Exceção Registrada", description: "A exceção foi reportada com sucesso" });
+      toast({ title: "Problema Registrado", description: "O problema foi reportado com sucesso" });
       setShowExceptionDialog(false);
       setExceptionItem(null);
     },
     onError: (error: Error) => {
-      let message = "Falha ao registrar exceção";
+      let message = "Falha ao registrar problema";
       try {
         const errorData = JSON.parse(error.message);
         if (errorData.error) message = errorData.error;
@@ -1281,7 +1281,7 @@ export default function ConferenciaPage() {
                       disabled={unlockMutation.isPending}
                       data-testid="button-cancel-checking"
                     >
-                      Cancelar
+                      Abandonar
                     </Button>
                     <Button
                       size="sm"
@@ -1392,7 +1392,7 @@ export default function ConferenciaPage() {
                       onClick={handleCancelChecking}
                       disabled={unlockMutation.isPending}
                     >
-                      Cancelar
+                      Abandonar
                     </Button>
                     <Button
                       size="sm"

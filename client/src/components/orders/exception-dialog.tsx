@@ -81,7 +81,7 @@ export function ExceptionDialog({
     };
 
     const handleClear = () => {
-        if (onClearExceptions && confirm(`Limpar todas as exceções de ${productName}?`)) {
+        if (onClearExceptions && confirm(`Limpar todos os problemas relatados de ${productName}?`)) {
             onClearExceptions();
         }
     };
@@ -95,7 +95,7 @@ export function ExceptionDialog({
                             <AlertTriangle className="h-5 w-5 text-orange-600 dark:text-orange-400" />
                         </div>
                         <div>
-                            <DialogTitle>Registrar Exceção</DialogTitle>
+                            <DialogTitle>Relatar Problema</DialogTitle>
                             <DialogDescription>{productName}</DialogDescription>
                         </div>
                     </div>
@@ -103,7 +103,7 @@ export function ExceptionDialog({
 
                 <div className="space-y-4 py-4">
                     <div className="space-y-2">
-                        <Label htmlFor="exception-type">Tipo de Exceção *</Label>
+                        <Label htmlFor="exception-type">Tipo de Problema *</Label>
                         <Select value={type} onValueChange={(value) => setType(value as ExceptionType)}>
                             <SelectTrigger id="exception-type">
                                 <SelectValue placeholder="Selecione o tipo" />
@@ -153,7 +153,7 @@ export function ExceptionDialog({
                             disabled={isSubmitting || isClearing}
                             className="sm:mr-auto"
                         >
-                            {isClearing ? "Limpando..." : "Limpar Exceções"}
+                            {isClearing ? "Limpando..." : "Limpar Problemas"}
                         </Button>
                     )}
                     <div className="flex gap-2 sm:ml-auto">
