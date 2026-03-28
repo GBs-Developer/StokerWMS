@@ -1,7 +1,7 @@
 import { db } from "./db";
 import { eq, and, sql, desc, inArray, isNull, gt, lt, or, like } from "drizzle-orm";
 import {
-  users, orders, orderItems, products, routes, workUnits, exceptions, auditLogs, sessions, sections, sectionGroups, manualQtyRules, db2Mappings, cacheOrcamentos, orderVolumes, systemSettings,
+  users, orders, orderItems, products, routes, workUnits, exceptions, auditLogs, sessions, sections, sectionGroups, manualQtyRules, db2Mappings, cacheOrcamentos, orderVolumes, systemSettings, nfItems,
   type User, type InsertUser, type Order, type InsertOrder, type OrderItem, type InsertOrderItem,
   type Product, type InsertProduct, type Route, type InsertRoute, type WorkUnit, type InsertWorkUnit,
   type Exception, type InsertException, type AuditLog, type InsertAuditLog, type Session,
@@ -1147,7 +1147,24 @@ export class DatabaseStorage implements IStorage {
     const productMap = new Map(fetchedProducts.map(p => [p.id, p]));
     const orderMap = new Map(fetchedOrders.map(o => [o.id, o]));
 
-    // Grouping: Section -> Pickup Point
+    const erpCodes = fetchedProducts.map(p => p.erpCode).filter(Boolean);
+    const factoryCodeMap = new Map<string, string>();
+    if (erpCodes.length > 0) {
+      const nfRows = await db.select({
+        idProduto: nfItems.idProduto,
+        fabricante: nfItems.fabricante,
+      }).from(nfItems)
+        .where(and(
+          inArray(nfItems.idProduto, erpCodes),
+          sql`${nfItems.fabricante} IS NOT NULL AND ${nfItems.fabricante} != ''`
+        ));
+      for (const row of nfRows) {
+        if (row.idProduto && row.fabricante && !factoryCodeMap.has(row.idProduto)) {
+          factoryCodeMap.set(row.idProduto, row.fabricante);
+        }
+      }
+    }
+
     const grouped = new Map<string, any>();
 
     for (const item of items) {
@@ -1155,6 +1172,9 @@ export class DatabaseStorage implements IStorage {
       const order = orderMap.get(item.orderId);
 
       if (!product || !order) continue;
+
+      const factoryCode = product.erpCode ? factoryCodeMap.get(product.erpCode) || "" : "";
+      const enrichedProduct = { ...product, factoryCode };
 
       const key = `${item.section}|${item.pickupPoint}`;
 
@@ -1166,7 +1186,7 @@ export class DatabaseStorage implements IStorage {
         });
       }
 
-      grouped.get(key).items.push({ ...item, product, order });
+      grouped.get(key).items.push({ ...item, product: enrichedProduct, order });
     }
 
     // Convert map to array and sort
