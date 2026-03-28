@@ -298,7 +298,7 @@ export class DatabaseStorage implements IStorage {
       or(
         eq(products.barcode, barcode),
         eq(products.boxBarcode, barcode),
-        like(products.boxBarcodes, `%${barcode}%`)
+        sql`${products.boxBarcodes}::text LIKE ${'%' + barcode + '%'}`
       )
     );
 

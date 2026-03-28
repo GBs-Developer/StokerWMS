@@ -38,6 +38,8 @@ import { ExceptionAuthorizationModal } from "@/components/orders/exception-autho
 import { getCurrentWeekRange, isDateInRange } from "@/lib/date-utils";
 import { format } from "date-fns";
 import { usePendingDeltaStore } from "@/lib/pendingDeltaStore";
+import { useProductAddressesBatch, type ProductAddress } from "@/hooks/use-product-stock";
+import { MapPin } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -302,8 +304,10 @@ export default function SeparacaoPage() {
     return Array.from(secs).sort();
   }, [aggregatedProducts]);
 
-  // Buscar regras de quantidade manual para os produtos atuais
   const productIds = useMemo(() => aggregatedProducts.map(ap => ap.product.id), [aggregatedProducts]);
+  const { data: addressesMap } = useProductAddressesBatch(productIds);
+
+  // Buscar regras de quantidade manual para os produtos atuais
   const { data: manualQtyRulesMap } = useQuery<Record<string, boolean>>({
     queryKey: ["manual-qty-rules", productIds],
     queryFn: async () => {
@@ -1189,6 +1193,19 @@ export default function SeparacaoPage() {
                       </div>
                     </div>
 
+                    {addressesMap?.[currentProduct.product.id] && addressesMap[currentProduct.product.id].length > 0 && (
+                      <div className="flex items-start gap-1.5 text-xs" data-testid="product-addresses">
+                        <MapPin className="h-3.5 w-3.5 text-blue-500 mt-0.5 shrink-0" />
+                        <div className="flex flex-wrap gap-1">
+                          {addressesMap[currentProduct.product.id].map((addr: ProductAddress) => (
+                            <span key={addr.code} className="bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded font-mono text-[10px]">
+                              {addr.code} ({addr.quantity})
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     <div className="flex items-center justify-between pt-1 border-t border-border">
                       <div>
                         <span className="text-xs text-muted-foreground">Separado</span>
@@ -1368,6 +1385,16 @@ export default function SeparacaoPage() {
                                   <span key={code} className="text-[9px] bg-muted px-1 py-0.5 rounded font-mono">{code}</span>
                                 ))}
                               </div>
+                              {addressesMap?.[ap.product.id] && addressesMap[ap.product.id].length > 0 && (
+                                <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                                  <MapPin className="h-3 w-3 text-blue-500 shrink-0" />
+                                  {addressesMap[ap.product.id].map((addr: ProductAddress) => (
+                                    <span key={addr.code} className="text-[9px] bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 px-1 py-0.5 rounded font-mono">
+                                      {addr.code}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                             <div className="text-right shrink-0">
                               <p className="text-xs font-medium">

@@ -1979,6 +1979,50 @@ export function registerWmsRoutes(app: Express) {
     }
   });
 
+  const anyOperationalRole = requireRole("recebedor", "empilhador", "conferente_wms", "supervisor", "administrador", "separacao", "conferencia", "balcao");
+  app.post("/api/products/addresses-batch", ...authMiddleware, anyOperationalRole, async (req: Request, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const { productIds } = req.body;
+      if (!Array.isArray(productIds) || productIds.length === 0) {
+        return res.json({});
+      }
+
+      const ids = productIds.slice(0, 100);
+
+      const rows = await db.select({
+          productId: palletItems.productId,
+          addressCode: wmsAddresses.code,
+          addressType: wmsAddresses.type,
+          quantity: sql<number>`SUM(${palletItems.quantity})`,
+        })
+        .from(palletItems)
+        .innerJoin(pallets, eq(palletItems.palletId, pallets.id))
+        .innerJoin(wmsAddresses, eq(pallets.addressId, wmsAddresses.id))
+        .where(and(
+          sql`${palletItems.productId} IN (${sql.join(ids.map(id => sql`${id}`), sql`, `)})`,
+          eq(palletItems.companyId, companyId),
+          ne(pallets.status, 'cancelado')
+        ))
+        .groupBy(palletItems.productId, wmsAddresses.code, wmsAddresses.type);
+
+      const result: Record<string, { code: string; type: string | null; quantity: number }[]> = {};
+      for (const row of rows) {
+        if (!result[row.productId]) result[row.productId] = [];
+        result[row.productId].push({
+          code: row.addressCode,
+          type: row.addressType,
+          quantity: Number(row.quantity),
+        });
+      }
+
+      res.json(result);
+    } catch (error) {
+      console.error("Batch addresses error:", error);
+      res.status(500).json({ error: "Erro ao buscar endereços" });
+    }
+  });
+
   app.get("/api/reports/counting-cycles", ...authMiddleware, supervisorRoles, async (req: Request, res: Response) => {
     try {
       const companyId = getCompanyId(req);
