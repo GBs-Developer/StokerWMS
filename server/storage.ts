@@ -1105,10 +1105,19 @@ export class DatabaseStorage implements IStorage {
       conditions.push(inArray(orderItems.orderId, validOrderIds));
     }
 
-    let ppFilters = filters.pickupPoints ? filters.pickupPoints.map(p => parseInt(p)).filter(p => !isNaN(p)) : [];
-    if (companyId) {
-      const reportPP = getCompanyReportPickupPoints(companyId);
-      if (reportPP) ppFilters = reportPP;
+    const userPP = filters.pickupPoints ? filters.pickupPoints.map(p => parseInt(p)).filter(p => !isNaN(p)) : [];
+    const companyPP = companyId ? getCompanyReportPickupPoints(companyId) : null;
+
+    let ppFilters: number[];
+    if (userPP.length > 0 && companyPP) {
+      ppFilters = userPP.filter(pp => companyPP.includes(pp));
+      if (ppFilters.length === 0) return [];
+    } else if (userPP.length > 0) {
+      ppFilters = userPP;
+    } else if (companyPP) {
+      ppFilters = companyPP;
+    } else {
+      ppFilters = [];
     }
 
     if (ppFilters.length > 0) {

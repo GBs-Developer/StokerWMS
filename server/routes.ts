@@ -1148,14 +1148,20 @@ export async function registerRoutes(
       const ppParam = req.query.pp;
       const ppList = Array.isArray(ppParam) ? ppParam : ppParam ? [ppParam] : [];
       const ppInts = ppList.map(p => parseInt(p as string)).filter(p => !isNaN(p));
+      const companyId = (req as any).companyId;
 
       if (ppInts.length === 0) {
         return res.json({ orderIds: [] });
       }
 
       const { db: database } = await import("./db");
-      const { orderItems: orderItemsTable } = await import("@shared/schema");
-      const { inArray: inArrayFn, sql: sqlFn } = await import("drizzle-orm");
+      const { orderItems: orderItemsTable, orders: ordersTable } = await import("@shared/schema");
+      const { inArray: inArrayFn, sql: sqlFn, eq: eqFn, and: andFn } = await import("drizzle-orm");
+
+      const conditions: any[] = [inArrayFn(orderItemsTable.pickupPoint, ppInts)];
+      if (companyId) {
+        conditions.push(eqFn(ordersTable.companyId, companyId));
+      }
 
       const rows = await database
         .select({
@@ -1163,7 +1169,8 @@ export async function registerRoutes(
           itemCount: sqlFn<number>`count(distinct ${orderItemsTable.productId})`
         })
         .from(orderItemsTable)
-        .where(inArrayFn(orderItemsTable.pickupPoint, ppInts))
+        .innerJoin(ordersTable, eqFn(ordersTable.id, orderItemsTable.orderId))
+        .where(andFn(...conditions))
         .groupBy(orderItemsTable.orderId);
 
       res.json({ orderIds: rows.map(r => r.orderId), counts: rows });
@@ -2317,17 +2324,24 @@ export async function registerRoutes(
       }
 
       const companyId = (req as any).companyId;
+      const ppStrings = pickupPoints && pickupPoints.length > 0 ? pickupPoints.map(String) : undefined;
       const reportData = await storage.getPickingListReportData({
         orderIds,
-        pickupPoints: pickupPoints?.map(String),
+        pickupPoints: ppStrings,
         sections: filterSections,
       }, companyId);
 
       const selectedOrders: any[] = [];
       for (const oid of orderIds) {
         const order = await storage.getOrderWithItems(oid);
-        if (order) selectedOrders.push(order);
+        if (order && (!companyId || order.companyId === companyId)) {
+          selectedOrders.push(order);
+        }
       }
+
+      const totalReportItems = reportData.reduce((sum, g) => sum + g.items.length, 0);
+      const reportPickupPoints = [...new Set(reportData.map(g => g.pickupPoint))];
+      console.log(`[Picking List] Company: ${companyId} | Orders: ${orderIds.length} | PP filter: ${JSON.stringify(ppStrings || 'all')} | Items in report: ${totalReportItems} | PPs in result: ${JSON.stringify(reportPickupPoints)}`);
 
       res.json({
         reportData,
