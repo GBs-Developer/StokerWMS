@@ -2089,13 +2089,14 @@ export function registerWmsRoutes(app: Express) {
   app.get("/api/picking/address-log", ...authMiddleware, anyWmsRole, async (req: Request, res: Response) => {
     try {
       const companyId = getCompanyId(req);
-      const { addressId, productId, limit: limitParam, offset: offsetParam } = req.query as Record<string, string>;
+      const { addressId, productId, orderId, limit: limitParam, offset: offsetParam } = req.query as Record<string, string>;
       const limitN = Math.min(parseInt(limitParam || "50"), 200);
       const offsetN = parseInt(offsetParam || "0");
 
       const conditions = [eq(addressPickingLog.companyId, companyId)];
       if (addressId) conditions.push(eq(addressPickingLog.addressId, addressId));
       if (productId) conditions.push(eq(addressPickingLog.productId, productId));
+      if (orderId) conditions.push(eq(addressPickingLog.orderId, orderId));
 
       const rows = await db.select().from(addressPickingLog)
         .where(and(...conditions))

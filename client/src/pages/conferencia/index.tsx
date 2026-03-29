@@ -37,7 +37,7 @@ import { getCurrentWeekRange, isDateInRange } from "@/lib/date-utils";
 import { format } from "date-fns";
 import { usePendingDeltaStore } from "@/lib/pendingDeltaStore";
 import { useProductAddressesBatch, type ProductAddress } from "@/hooks/use-product-stock";
-import { MapPin } from "lucide-react";
+import { MapPin, History } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -315,6 +315,40 @@ export default function ConferenciaPage() {
 
   const confProductIds = useMemo(() => aggregatedProducts.map(ap => ap.product.id), [aggregatedProducts]);
   const { data: addressesMap } = useProductAddressesBatch(confProductIds);
+
+  // Buscar log de endereços do separador para os pedidos sendo conferidos
+  const confOrderIds = useMemo(() => {
+    const ids = new Set<string>();
+    allMyUnits.forEach(wu => { if (wu.orderId) ids.add(wu.orderId); });
+    return Array.from(ids);
+  }, [allMyUnits]);
+
+  const { data: separadorAddressLog = [] } = useQuery<any[]>({
+    queryKey: ["address-picking-log-conf", confOrderIds],
+    queryFn: async () => {
+      if (confOrderIds.length === 0) return [];
+      const all: any[] = [];
+      for (const oid of confOrderIds) {
+        const params = new URLSearchParams({ orderId: oid, limit: "200" });
+        const res = await fetch(`/api/picking/address-log?${params}`, { credentials: "include" });
+        if (res.ok) all.push(...await res.json());
+      }
+      return all;
+    },
+    enabled: confOrderIds.length > 0,
+    staleTime: 30000,
+  });
+
+  // Indexar por productId → entrada mais recente
+  const separadorAddressMap = useMemo<Record<string, { addressCode: string; quantity: number; userName: string }>>(() => {
+    const map: Record<string, { addressCode: string; quantity: number; userName: string }> = {};
+    for (const entry of separadorAddressLog) {
+      if (!map[entry.productId]) {
+        map[entry.productId] = { addressCode: entry.addressCode, quantity: entry.quantity, userName: entry.userName || "" };
+      }
+    }
+    return map;
+  }, [separadorAddressLog]);
 
   useEffect(() => {
     if (aggregatedProducts.length > 0 && currentProductIndex >= aggregatedProducts.length) {
@@ -1198,18 +1232,21 @@ export default function ConferenciaPage() {
                       </div>
                     </div>
 
-                    {addressesMap?.[currentProduct.product.id] && addressesMap[currentProduct.product.id].length > 0 && (
-                      <div className="flex items-start gap-1.5 text-xs" data-testid="product-addresses">
-                        <MapPin className="h-3.5 w-3.5 text-blue-500 mt-0.5 shrink-0" />
-                        <div className="flex flex-wrap gap-1">
-                          {addressesMap[currentProduct.product.id].map((addr: ProductAddress) => (
-                            <span key={addr.code} className="bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded font-mono text-[10px]">
-                              {addr.code} ({addr.quantity})
-                            </span>
-                          ))}
+                    {separadorAddressMap[currentProduct.product.id] ? (
+                      <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800" data-testid="product-picked-address">
+                        <MapPin className="h-4 w-4 text-blue-500 shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-[10px] text-blue-500 font-semibold uppercase tracking-wide">Coletado de</p>
+                          <p className="font-mono font-bold text-blue-700 dark:text-blue-300 text-sm">
+                            {separadorAddressMap[currentProduct.product.id].addressCode}
+                          </p>
+                          {separadorAddressMap[currentProduct.product.id].userName && (
+                            <p className="text-[10px] text-muted-foreground">por {separadorAddressMap[currentProduct.product.id].userName}</p>
+                          )}
                         </div>
+                        <History className="h-3.5 w-3.5 text-blue-400 ml-auto shrink-0" />
                       </div>
-                    )}
+                    ) : null}
 
                     <div className="flex items-center justify-between pt-1 border-t border-border">
                       <div>
@@ -1355,14 +1392,12 @@ export default function ConferenciaPage() {
                                   <span key={code} className="text-[9px] bg-muted px-1 py-0.5 rounded font-mono">{code}</span>
                                 ))}
                               </div>
-                              {addressesMap?.[ap.product.id] && addressesMap[ap.product.id].length > 0 && (
-                                <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                              {separadorAddressMap[ap.product.id] && (
+                                <div className="flex items-center gap-1 mt-0.5">
                                   <MapPin className="h-3 w-3 text-blue-500 shrink-0" />
-                                  {addressesMap[ap.product.id].map((addr: ProductAddress) => (
-                                    <span key={addr.code} className="text-[9px] bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 px-1 py-0.5 rounded font-mono">
-                                      {addr.code}
-                                    </span>
-                                  ))}
+                                  <span className="text-[9px] bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 px-1 py-0.5 rounded font-mono font-bold">
+                                    {separadorAddressMap[ap.product.id].addressCode}
+                                  </span>
                                 </div>
                               )}
                             </div>
