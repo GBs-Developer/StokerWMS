@@ -31,20 +31,23 @@ export function ScanInput({
   readOnly = false,
   inputMode = "none",
 }: ScanInputProps) {
-  const [internalValue, setInternalValue] = useState("");
-  const [manualOpen, setManualOpen] = useState(false);
-  const [manualValue, setManualValue] = useState("");
+  // Buffer interno — acumula teclas do leitor via onKeyDown
+  const bufferRef = useRef("");
+  const [displayValue, setDisplayValue] = useState("");
 
-  const value = controlledValue !== undefined ? controlledValue : internalValue;
+  // Se controlado externamente, repassa; senão usa estado interno
   const setValue = useCallback((newValue: string) => {
-    if (controlledOnChange) {
-      controlledOnChange(newValue);
-    } else {
-      setInternalValue(newValue);
-    }
+    setDisplayValue(newValue);
+    bufferRef.current = newValue;
+    if (controlledOnChange) controlledOnChange(newValue);
   }, [controlledOnChange]);
 
+  const externalValue = controlledValue !== undefined ? controlledValue : undefined;
+  const shownValue = externalValue !== undefined ? externalValue : displayValue;
+
   const inputRef = useRef<HTMLInputElement>(null);
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualValue, setManualValue] = useState("");
   const manualInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -53,49 +56,61 @@ export function ScanInput({
     }
   }, [autoFocus, disabled]);
 
-  // Quando o diálogo manual abre, focar o input de digitação
   useEffect(() => {
     if (manualOpen && manualInputRef.current) {
       setTimeout(() => manualInputRef.current?.focus(), 50);
     }
   }, [manualOpen]);
 
-  // Scanner: Enter dispara onScan
+  /**
+   * Captura teclas do leitor mesmo com inputMode="none".
+   * Browsers com inputMode="none" não atualizam e.target.value, mas
+   * continuam disparando keydown — acumulamos aqui manualmente.
+   */
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" && value.trim()) {
+    if (e.key === "Enter") {
       e.preventDefault();
-      const scannedValue = value.trim();
-      setValue("");
-      onScan(scannedValue);
+      const scanned = bufferRef.current.trim();
+      if (scanned) {
+        setValue("");
+        onScan(scanned);
+      }
+      return;
+    }
+
+    // Ignora teclas de controle (Backspace, Tab, F-keys, etc.)
+    if (e.key === "Backspace") {
+      e.preventDefault();
+      const next = bufferRef.current.slice(0, -1);
+      setValue(next);
+      return;
+    }
+
+    // Apenas caracteres imprimíveis (length === 1)
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      const next = bufferRef.current + e.key;
+      setValue(next);
     }
   };
 
-  // Digitação manual: confirmar via Enter ou botão
+  // Confirmar digitação manual
   const handleManualConfirm = () => {
     const v = manualValue.trim();
     if (!v) return;
     setManualValue("");
     setManualOpen(false);
     onScan(v);
-    // Devolver foco ao campo de scan após fechar
     setTimeout(() => inputRef.current?.focus(), 50);
   };
 
   const handleManualKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      handleManualConfirm();
-    }
+    if (e.key === "Enter") { e.preventDefault(); handleManualConfirm(); }
     if (e.key === "Escape") {
       setManualOpen(false);
       setManualValue("");
       setTimeout(() => inputRef.current?.focus(), 50);
     }
-  };
-
-  const openManual = () => {
-    setManualValue("");
-    setManualOpen(true);
   };
 
   const statusColors = {
@@ -121,7 +136,6 @@ export function ScanInput({
 
   return (
     <div className={cn("relative", className)}>
-      {/* Campo de scan (inputMode=none → sem teclado virtual ao tocar) */}
       <div className="relative flex items-center gap-1.5">
         <div className="relative flex-1">
           <StatusIcon
@@ -130,16 +144,23 @@ export function ScanInput({
               iconColors[status]
             )}
           />
+          {/* Campo do leitor: inputMode="none" evita teclado virtual;
+              onKeyDown acumula caracteres manualmente (funciona mesmo quando
+              o browser não atualiza o value via onChange com inputMode=none) */}
           <Input
             ref={inputRef}
             type="text"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
+            value={shownValue}
+            onChange={() => {/* controlado via onKeyDown */}}
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
             disabled={disabled}
             readOnly={readOnly}
             inputMode={inputMode}
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
             className={cn(
               "pl-11 pr-3 h-14 text-lg font-mono transition-all",
               statusColors[status]
@@ -148,13 +169,13 @@ export function ScanInput({
           />
         </div>
 
-        {/* Botão para abrir digitação manual com teclado */}
+        {/* Botão para digitar manualmente com teclado */}
         <Button
           type="button"
           variant="outline"
           size="icon"
           className="h-14 w-11 shrink-0 border-border"
-          onClick={openManual}
+          onClick={() => { setManualValue(""); setManualOpen(true); }}
           disabled={disabled}
           title="Digitar manualmente"
           data-testid="button-scan-keyboard"
@@ -163,7 +184,7 @@ export function ScanInput({
         </Button>
       </div>
 
-      {/* Overlay de digitação manual */}
+      {/* Overlay de digitação manual (este input abre teclado normalmente) */}
       {manualOpen && (
         <div className="absolute top-0 left-0 right-0 z-50 bg-background border border-primary rounded-lg shadow-lg p-2 flex gap-2 items-center">
           <Input
@@ -192,7 +213,11 @@ export function ScanInput({
             variant="ghost"
             size="sm"
             className="h-10 px-2 shrink-0"
-            onClick={() => { setManualOpen(false); setManualValue(""); setTimeout(() => inputRef.current?.focus(), 50); }}
+            onClick={() => {
+              setManualOpen(false);
+              setManualValue("");
+              setTimeout(() => inputRef.current?.focus(), 50);
+            }}
             data-testid="button-scan-manual-cancel"
           >
             <X className="h-4 w-4" />
