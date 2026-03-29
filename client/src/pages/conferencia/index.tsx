@@ -137,7 +137,6 @@ export default function ConferenciaPage() {
 
   const [sessionRestored, setSessionRestored] = useState(false);
   const [multiplierValue, setMultiplierValue] = useState(1);
-  const [manualQtyAllowed, setManualQtyAllowed] = useState<Record<string, boolean>>({});
   const [volumeModalOpen, setVolumeModalOpen] = useState(false);
 
   const userSettings = (user?.settings as UserSettings) || {};
@@ -356,29 +355,25 @@ export default function ConferenciaPage() {
     }
   }, [aggregatedProducts.length, currentProductIndex]);
 
-  const manualQtyProductIdsKey = useMemo(() => {
-    return aggregatedProducts.map(ap => ap.product.id).sort().join(",");
-  }, [aggregatedProducts]);
+  const productIds = useMemo(() => aggregatedProducts.map(ap => ap.product.id), [aggregatedProducts]);
 
-  useEffect(() => {
-    if (!hasManualQtyPermission) return;
-    if (!manualQtyProductIdsKey) return;
+  const { data: manualQtyRulesMap } = useQuery<Record<string, boolean>>({
+    queryKey: ["manual-qty-rules", productIds],
+    queryFn: async () => {
+      if (productIds.length === 0) return {};
+      const res = await apiRequest("POST", "/api/manual-qty-rules/check", { productIds });
+      return res.json();
+    },
+    enabled: productIds.length > 0,
+  });
 
-    const allIds = manualQtyProductIdsKey.split(",").filter(Boolean);
-    const productIds = allIds.filter(id => !(id in manualQtyAllowed));
-    if (productIds.length === 0) return;
-
-    apiRequest("POST", "/api/manual-qty-rules/check", { productIds })
-      .then(res => res.json())
-      .then((results: Record<string, boolean>) => {
-        setManualQtyAllowed(prev => ({ ...prev, ...results }));
-      })
-      .catch(() => {
-        const fallback: Record<string, boolean> = {};
-        productIds.forEach(id => { fallback[id] = false; });
-        setManualQtyAllowed(prev => ({ ...prev, ...fallback }));
-      });
-  }, [manualQtyProductIdsKey, hasManualQtyPermission]);
+  const canUseManualQty = useMemo(() => {
+    if (hasManualQtyPermission) return true;
+    if (currentProduct && manualQtyRulesMap) {
+      return !!manualQtyRulesMap[currentProduct.product.id];
+    }
+    return false;
+  }, [hasManualQtyPermission, currentProduct, manualQtyRulesMap]);
 
   useEffect(() => {
     if (workUnits && user && !sessionRestored) {
@@ -874,7 +869,7 @@ export default function ConferenciaPage() {
     const remaining = ap.totalSeparatedQty - ap.checkedQty;
     if (remaining <= 0) return;
 
-    if (!hasManualQtyPermission) {
+    if (!canUseManualQty) {
       toast({
         title: "Permissão Negada",
         description: "Você não tem permissão para alterar quantidade manual",
@@ -1270,7 +1265,7 @@ export default function ConferenciaPage() {
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
-                        {hasManualQtyPermission && (
+                        {canUseManualQty && (
                           <>
                             <div className="flex items-center gap-1">
                               <span className="text-xs text-muted-foreground">Qtd:</span>
