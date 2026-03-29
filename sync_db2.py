@@ -53,30 +53,55 @@ QUIET = False
 #  LOG  — colorido · níveis · seções · temporizado
 # ─────────────────────────────────────────────────────────────
 
-_IS_TTY = sys.stdout.isatty()
+def _supports_ansi() -> bool:
+    """Verifica se o terminal suporta cores ANSI.
+    No Windows, apenas Windows Terminal (WT_SESSION), ANSICON ou VS Code suportam.
+    """
+    if not sys.stdout.isatty():
+        return False
+    if sys.platform == "win32":
+        return bool(
+            os.environ.get("WT_SESSION")       # Windows Terminal
+            or os.environ.get("ANSICON")        # ANSICON
+            or os.environ.get("TERM_PROGRAM")   # VS Code / outros
+            or os.environ.get("ConEmuANSI") == "ON"
+        )
+    return True  # Linux / macOS
+
+_USE_ANSI = _supports_ansi()
 
 def _c(code: str, text: str) -> str:
-    """Aplica cor ANSI somente quando a saída é terminal."""
-    return f"\033[{code}m{text}\033[0m" if _IS_TTY else text
+    """Aplica cor ANSI somente quando suportado."""
+    return f"\033[{code}m{text}\033[0m" if _USE_ANSI else text
 
 def _ts() -> str:
     return datetime.now().strftime("%H:%M:%S")
 
 # Níveis disponíveis: "info" | "ok" | "warn" | "erro" | "sync" | "detalhe"
 _LEVEL_MAP = {
-    "info":    ("·",  "0"),
-    "ok":      ("✓",  "32"),     # verde
-    "warn":    ("!",  "33"),     # amarelo
-    "erro":    ("✗",  "31"),     # vermelho
-    "sync":    ("◈",  "36"),     # ciano
-    "detalhe": ("›",  "90"),     # cinza
+    "info":    (" ", "0"),
+    "ok":      ("+", "32"),     # verde
+    "warn":    ("!", "33"),     # amarelo
+    "erro":    ("X", "31"),     # vermelho
+    "sync":    (">", "36"),     # ciano
+    "detalhe": ("-", "90"),     # cinza
+}
+# Ícones Unicode se ANSI for suportado (terminais modernos)
+_LEVEL_MAP_ANSI = {
+    "info":    ("·", "0"),
+    "ok":      ("✓", "32"),
+    "warn":    ("!", "33"),
+    "erro":    ("✗", "31"),
+    "sync":    ("◈", "36"),
+    "detalhe": ("›", "90"),
 }
 
 def log(msg: str, level: str = "info"):
     """Imprime linha de log com timestamp, ícone e cor."""
     if QUIET:
         return
-    icon, color = _LEVEL_MAP.get(level, ("·", "0"))
+    lvl_map = _LEVEL_MAP_ANSI if _USE_ANSI else _LEVEL_MAP
+    icon, color = lvl_map.get(level, (" ", "0"))
     icon_fmt = _c(f"{color};1", icon)
     print(f"[{_ts()}] {icon_fmt} {msg}", flush=True)
 
@@ -84,36 +109,34 @@ def log_section(title: str):
     """Imprime cabeçalho de seção com separador visual."""
     if QUIET:
         return
-    bar = "─" * 54
-    print(f"\n{_c('36;1', bar)}", flush=True)
-    print(f"{_c('36;1', '◆')}  {_c('1', title.upper())}", flush=True)
-    print(f"{_c('36;1', bar)}", flush=True)
+    bar = "-" * 54
+    print(f"\n{bar}", flush=True)
+    print(f"  {title.upper()}", flush=True)
+    print(f"{bar}", flush=True)
 
 def log_banner(title: str, subtitle: str = ""):
     """Imprime banner inicial do script."""
     if QUIET:
         return
-    width = 58
-    border = "═" * width
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"\n{_c('34;1', '╔' + border + '╗')}", flush=True)
-    left = f"  STOKER SYNC  │  {now}"
+    line = f"  {title}  |  {now}"
     if subtitle:
-        left += f"  │  {subtitle}"
-    print(f"{_c('34;1', '║')}{_c('1', left):<{width+9}}{_c('34;1', '║')}", flush=True)
-    print(f"{_c('34;1', '╚' + border + '╝')}\n", flush=True)
+        line += f"  |  {subtitle}"
+    border = "=" * max(len(line) + 2, 54)
+    print(f"\n{border}", flush=True)
+    print(line, flush=True)
+    print(f"{border}\n", flush=True)
 
 def log_summary(label: str, duracao: float, proximo: Optional[int] = None):
     """Imprime caixa de sumário ao final do sync."""
     if QUIET:
         return
-    proximo_str = f"  │  próximo em {proximo}s" if proximo else ""
-    line = f"  {label}  │  duração={duracao:.1f}s{proximo_str}"
-    width = max(len(line) + 2, 54)
-    border = "─" * width
-    print(f"\n{_c('32;1', '┌' + border + '┐')}", flush=True)
-    print(f"{_c('32;1', '│')}{_c('32;1', line):<{width + 9}}{_c('32;1', '│')}", flush=True)
-    print(f"{_c('32;1', '└' + border + '┘')}\n", flush=True)
+    proximo_str = f"  |  proximo em {proximo}s" if proximo else ""
+    line = f"  {label}  |  duracao={duracao:.1f}s{proximo_str}"
+    border = "-" * max(len(line) + 2, 54)
+    print(f"\n{border}", flush=True)
+    print(line, flush=True)
+    print(f"{border}\n", flush=True)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -633,7 +656,9 @@ def transform_data(conn_pg):
             if orders_to_delete:
                 ids_to_del = [r[0] for r in orders_to_delete]
                 erp_ids_del = [r[1] for r in orders_to_delete]
-                log(f"Remoção ERP — {len(ids_to_del)} pedido(s) excluído(s): {erp_ids_del}", "warn")
+                amostra = erp_ids_del[:5]
+                sufixo = f" ... +{len(erp_ids_del)-5} mais" if len(erp_ids_del) > 5 else ""
+                log(f"Remoção ERP — {len(ids_to_del)} pedido(s) excluído(s): {amostra}{sufixo}", "warn")
 
                 quoted_uuids = ",".join(f"'{x}'" for x in ids_to_del)
                 cursor.execute(f"DELETE FROM exceptions WHERE order_item_id IN "
