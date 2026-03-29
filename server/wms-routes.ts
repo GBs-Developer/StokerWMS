@@ -5,7 +5,8 @@ import { db } from "./db";
 import { eq, and, sql, desc, isNull, ilike, or, inArray, ne } from "drizzle-orm";
 import {
   wmsAddresses, pallets, palletItems, palletMovements, nfCache, nfItems,
-  countingCycles, countingCycleItems, productCompanyStock, products,
+  countingCycles, countingCycleItems, productCompanyStock, products, productAddresses,
+  insertProductAddressSchema,
   type WmsAddress, type Pallet, type PalletItem,
 } from "@shared/schema";
 import { z } from "zod";
@@ -1988,9 +1989,11 @@ export function registerWmsRoutes(app: Express) {
         return res.json({});
       }
 
-      const ids = productIds.slice(0, 100);
+      const ids = productIds.slice(0, 200);
+      const result: Record<string, { code: string; type: string | null; quantity: number }[]> = {};
 
-      const rows = await db.select({
+      // 1) Pallet-based addresses
+      const palletRows = await db.select({
           productId: palletItems.productId,
           addressCode: wmsAddresses.code,
           addressType: wmsAddresses.type,
@@ -2006,8 +2009,7 @@ export function registerWmsRoutes(app: Express) {
         ))
         .groupBy(palletItems.productId, wmsAddresses.code, wmsAddresses.type);
 
-      const result: Record<string, { code: string; type: string | null; quantity: number }[]> = {};
-      for (const row of rows) {
+      for (const row of palletRows) {
         if (!result[row.productId]) result[row.productId] = [];
         result[row.productId].push({
           code: row.addressCode,
@@ -2016,10 +2018,115 @@ export function registerWmsRoutes(app: Express) {
         });
       }
 
+      // 2) Direct product-address mappings
+      const directRows = await db.select({
+          productId: productAddresses.productId,
+          addressCode: wmsAddresses.code,
+          addressType: wmsAddresses.type,
+        })
+        .from(productAddresses)
+        .innerJoin(wmsAddresses, eq(productAddresses.addressId, wmsAddresses.id))
+        .where(and(
+          sql`${productAddresses.productId} IN (${sql.join(ids.map(id => sql`${id}`), sql`, `)})`,
+          eq(productAddresses.companyId, companyId),
+        ));
+
+      for (const row of directRows) {
+        if (!result[row.productId]) result[row.productId] = [];
+        const exists = result[row.productId].some(a => a.code === row.addressCode);
+        if (!exists) {
+          result[row.productId].push({
+            code: row.addressCode,
+            type: row.addressType,
+            quantity: 0,
+          });
+        }
+      }
+
       res.json(result);
     } catch (error) {
       console.error("Batch addresses error:", error);
       res.status(500).json({ error: "Erro ao buscar endereços" });
+    }
+  });
+
+  // CRUD endpoints for direct product-address mappings
+  const supervisorOrAdmin = requireRole("supervisor", "administrador");
+
+  app.get("/api/product-addresses", ...authMiddleware, supervisorOrAdmin, async (req: Request, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const productId = req.query.productId as string | undefined;
+      const conditions = [eq(productAddresses.companyId, companyId)];
+      if (productId) conditions.push(eq(productAddresses.productId, productId));
+
+      const rows = await db.select({
+          id: productAddresses.id,
+          productId: productAddresses.productId,
+          companyId: productAddresses.companyId,
+          addressId: productAddresses.addressId,
+          addressCode: wmsAddresses.code,
+          addressType: wmsAddresses.type,
+          productName: products.name,
+          productErpCode: products.erpCode,
+          createdAt: productAddresses.createdAt,
+        })
+        .from(productAddresses)
+        .innerJoin(wmsAddresses, eq(productAddresses.addressId, wmsAddresses.id))
+        .innerJoin(products, eq(productAddresses.productId, products.id))
+        .where(and(...conditions))
+        .orderBy(products.name);
+
+      res.json(rows);
+    } catch (error) {
+      console.error("Get product addresses error:", error);
+      res.status(500).json({ error: "Erro ao buscar endereços de produto" });
+    }
+  });
+
+  app.post("/api/product-addresses", ...authMiddleware, supervisorOrAdmin, async (req: Request, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const parsed = insertProductAddressSchema.safeParse({ ...req.body, companyId });
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.message });
+
+      const [row] = await db.insert(productAddresses).values({
+        id: randomUUID(),
+        ...parsed.data,
+      }).onConflictDoNothing().returning();
+
+      res.json(row ?? { message: "Já existe" });
+    } catch (error) {
+      console.error("Create product address error:", error);
+      res.status(500).json({ error: "Erro ao criar endereço de produto" });
+    }
+  });
+
+  app.delete("/api/product-addresses/:id", ...authMiddleware, supervisorOrAdmin, async (req: Request, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      await db.delete(productAddresses)
+        .where(and(eq(productAddresses.id, req.params.id), eq(productAddresses.companyId, companyId)));
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Delete product address error:", error);
+      res.status(500).json({ error: "Erro ao deletar endereço de produto" });
+    }
+  });
+
+  app.post("/api/product-addresses/bulk", ...authMiddleware, supervisorOrAdmin, async (req: Request, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const { entries } = req.body as { entries: { productId: string; addressId: string }[] };
+      if (!Array.isArray(entries) || entries.length === 0) {
+        return res.status(400).json({ error: "Nenhuma entrada fornecida" });
+      }
+      const values = entries.map(e => ({ id: randomUUID(), productId: e.productId, companyId, addressId: e.addressId, createdAt: new Date().toISOString() }));
+      await db.insert(productAddresses).values(values).onConflictDoNothing();
+      res.json({ success: true, count: values.length });
+    } catch (error) {
+      console.error("Bulk product addresses error:", error);
+      res.status(500).json({ error: "Erro ao importar endereços" });
     }
   });
 

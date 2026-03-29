@@ -39,6 +39,7 @@ import ContagemPage from "@/pages/wms/contagem";
 import ProdutosPage from "@/pages/wms/produtos";
 import PermissoesPage from "@/pages/admin/permissoes";
 import SeparationSettingsPage from "@/pages/supervisor/separation-settings";
+import ProductAddressesPage from "@/pages/supervisor/product-addresses";
 import NotFound from "@/pages/not-found";
 import { Loader2 } from "lucide-react";
 
@@ -293,6 +294,12 @@ function Router() {
       <Route path="/supervisor/separation-settings">
         <ProtectedRoute allowedRoles={["supervisor", "administrador"]}>
           <SeparationSettingsPage />
+        </ProtectedRoute>
+      </Route>
+
+      <Route path="/supervisor/product-addresses">
+        <ProtectedRoute allowedRoles={["supervisor", "administrador"]}>
+          <ProductAddressesPage />
         </ProtectedRoute>
       </Route>
 

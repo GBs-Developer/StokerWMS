@@ -105,6 +105,7 @@ export default function HomePage() {
       modules: [
         { icon: Users, title: "Usuarios", description: "Gerenciar operadores", href: "/supervisor/users" },
         { icon: SlidersHorizontal, title: "Regras Qtd Manual", description: "Configurar regras", href: "/supervisor/manual-qty-rules" },
+        { icon: MapPin, title: "Enderecos Produto", description: "Vincular produtos a enderecos", href: "/supervisor/product-addresses" },
         { icon: Settings, title: "Mapping Studio", description: "Mapeamento DB2", href: "/supervisor/mapping-studio" },
         { icon: FileText, title: "Relatorios", description: "Gerar relatorios", href: "/supervisor/reports" },
         { icon: ClipboardCheck, title: "Auditoria", description: "Logs de operacoes", href: "/supervisor/audit" },
@@ -118,13 +119,14 @@ export default function HomePage() {
     administrador: [
       "/wms/recebimento", "/wms/checkin", "/wms/transferencia", "/wms/contagem", "/wms/enderecos", "/wms/produtos",
       "/fila-pedidos", "/supervisor/orders", "/supervisor/routes", "/supervisor/route-orders", "/supervisor/exceptions",
-      "/supervisor/users", "/supervisor/manual-qty-rules", "/supervisor/mapping-studio", "/supervisor/reports", "/supervisor/audit",
-      "/admin/permissoes", "/supervisor/separation-settings",
+      "/supervisor/users", "/supervisor/manual-qty-rules", "/supervisor/product-addresses", "/supervisor/mapping-studio",
+      "/supervisor/reports", "/supervisor/audit", "/admin/permissoes", "/supervisor/separation-settings",
     ],
     supervisor: [
       "/wms/recebimento", "/wms/checkin", "/wms/transferencia", "/wms/contagem", "/wms/enderecos", "/wms/produtos",
       "/fila-pedidos", "/supervisor/orders", "/supervisor/routes", "/supervisor/route-orders", "/supervisor/exceptions",
-      "/supervisor/users", "/supervisor/reports", "/supervisor/audit", "/supervisor/separation-settings",
+      "/supervisor/users", "/supervisor/product-addresses", "/supervisor/reports", "/supervisor/audit",
+      "/supervisor/separation-settings",
     ],
     separacao: ["/separacao"],
     conferencia: ["/conferencia"],

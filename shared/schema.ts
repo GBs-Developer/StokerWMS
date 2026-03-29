@@ -497,6 +497,19 @@ export const insertCountingCycleSchema = createInsertSchema(countingCycles).omit
 export const insertCountingCycleItemSchema = createInsertSchema(countingCycleItems).omit({ id: true, createdAt: true });
 export const insertProductCompanyStockSchema = createInsertSchema(productCompanyStock).omit({ id: true });
 
+export const productAddresses = pgTable("product_addresses", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  productId: text("product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
+  companyId: integer("company_id").notNull(),
+  addressId: text("address_id").notNull().references(() => wmsAddresses.id, { onDelete: "cascade" }),
+  createdAt: text("created_at").notNull().default(new Date().toISOString()),
+}, (table) => ({
+  uniqueIdx: uniqueIndex("product_addresses_unique_idx").on(table.productId, table.companyId, table.addressId),
+  productCompanyIdx: index("idx_product_addresses_product_company").on(table.productId, table.companyId),
+}));
+
+export const insertProductAddressSchema = createInsertSchema(productAddresses).omit({ id: true, createdAt: true });
+
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 export type InsertRoute = z.infer<typeof insertRouteSchema>;
@@ -590,3 +603,5 @@ export type PalletWithItems = Pallet & {
 };
 
 export type Section = typeof sections.$inferSelect;
+export type ProductAddress = typeof productAddresses.$inferSelect;
+export type InsertProductAddress = z.infer<typeof insertProductAddressSchema>;
