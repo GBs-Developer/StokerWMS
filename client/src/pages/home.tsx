@@ -140,9 +140,15 @@ export default function HomePage() {
 
   const userRole = user?.role || "";
   const userAllowedModules = user?.allowedModules as string[] | null | undefined;
-  const allowedHrefs = Array.isArray(userAllowedModules)
+  const baseHrefs: string[] = Array.isArray(userAllowedModules)
     ? userAllowedModules
     : (roleModuleAccess[userRole] || []);
+  // Administradores sempre enxergam módulos administrativos exclusivos,
+  // mesmo quando possuem lista de módulos customizada.
+  const adminExclusive = ["/admin/permissoes", "/admin/limpeza"];
+  const allowedHrefs = userRole === "administrador"
+    ? [...new Set([...baseHrefs, ...adminExclusive])]
+    : baseHrefs;
 
   const legacyStandaloneModules: ModuleItem[] = [];
   if (userRole === "separacao" || allowedHrefs.includes("/separacao")) {
