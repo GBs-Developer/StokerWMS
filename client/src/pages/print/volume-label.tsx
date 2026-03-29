@@ -52,10 +52,6 @@ export default function VolumeLabelPage() {
     }
   }, [order]);
 
-  useEffect(() => {
-    const timeout = setTimeout(() => window.print(), 800);
-    return () => clearTimeout(timeout);
-  }, []);
 
   const destination = [city, state].filter(Boolean).join(" - ");
 
@@ -177,8 +173,8 @@ export default function VolumeLabelPage() {
   );
 }
 
-/** Gera o HTML completo da etiqueta de volume para impressão direta no servidor */
-export function buildVolumeLabelHtml(params: {
+/** @deprecated Use buildVolumeLabelHtml from @/lib/print-templates instead */
+function buildVolumeLabelHtml(params: {
   order: string;
   customer: string;
   city?: string;

@@ -48,10 +48,6 @@ export default function PalletLabelPage() {
     }
   }, [code]);
 
-  useEffect(() => {
-    const timeout = setTimeout(() => window.print(), 800);
-    return () => clearTimeout(timeout);
-  }, []);
 
   const STATUS_LABELS: Record<string, string> = {
     sem_endereco: "SEM ENDEREÇO",
@@ -201,8 +197,8 @@ export default function PalletLabelPage() {
   );
 }
 
-/** Gera o HTML completo da etiqueta de pallet para impressão direta no servidor */
-export function buildPalletLabelHtml(params: {
+/** @deprecated Use buildPalletLabelHtml from @/lib/print-templates instead */
+function buildPalletLabelHtml(params: {
   code: string;
   status?: string;
   address?: string;
