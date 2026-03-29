@@ -17,24 +17,30 @@ interface PrinterInfo {
   status: string;
 }
 
-/** Lista impressoras instaladas na máquina do servidor via pdf-to-printer */
-async function getInstalledPrinters(): Promise<PrinterInfo[]> {
+/** Cache de impressoras em memória — atualizado na inicialização e a cada sync */
+let printerCache: PrinterInfo[] | null = null;
+
+/** Busca impressoras do sistema operacional e atualiza o cache */
+export async function refreshPrinterCache(): Promise<void> {
   try {
     const [rawPrinters, rawDefault] = await Promise.all([
       pdfToPrinter.getPrinters(),
       pdfToPrinter.getDefaultPrinter().catch(() => null),
     ]);
-    // pdf-to-printer no Windows retorna objetos {deviceId, name, paperSizes}
-    // em versões mais antigas retorna strings — tratamos ambos
     const extractName = (p: any): string =>
       typeof p === "string" ? p.trim() : String(p?.name ?? p?.deviceId ?? "").trim();
-
     const defName = extractName(rawDefault);
-    return (rawPrinters as any[])
+    printerCache = (rawPrinters as any[])
       .map((p) => ({ name: extractName(p), isDefault: extractName(p) === defName, status: "ready" }))
       .filter((p) => p.name);
-  } catch {
-    return [];
+    if (printerCache.length > 0) {
+      const def = printerCache.find((p) => p.isDefault)?.name ?? printerCache[0].name;
+      log(`${printerCache.length} impressora(s) carregada(s) | padrão: "${def}"`, "print");
+    }
+  } catch (e: any) {
+    const msg = e?.message ?? String(e) ?? "erro desconhecido";
+    log(`AVISO: não foi possível listar impressoras — ${msg}`, "print");
+    if (!printerCache) printerCache = [];
   }
 }
 
@@ -75,7 +81,7 @@ async function printHtmlToPrinter(
     const htmlPath = path.join(tmpDir, `stoker_${jobId}.html`);
     const pdfPath  = path.join(tmpDir, `stoker_${jobId}.pdf`);
 
-    log(`[print] #${jobId} "${printerName}" x${copies} (${user})`, "print");
+    log(`#${jobId} "${printerName}" x${copies} (${user})`, "print");
 
     try {
       fs.writeFileSync(htmlPath, html, "utf-8");
@@ -112,12 +118,12 @@ async function printHtmlToPrinter(
       sendCopies()
         .then(() => {
           setTimeout(() => cleanup(htmlPath, pdfPath), 10_000);
-          log(`[print] #${jobId} ✓ "${printerName}"`, "print");
+          log(`#${jobId} ✓ "${printerName}"`, "print");
           resolve({ success: true });
         })
         .catch((err2: Error) => {
           setTimeout(() => cleanup(htmlPath, pdfPath), 10_000);
-          log(`[print] #${jobId} ERRO: ${err2.message}`, "print");
+          log(`#${jobId} ERRO: ${err2.message}`, "print");
           resolve({ success: false, error: `Erro ao enviar para impressora: ${err2.message}` });
         });
     });
@@ -137,15 +143,12 @@ async function resolveUsername(req: Request): Promise<string> {
 
 export function registerPrintRoutes(app: Express) {
   /** Lista impressoras disponíveis no servidor */
-  app.get("/api/print/printers", isAuthenticated, async (req: Request, res: Response) => {
-    try {
-      const printers = await getInstalledPrinters();
-      const defaultPrinter = printers.find((p) => p.isDefault)?.name ?? printers[0]?.name ?? null;
-      res.json({ success: true, default_printer: defaultPrinter, printers });
-    } catch (e: any) {
-      log(`[print] ERRO ao listar impressoras: ${e.message}`, "print");
-      res.json({ success: false, error: e.message, printers: [] });
-    }
+  app.get("/api/print/printers", isAuthenticated, async (_req: Request, res: Response) => {
+    // Se o cache ainda não foi carregado, tenta carregar agora (primeira vez)
+    if (!printerCache) await refreshPrinterCache();
+    const printers = printerCache ?? [];
+    const defaultPrinter = printers.find((p) => p.isDefault)?.name ?? printers[0]?.name ?? null;
+    res.json({ success: true, default_printer: defaultPrinter, printers });
   });
 
   /** Envia trabalho de impressão direto para a impressora */

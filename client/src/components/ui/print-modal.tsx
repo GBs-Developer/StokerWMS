@@ -28,17 +28,19 @@ interface PrinterInfo {
   status: string;
 }
 
-/** Cache de impressoras para evitar re-buscar a cada abertura */
+/**
+ * Cache de impressoras para a sessão inteira.
+ * O servidor já mantém o cache real — aqui só evitamos re-chamar a API
+ * a cada abertura do modal durante a mesma sessão de navegação.
+ */
 let cachedPrinters: PrinterInfo[] | null = null;
-let cacheExpiry = 0;
 
 async function fetchPrinters(): Promise<PrinterInfo[]> {
-  if (cachedPrinters && Date.now() < cacheExpiry) return cachedPrinters;
+  if (cachedPrinters) return cachedPrinters;
   const res = await apiRequest("GET", "/api/print/printers");
   const data = await res.json() as { success: boolean; printers: PrinterInfo[]; default_printer?: string };
   if (!data.success) throw new Error("Erro ao listar impressoras");
   cachedPrinters = data.printers;
-  cacheExpiry = Date.now() + 60_000;
   return data.printers;
 }
 

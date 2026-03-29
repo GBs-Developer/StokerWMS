@@ -5,7 +5,7 @@ import { storage } from "./storage";
 import { hashPassword, verifyPassword, createAuthSession, isAuthenticated, requireRole, requireCompany, getTokenFromRequest, getUserFromToken, generateBadgeCode } from "./auth";
 import { loginSchema, insertRouteSchema, orderItems, pickingSessions, pickupPoints, type MappingField, datasetEnum, type User, type OrderItem, type Product, type WorkUnit, type Exception, type PickingSession, type ExceptionType, type ManualQtyRule, type UserSettings, BatchSyncPayload } from "@shared/schema";
 import { registerWmsRoutes } from "./wms-routes";
-import { registerPrintRoutes } from "./print-routes";
+import { registerPrintRoutes, refreshPrinterCache } from "./print-routes";
 import { z } from "zod";
 import { exec, spawn } from "child_process";
 import path from "path";
@@ -63,14 +63,17 @@ export async function registerRoutes(
     });
   };
 
+  // Pré-carregar cache de impressoras na inicialização (sem bloquear o servidor)
+  refreshPrinterCache().catch(() => {});
+
   // Schedule auto-sync every 10 minutes (600,000 ms)
   setInterval(() => {
-    runSync();
+    runSync(() => { refreshPrinterCache().catch(() => {}); });
   }, 10 * 60 * 1000);
 
   // Initial sync on startup (optional, maybe delay a bit)
   setTimeout(() => {
-    runSync();
+    runSync(() => { refreshPrinterCache().catch(() => {}); });
   }, 5000);
 
   // System Sync Route
@@ -85,6 +88,7 @@ export async function registerRoutes(
         if (!success) {
           return res.status(503).json({ error: "Script de sincronização não disponível" });
         }
+        refreshPrinterCache().catch(() => {});
         res.json({ success: true, message: "Sincronização concluída com sucesso" });
       });
     } catch (error) {
