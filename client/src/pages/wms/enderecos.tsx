@@ -9,7 +9,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog,
-  DialogClose,
   DialogContent,
   DialogDescription,
   DialogHeader,
@@ -377,11 +376,6 @@ export default function EnderecosPage() {
                 Log de Picking — <span className="font-mono">{logAddress?.code}</span>
               </DialogTitle>
               <DialogDescription className="sr-only">Histórico de coletas registradas neste endereço durante a separação</DialogDescription>
-              <DialogClose asChild>
-                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" data-testid="button-close-address-log">
-                  <X className="h-4 w-4" />
-                </Button>
-              </DialogClose>
             </div>
           </DialogHeader>
           <div className="overflow-y-auto max-h-[60vh] px-4 py-3 space-y-2">

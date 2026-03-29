@@ -3098,6 +3098,180 @@ export async function registerRoutes(
     }
   });
 
+  // ─── Reports: Pallet Movements ───────────────────────────────────────────────
+  app.get("/api/reports/pallet-movements", isAuthenticated, requireCompany, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const companyId = (req as any).companyId as number;
+      const { palletMovements, pallets, wmsAddresses, users: usersTable } = await import("@shared/schema");
+      const { and: andFn, eq: eqFn, gte, lte } = await import("drizzle-orm");
+
+      const { type: typeFilter, dateFrom, dateTo } = req.query as Record<string, string>;
+
+      const conditions: any[] = [eqFn(palletMovements.companyId, companyId)];
+      if (typeFilter && typeFilter !== "all") conditions.push(eqFn(palletMovements.movementType, typeFilter as any));
+      if (dateFrom) conditions.push(gte(palletMovements.createdAt, dateFrom));
+      if (dateTo) conditions.push(lte(palletMovements.createdAt, dateTo + "T23:59:59"));
+
+      const rows = await db.select({
+        id: palletMovements.id,
+        movementType: palletMovements.movementType,
+        createdAt: palletMovements.createdAt,
+        notes: palletMovements.notes,
+        palletCode: pallets.code,
+        fromAddressId: palletMovements.fromAddressId,
+        toAddressId: palletMovements.toAddressId,
+        userId: palletMovements.userId,
+      })
+        .from(palletMovements)
+        .leftJoin(pallets, eqFn(pallets.id, palletMovements.palletId))
+        .where(conditions.length > 1 ? andFn(...conditions) : conditions[0])
+        .orderBy(palletMovements.createdAt);
+
+      // Collect address and user IDs to resolve
+      const addressIds = [...new Set([...rows.map(r => r.fromAddressId), ...rows.map(r => r.toAddressId)].filter(Boolean))] as string[];
+      const userIds = [...new Set(rows.map(r => r.userId).filter(Boolean))] as string[];
+
+      const addressMap: Record<string, string> = {};
+      if (addressIds.length > 0) {
+        const allAddrs = await db.select({ id: wmsAddresses.id, code: wmsAddresses.code }).from(wmsAddresses);
+        allAddrs.forEach(a => { addressMap[a.id] = a.code; });
+      }
+      const userMap: Record<string, string> = {};
+      if (userIds.length > 0) {
+        const allUsers = await db.select({ id: usersTable.id, name: usersTable.name }).from(usersTable);
+        allUsers.forEach(u => { userMap[u.id] = u.name; });
+      }
+
+      const movements = rows.map(r => ({
+        id: r.id,
+        movementType: r.movementType,
+        createdAt: r.createdAt,
+        notes: r.notes,
+        palletCode: r.palletCode || "—",
+        fromAddressCode: r.fromAddressId ? (addressMap[r.fromAddressId] || "—") : "—",
+        toAddressCode: r.toAddressId ? (addressMap[r.toAddressId] || "—") : "—",
+        performedByName: r.userId ? (userMap[r.userId] || "—") : "—",
+      }));
+
+      const movTypeLabels: Record<string, string> = {
+        created: "Criado", allocated: "Alocação", transferred: "Transferência",
+        split: "Divisão", cancelled: "Cancelamento", counted: "Contagem",
+      };
+      const byType: Record<string, number> = {};
+      movements.forEach(m => { byType[m.movementType] = (byType[m.movementType] || 0) + 1; });
+      const byTypeArr = Object.entries(byType).map(([type, count]) => ({ type, label: movTypeLabels[type] || type, count }));
+
+      const byDayMap: Record<string, number> = {};
+      movements.forEach(m => {
+        const day = m.createdAt ? m.createdAt.slice(0, 10) : "?";
+        byDayMap[day] = (byDayMap[day] || 0) + 1;
+      });
+      const byDay = Object.entries(byDayMap).map(([date, count]) => ({ date, count })).sort((a, b) => b.date.localeCompare(a.date));
+
+      res.json({
+        movements,
+        summary: { totalMovements: movements.length, byType: byTypeArr, byDay },
+      });
+    } catch (error) {
+      console.error("Report pallet movements error:", error);
+      res.status(500).json({ error: "Erro ao gerar relatório" });
+    }
+  });
+
+  // ─── Reports: Counting Cycles ─────────────────────────────────────────────────
+  app.get("/api/reports/counting-cycles", isAuthenticated, requireCompany, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const companyId = (req as any).companyId as number;
+      const { countingCycles, countingCycleItems, wmsAddresses, users: usersTable, products } = await import("@shared/schema");
+      const { and: andFn, eq: eqFn, gte, lte } = await import("drizzle-orm");
+
+      const { status: statusFilter, dateFrom, dateTo } = req.query as Record<string, string>;
+
+      const conditions: any[] = [eqFn(countingCycles.companyId, companyId)];
+      if (statusFilter && statusFilter !== "all") conditions.push(eqFn(countingCycles.status, statusFilter as any));
+      if (dateFrom) conditions.push(gte(countingCycles.createdAt, dateFrom));
+      if (dateTo) conditions.push(lte(countingCycles.createdAt, dateTo + "T23:59:59"));
+
+      const cycles = await db.select().from(countingCycles)
+        .where(conditions.length > 1 ? andFn(...conditions) : conditions[0])
+        .orderBy(countingCycles.createdAt);
+
+      if (cycles.length === 0) {
+        return res.json({ cycles: [], summary: { totalCycles: 0, byStatus: {}, totalDivergent: 0, totalItemsCounted: 0 } });
+      }
+
+      // Load all users, addresses, products for join
+      const allUsers = await db.select({ id: usersTable.id, name: usersTable.name }).from(usersTable);
+      const userMap: Record<string, string> = {};
+      allUsers.forEach(u => { userMap[u.id] = u.name; });
+
+      const allAddrs = await db.select({ id: wmsAddresses.id, code: wmsAddresses.code }).from(wmsAddresses);
+      const addrMap: Record<string, string> = {};
+      allAddrs.forEach(a => { addrMap[a.id] = a.code; });
+
+      const allProds = await db.select({ id: products.id, name: products.name, erpCode: products.erpCode }).from(products);
+      const prodMap: Record<string, { name: string; erpCode: string }> = {};
+      allProds.forEach(p => { prodMap[p.id] = { name: p.name, erpCode: p.erpCode || "" }; });
+
+      const cycleIds = cycles.map(c => c.id);
+      const { inArray } = await import("drizzle-orm");
+      const items = cycleIds.length > 0
+        ? await db.select().from(countingCycleItems).where(inArray(countingCycleItems.cycleId, cycleIds))
+        : [];
+
+      const itemsByCycle: Record<string, any[]> = {};
+      items.forEach(item => {
+        if (!itemsByCycle[item.cycleId]) itemsByCycle[item.cycleId] = [];
+        itemsByCycle[item.cycleId].push({
+          id: item.id,
+          addressCode: item.addressId ? (addrMap[item.addressId] || "—") : "—",
+          productName: item.productId ? (prodMap[item.productId]?.name || "—") : "—",
+          productErpCode: item.productId ? (prodMap[item.productId]?.erpCode || "—") : "—",
+          expectedQty: item.expectedQty,
+          countedQty: item.countedQty,
+          divergencePct: item.divergencePct,
+          status: item.status,
+          countedByName: item.countedBy ? (userMap[item.countedBy] || "—") : "—",
+        });
+      });
+
+      const result = cycles.map(c => {
+        const cItems = itemsByCycle[c.id] || [];
+        const countedItems = cItems.filter(i => i.countedQty !== null).length;
+        const divergentItems = cItems.filter(i => i.status === "divergente").length;
+        const avgPct = divergentItems > 0
+          ? Math.round((cItems.filter(i => i.divergencePct !== null).reduce((s, i) => s + Math.abs(Number(i.divergencePct)), 0) / divergentItems) * 100) / 100
+          : 0;
+        return {
+          id: c.id,
+          type: c.type,
+          status: c.status,
+          notes: c.notes,
+          createdAt: c.createdAt,
+          completedAt: c.completedAt,
+          approvedAt: c.approvedAt,
+          createdByName: c.createdBy ? (userMap[c.createdBy] || "—") : "—",
+          approvedByName: c.approvedBy ? (userMap[c.approvedBy] || "—") : "—",
+          totalItems: cItems.length,
+          countedItems,
+          divergentItems,
+          avgDivergencePct: avgPct,
+          items: cItems,
+        };
+      });
+
+      const byStatus: Record<string, number> = {};
+      result.forEach(c => { byStatus[c.status] = (byStatus[c.status] || 0) + 1; });
+      const totalDivergent = result.reduce((s, c) => s + c.divergentItems, 0);
+      const totalItemsCounted = result.reduce((s, c) => s + c.countedItems, 0);
+
+      res.json({ cycles: result, summary: { totalCycles: result.length, byStatus, totalDivergent, totalItemsCounted } });
+    } catch (error) {
+      console.error("Report counting cycles error:", error);
+      res.status(500).json({ error: "Erro ao gerar relatório" });
+    }
+  });
+
   registerWmsRoutes(app);
 
   return httpServer;

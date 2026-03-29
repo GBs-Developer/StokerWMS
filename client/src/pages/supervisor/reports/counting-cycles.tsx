@@ -3,27 +3,24 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { GradientHeader } from "@/components/ui/gradient-header";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { ArrowLeft, Loader2, ClipboardList, Calendar, AlertTriangle, CheckCircle, XCircle, Clock, Printer, ChevronDown, ChevronUp } from "lucide-react";
+import { DatePickerWithRange } from "@/components/ui/date-range-picker";
+import { DateRange } from "react-day-picker";
+import { format } from "date-fns";
+import { ArrowLeft, Loader2, ClipboardList, Calendar, AlertTriangle, CheckCircle, Printer, ChevronDown, ChevronUp } from "lucide-react";
 import { useLocation } from "wouter";
 
 export default function CountingCyclesReportPage() {
   const [, navigate] = useLocation();
   const { companyId } = useAuth();
   const [statusFilter, setStatusFilter] = useState("all");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
   const [expandedCycle, setExpandedCycle] = useState<string | null>(null);
-  const [printCycle, setPrintCycle] = useState<any>(null);
+
+  const dateFrom = dateRange?.from ? format(dateRange.from, "yyyy-MM-dd") : "";
+  const dateTo = dateRange?.to ? format(dateRange.to, "yyyy-MM-dd") : "";
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["report-counting-cycles", companyId, statusFilter, dateFrom, dateTo],
@@ -147,12 +144,8 @@ export default function CountingCyclesReportPage() {
             </Select>
           </div>
           <div>
-            <label className="text-xs text-muted-foreground block mb-1">De</label>
-            <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="w-40" data-testid="input-date-from" />
-          </div>
-          <div>
-            <label className="text-xs text-muted-foreground block mb-1">Até</label>
-            <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="w-40" data-testid="input-date-to" />
+            <label className="text-xs text-muted-foreground block mb-1">Período</label>
+            <DatePickerWithRange date={dateRange} onDateChange={setDateRange} className="w-64" />
           </div>
         </div>
 

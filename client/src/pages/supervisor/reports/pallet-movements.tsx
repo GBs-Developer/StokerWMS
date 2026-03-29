@@ -3,9 +3,11 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { GradientHeader } from "@/components/ui/gradient-header";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { DatePickerWithRange } from "@/components/ui/date-range-picker";
+import { DateRange } from "react-day-picker";
+import { format } from "date-fns";
 import { ArrowLeft, Loader2, ArrowRightLeft, Printer, Package, MapPin, ArrowRight } from "lucide-react";
 import { useLocation } from "wouter";
 
@@ -13,8 +15,10 @@ export default function PalletMovementsReportPage() {
   const [, navigate] = useLocation();
   const { companyId } = useAuth();
   const [typeFilter, setTypeFilter] = useState("all");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
+
+  const dateFrom = dateRange?.from ? format(dateRange.from, "yyyy-MM-dd") : "";
+  const dateTo = dateRange?.to ? format(dateRange.to, "yyyy-MM-dd") : "";
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["report-pallet-movements", companyId, typeFilter, dateFrom, dateTo],
@@ -131,12 +135,8 @@ export default function PalletMovementsReportPage() {
             </Select>
           </div>
           <div>
-            <label className="text-xs text-muted-foreground block mb-1">De</label>
-            <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="w-40" data-testid="input-date-from" />
-          </div>
-          <div>
-            <label className="text-xs text-muted-foreground block mb-1">Até</label>
-            <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="w-40" data-testid="input-date-to" />
+            <label className="text-xs text-muted-foreground block mb-1">Período</label>
+            <DatePickerWithRange date={dateRange} onDateChange={setDateRange} className="w-64" />
           </div>
           <Button variant="outline" onClick={handlePrint} disabled={movements.length === 0} data-testid="button-print-movements">
             <Printer className="h-4 w-4 mr-2" /> Imprimir
