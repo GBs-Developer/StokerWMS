@@ -373,7 +373,7 @@ export function registerWmsRoutes(app: Express) {
       const companyId = getCompanyId(req);
       const userId = getUserId(req);
 
-      // Validação de estoque real do ERP
+      // Validação de estoque real do ERP (só bloqueia quando há saldo positivo registrado)
       if (Array.isArray(items)) {
         for (const item of items) {
           const [stockRecord] = await db.select()
@@ -383,7 +383,14 @@ export function registerWmsRoutes(app: Express) {
               eq(productCompanyStock.companyId, companyId)
             ));
 
-          const erpStock = Number(stockRecord?.stockQty || 0);
+          // Se não há registro de estoque para esta empresa, permite a criação
+          // (produto sendo recebido pela primeira vez ou ERP ainda não sincronizado)
+          if (!stockRecord) continue;
+
+          const erpStock = Number(stockRecord.stockQty || 0);
+
+          // Se o saldo ERP é 0, não bloqueia — pode ser um recebimento de NF ainda não processado
+          if (erpStock <= 0) continue;
 
           const otherPalletsItems = await db.select({
             quantity: sql<number>`SUM(${palletItems.quantity})`
@@ -404,7 +411,7 @@ export function registerWmsRoutes(app: Express) {
           if (alreadyInPallets + currentPalletRequestTotal > erpStock) {
             const [product] = await db.select().from(products).where(eq(products.id, item.productId));
             return res.status(400).json({ 
-              error: `Estoque insuficiente para o produto ${product?.erpCode || item.productId}. ERP: ${erpStock.toLocaleString()}, Já em pallets: ${alreadyInPallets.toLocaleString()}, Solicitado: ${currentPalletRequestTotal.toLocaleString()}` 
+              error: `Estoque insuficiente para ${product?.name || item.productId} (Cód: ${product?.erpCode || ''}). Saldo ERP: ${erpStock}, Já em pallets: ${alreadyInPallets}, Solicitado: ${currentPalletRequestTotal}` 
             });
           }
         }

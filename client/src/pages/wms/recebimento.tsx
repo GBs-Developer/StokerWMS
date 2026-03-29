@@ -286,7 +286,10 @@ export default function RecebimentoPage() {
         }),
         credentials: "include",
       });
-      if (!res.ok) throw new Error("Erro ao criar pallet");
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Erro ao criar pallet");
+      }
       return res.json();
     },
     onSuccess: (data) => {
