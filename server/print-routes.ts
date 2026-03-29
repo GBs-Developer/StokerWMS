@@ -6,6 +6,8 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import { log } from "./log";
+// pdf-to-printer: usa SumatraPDF no Windows — impressão silenciosa sem abrir janela
+import pdfToPrinter from "pdf-to-printer";
 
 const IS_WIN = process.platform === "win32";
 
@@ -15,39 +17,22 @@ interface PrinterInfo {
   status: string;
 }
 
-/** Lista impressoras instaladas na máquina do servidor */
+/** Lista impressoras instaladas na máquina do servidor via pdf-to-printer */
 async function getInstalledPrinters(): Promise<PrinterInfo[]> {
-  return new Promise((resolve) => {
-    if (IS_WIN) {
-      const cmd = `powershell -Command "Get-Printer | Select-Object Name,Default | ConvertTo-Json -Depth 1"`;
-      exec(cmd, { timeout: 8000 }, (err, stdout) => {
-        if (err) { resolve([]); return; }
-        try {
-          let raw = JSON.parse(stdout.trim());
-          if (!Array.isArray(raw)) raw = [raw];
-          resolve(
-            raw
-              .map((p: any) => ({
-                name: String(p.Name ?? p.name ?? "").trim(),
-                isDefault: !!p.Default,
-                status: "ready",
-              }))
-              .filter((p) => p.name)
-          );
-        } catch { resolve([]); }
-      });
-    } else {
-      exec("lpstat -a 2>/dev/null | awk '{print $1}'", { timeout: 5000 }, (err, stdout) => {
-        if (err) { resolve([]); return; }
-        const names = stdout.trim().split("\n").filter(Boolean);
-        exec("lpstat -d 2>/dev/null", { timeout: 3000 }, (_, defOut) => {
-          const m = defOut?.match(/system default destination:\s+(.+)/);
-          const def = m?.[1]?.trim() ?? "";
-          resolve(names.map((name) => ({ name, isDefault: name === def, status: "ready" })));
-        });
-      });
-    }
-  });
+  try {
+    const [printerNames, defaultPrinter] = await Promise.all([
+      pdfToPrinter.getPrinters(),
+      pdfToPrinter.getDefaultPrinter().catch(() => null),
+    ]);
+    const defName = (defaultPrinter as string | null) ?? "";
+    return printerNames.map((name: string) => ({
+      name,
+      isDefault: name === defName,
+      status: "ready",
+    }));
+  } catch {
+    return [];
+  }
 }
 
 /** Localiza executável do Chrome ou Edge */
@@ -130,25 +115,24 @@ async function printHtmlToPrinter(
       const pdfSize = fs.statSync(pdfPath).size;
       log(`[print] #${jobId} PDF gerado (${pdfSize} bytes) — Etapa 2/2: enviando para "${printerName}"...`, "print");
 
-      // Etapa 2: PDF → Impressora
-      let printCmd: string;
-      if (IS_WIN) {
-        const safe = printerName.replace(/'/g, "''");
-        printCmd = `powershell -Command "for($i=0;$i -lt ${copies};$i++){ Start-Process -FilePath '${pdfPath}' -Verb PrintTo -ArgumentList '\\"${safe}\\"' -Wait -WindowStyle Hidden }"`;
-      } else {
-        printCmd = `lpr -P "${printerName}" -# ${copies} "${pdfPath}"`;
-      }
+      // Etapa 2: PDF → Impressora via pdf-to-printer (SumatraPDF no Windows — sem janela)
+      const sendCopies = async () => {
+        for (let i = 0; i < copies; i++) {
+          await pdfToPrinter.print(pdfPath, { printer: printerName, scale: "noscale" });
+        }
+      };
 
-      exec(printCmd, { timeout: 60000 }, (err2) => {
-        setTimeout(() => cleanup(htmlPath, pdfPath), 10_000);
-        if (err2) {
-          log(`[print] #${jobId} ERRO ao enviar para impressora: ${err2.message}`, "print");
-          resolve({ success: false, error: `Erro ao enviar para impressora: ${err2.message}` });
-        } else {
+      sendCopies()
+        .then(() => {
+          setTimeout(() => cleanup(htmlPath, pdfPath), 10_000);
           log(`[print] #${jobId} ✓ Impresso com sucesso em "${printerName}" (${copies} cópia(s))`, "print");
           resolve({ success: true });
-        }
-      });
+        })
+        .catch((err2: Error) => {
+          setTimeout(() => cleanup(htmlPath, pdfPath), 10_000);
+          log(`[print] #${jobId} ERRO ao enviar para impressora: ${err2.message}`, "print");
+          resolve({ success: false, error: `Erro ao enviar para impressora: ${err2.message}` });
+        });
     });
   });
 }

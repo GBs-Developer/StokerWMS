@@ -8,8 +8,9 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
     Package, ShoppingBag, Archive, Box, Tag,
-    Loader2, CheckCircle2, PackageOpen, Search, X, ArrowLeft, Trash2,
+    Loader2, CheckCircle2, PackageOpen, Search, X, ArrowLeft, Trash2, Printer,
 } from "lucide-react";
+import { PrintModal } from "@/components/ui/print-modal";
 import { DatePickerWithRange } from "@/components/ui/date-range-picker";
 import type { DateRange } from "react-day-picker";
 import { format, subDays } from "date-fns";
@@ -75,6 +76,7 @@ export function VolumeModal({ open, onClose, defaultErpOrderId }: VolumeModalPro
     const [searching, setSearching] = useState(false);
     const [searchError, setSearchError] = useState("");
     const [counts, setCounts] = useState({ sacola: 0, caixa: 0, saco: 0, avulso: 0 });
+    const [printModalOpen, setPrintModalOpen] = useState(false);
 
     const [dateRange, setDateRange] = useState<DateRange | undefined>({
         from: subDays(new Date(), 6),
@@ -197,9 +199,9 @@ export function VolumeModal({ open, onClose, defaultErpOrderId }: VolumeModalPro
     const adjust = (key: keyof typeof counts, delta: number) =>
         setCounts(prev => ({ ...prev, [key]: Math.max(0, prev[key] + delta) }));
 
-    const handlePrint = () => {
-        if (total === 0 || !order) return;
-
+    /** Gera o HTML de todas as etiquetas de volume do pedido */
+    const buildVolumesHtml = (): string => {
+        if (total === 0 || !order) return "";
         const labels = Array.from({ length: total }, (_, i) => `
             <div class="label">
                 <div class="label-header">
@@ -217,33 +219,21 @@ export function VolumeModal({ open, onClose, defaultErpOrderId }: VolumeModalPro
             </div>
         `).join("");
 
-        const html = `<!DOCTYPE html><html><head>
+        return `<!DOCTYPE html><html><head>
             <meta charset="UTF-8">
             <style>
-                /* Tamanho da página = tamanho da etiqueta: 10cm x 15cm */
-                @page {
-                    size: 10cm 15cm;
-                    margin: 0;
-                }
+                @page { size: 10cm 15cm; margin: 0; }
                 * { box-sizing: border-box; margin: 0; padding: 0; }
                 body { font-family: Arial, sans-serif; background: #fff; }
                 .label {
-                    width: 10cm;
-                    height: 15cm;
-                    padding: 0.5cm;
-                    border: 1px solid #000;
-                    page-break-after: always;
-                    display: flex;
-                    flex-direction: column;
-                    justify-content: space-between;
+                    width: 10cm; height: 15cm; padding: 0.5cm;
+                    border: 1px solid #000; page-break-after: always;
+                    display: flex; flex-direction: column; justify-content: space-between;
                 }
                 .label:last-child { page-break-after: avoid; }
                 .label-header {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    border-bottom: 1px dashed #999;
-                    padding-bottom: 0.3cm;
+                    display: flex; justify-content: space-between; align-items: center;
+                    border-bottom: 1px dashed #999; padding-bottom: 0.3cm;
                 }
                 .label-title { font-size: 11pt; color: #555; }
                 .label-num   { font-size: 28pt; font-weight: bold; }
@@ -251,36 +241,17 @@ export function VolumeModal({ open, onClose, defaultErpOrderId }: VolumeModalPro
                 .label-customer{ font-size: 10pt; color: #333; margin-top: 0.15cm; }
                 .label-detail  {
                     font-size: 10pt; color: #444;
-                    border-top: 1px dashed #ccc;
-                    padding-top: 0.2cm;
+                    border-top: 1px dashed #ccc; padding-top: 0.2cm;
                     display: flex; flex-wrap: wrap; gap: 0.2cm;
                 }
             </style>
         </head><body>${labels}</body></html>`;
-
-        // Cria iframe oculto — não abre nova aba, não navega
-        const iframe = document.createElement("iframe");
-        iframe.style.cssText = "position:fixed;top:-9999px;left:-9999px;width:0;height:0;border:none;visibility:hidden;";
-        document.body.appendChild(iframe);
-
-        const doc = iframe.contentDocument || iframe.contentWindow?.document;
-        if (!doc) { document.body.removeChild(iframe); return; }
-
-        doc.open(); doc.write(html); doc.close();
-
-        iframe.contentWindow?.focus();
-        setTimeout(() => {
-            iframe.contentWindow?.print();
-            setTimeout(() => {
-                if (document.body.contains(iframe)) document.body.removeChild(iframe);
-            }, 2000);
-        }, 400);
     };
 
 
     const handleSaveAndPrint = async () => {
         saveMutation.mutate(undefined, {
-            onSuccess: () => handlePrint(),
+            onSuccess: () => setPrintModalOpen(true),
         });
     };
 
@@ -298,6 +269,14 @@ export function VolumeModal({ open, onClose, defaultErpOrderId }: VolumeModalPro
     });
 
     return (
+        <>
+        <PrintModal
+            open={printModalOpen}
+            onClose={() => setPrintModalOpen(false)}
+            html={buildVolumesHtml()}
+            defaultCopies={1}
+            title="Imprimir Etiquetas de Volume"
+        />
         <Dialog open={open} onOpenChange={v => !v && onClose()}>
             <DialogContent className="max-w-sm w-[95vw] p-0 gap-0 rounded-xl overflow-hidden flex flex-col" style={{ maxHeight: "88vh" }}>
 
@@ -494,10 +473,19 @@ export function VolumeModal({ open, onClose, defaultErpOrderId }: VolumeModalPro
                                     }
                                 </Button>
                             )}
-                            {/* Botão Imprimir — ocultado temporariamente */}
-                            {/* <Button variant="outline" className="flex-1" onClick={handlePrint} disabled={total === 0}> */}
-                            {/*     <Printer className="h-4 w-4 mr-2" />Imprimir                                      */}
-                            {/* </Button>                                                                             */}
+                            {/* Botão Imprimir — disponível quando há volumes */}
+                            {total > 0 && (
+                                <Button
+                                    variant="outline"
+                                    className="shrink-0"
+                                    onClick={() => setPrintModalOpen(true)}
+                                    disabled={saveMutation.isPending}
+                                    title="Imprimir etiquetas de volume"
+                                    data-testid="btn-volume-print"
+                                >
+                                    <Printer className="h-4 w-4" />
+                                </Button>
+                            )}
                             <Button
                                 className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
                                 onClick={() => saveMutation.mutate()}
@@ -514,5 +502,6 @@ export function VolumeModal({ open, onClose, defaultErpOrderId }: VolumeModalPro
 
             </DialogContent>
         </Dialog>
+        </>
     );
 }
