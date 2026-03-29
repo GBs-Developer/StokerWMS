@@ -80,6 +80,7 @@ export interface IStorage {
   unlockWorkUnits(workUnitIds: string[]): Promise<void>;
   resetWorkUnitProgress(id: string): Promise<void>; // Added missing interface method
   resetConferenciaProgress(id: string): Promise<void>;
+  resetConferenciaWorkUnitForOrder(orderId: string): Promise<void>;
   checkAndCompleteWorkUnit(id: string, autoComplete?: boolean): Promise<boolean>;
   checkAllWorkUnitsComplete(orderId: string): Promise<boolean>;
   checkAllConferenceUnitsComplete(orderId: string): Promise<boolean>;
@@ -820,6 +821,18 @@ export class DatabaseStorage implements IStorage {
     await db.update(workUnits)
       .set({ status: "pendente", startedAt: null, completedAt: null })
       .where(eq(workUnits.id, id));
+  }
+
+  async resetConferenciaWorkUnitForOrder(orderId: string): Promise<void> {
+    const confWus = await db.select().from(workUnits)
+      .where(and(eq(workUnits.orderId, orderId), eq(workUnits.type, "conferencia")));
+    for (const wu of confWus) {
+      if (wu.status !== "pendente") {
+        await db.update(workUnits)
+          .set({ status: "pendente", completedAt: null, lockedBy: null, lockedAt: null })
+          .where(eq(workUnits.id, wu.id));
+      }
+    }
   }
 
   async checkAndCompleteWorkUnit(id: string, autoComplete: boolean = true): Promise<boolean> {

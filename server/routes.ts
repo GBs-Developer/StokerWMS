@@ -2192,6 +2192,14 @@ export async function registerRoutes(
           });
         }
 
+        // Quando a exceção era de Separação, a WU de conferência pode ter ficado
+        // como "concluido" durante o ciclo anterior. Precisamos reativá-la para que
+        // o pedido reapareça no módulo de Conferência após a re-separação.
+        // Os checkedQty dos outros itens são preservados — só o item excluído terá checkedQty=0.
+        if (isSeparacao && exc.orderItem?.orderId) {
+          await storage.resetConferenciaWorkUnitForOrder(exc.orderItem.orderId);
+        }
+
         // Downgrade the Order status so it goes back to the correct module
         if (exc.orderItem?.orderId) {
             const order = await storage.getOrderById(exc.orderItem.orderId);
