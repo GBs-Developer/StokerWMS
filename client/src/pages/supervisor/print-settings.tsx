@@ -10,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, Printer, RotateCcw, Save, CheckCircle2, User } from "lucide-react";
@@ -57,6 +58,7 @@ export default function PrintSettingsPage() {
   const isAdmin = currentUser?.role === "administrador";
 
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
+  // configs: tipo → nome da impressora
   const [configs, setConfigs] = useState<Record<string, string>>({});
   const [saved, setSaved] = useState<Record<string, boolean>>({});
 
@@ -77,13 +79,14 @@ export default function PrintSettingsPage() {
     enabled: isAdmin,
   });
 
-  const printers = printersData?.printers ?? [];
-  const users: UserInfo[] = usersData ?? [];
+  const printers: PrinterInfo[] = printersData?.printers ?? [];
+  const users: UserInfo[] = Array.isArray(usersData) ? usersData : [];
 
-  // Usuário alvo para configuração (admin pode escolher, outros só veem o próprio)
-  const targetUserId = isAdmin ? selectedUserId : (currentUser?.id ?? null);
+  // Usuário alvo: admin escolhe qualquer um; outros só veem o próprio
+  const targetUserId: number | null = isAdmin ? selectedUserId : (currentUser?.id ?? null);
+  const selectedUser = users.find((u) => u.id === targetUserId);
 
-  // Quando o usuário alvo muda, recarrega as configs dele
+  // Recarrega configs do localStorage quando o usuário alvo muda
   useEffect(() => {
     const loaded: Record<string, string> = {};
     for (const type of PRINT_TYPES) {
@@ -94,10 +97,8 @@ export default function PrintSettingsPage() {
     setSaved({});
   }, [targetUserId]);
 
-  const selectedUser = users.find((u) => u.id === selectedUserId);
-
   function handleSave(type: PrintType) {
-    const printer = configs[type];
+    const printer = (configs[type] ?? "").trim();
     if (!printer) {
       clearPrintConfig(type, targetUserId);
     } else {
@@ -105,9 +106,7 @@ export default function PrintSettingsPage() {
     }
     setSaved((prev) => ({ ...prev, [type]: true }));
     setTimeout(() => setSaved((prev) => ({ ...prev, [type]: false })), 2000);
-    const userLabel = isAdmin && selectedUser
-      ? ` para ${selectedUser.name || selectedUser.username}`
-      : "";
+    const userLabel = selectedUser ? ` para ${selectedUser.name || selectedUser.username}` : "";
     toast({
       title: "Configuração salva",
       description: `${PRINT_TYPE_LABELS[type]}: ${printer || "sem padrão"}${userLabel}`,
@@ -117,13 +116,11 @@ export default function PrintSettingsPage() {
   function handleClear(type: PrintType) {
     clearPrintConfig(type, targetUserId);
     setConfigs((prev) => { const n = { ...prev }; delete n[type]; return n; });
-    const userLabel = isAdmin && selectedUser
-      ? ` de ${selectedUser.name || selectedUser.username}`
-      : "";
-    toast({ title: "Configuração removida", description: `${PRINT_TYPE_LABELS[type]} sem padrão${userLabel}.` });
+    toast({ title: "Configuração removida", description: `${PRINT_TYPE_LABELS[type]} sem impressora padrão.` });
   }
 
-  const loading = loadingPrinters || (isAdmin && loadingUsers);
+  const hasPrinters = printers.length > 0;
+  const showConfigCards = !isAdmin || targetUserId != null;
 
   return (
     <div className="min-h-[100dvh] bg-background">
@@ -146,71 +143,63 @@ export default function PrintSettingsPage() {
             <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
                 <User className="h-4 w-4 text-muted-foreground" />
-                Selecionar usuário
+                Usuário
               </CardTitle>
               <CardDescription className="text-xs">
-                Escolha o usuário cujas configurações de impressora você deseja definir.
+                Escolha o usuário cujas impressoras você quer configurar.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Select
-                value={selectedUserId != null ? String(selectedUserId) : "__none__"}
-                onValueChange={(v) => setSelectedUserId(v === "__none__" ? null : Number(v))}
-              >
-                <SelectTrigger data-testid="select-user">
-                  <SelectValue placeholder="Selecionar usuário..." />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">
-                    <span className="text-muted-foreground">Selecionar usuário...</span>
-                  </SelectItem>
-                  {users.map((u) => (
-                    <SelectItem key={u.id} value={String(u.id)}>
-                      <span>{u.name || u.username}</span>
-                      <span className="ml-2 text-xs text-muted-foreground">
-                        ({ROLE_LABELS[u.role] ?? u.role})
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {loadingUsers ? (
+                <div className="text-sm text-muted-foreground">Carregando usuários...</div>
+              ) : (
+                <Select
+                  value={selectedUserId != null ? String(selectedUserId) : "__none__"}
+                  onValueChange={(v) => setSelectedUserId(v === "__none__" ? null : Number(v))}
+                >
+                  <SelectTrigger data-testid="select-user">
+                    <SelectValue placeholder="Selecionar usuário..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Selecionar usuário...</SelectItem>
+                    {users.map((u) => (
+                      <SelectItem key={u.id} value={String(u.id)}>
+                        {u.name || u.username} ({ROLE_LABELS[u.role] ?? u.role})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </CardContent>
           </Card>
         )}
 
-        {/* Enquanto carrega */}
-        {loading && (
-          <div className="flex items-center justify-center py-16 text-muted-foreground gap-2">
-            <Printer className="h-5 w-5 animate-pulse" />
-            Carregando...
-          </div>
-        )}
-
-        {/* Nenhuma impressora no servidor */}
-        {!loading && printers.length === 0 && (
+        {/* Aguardando seleção */}
+        {isAdmin && targetUserId == null && !loadingUsers && (
           <Card>
             <CardContent className="py-10 flex flex-col items-center gap-3 text-muted-foreground">
-              <Printer className="h-8 w-8" />
-              <p className="text-sm text-center">
-                Nenhuma impressora encontrada no servidor.<br />
-                Verifique se o sistema está rodando na máquina correta.
-              </p>
-              <Button variant="outline" size="sm" onClick={() => refetch()}>
-                <RotateCcw className="h-4 w-4 mr-1.5" /> Tentar novamente
-              </Button>
+              <User className="h-8 w-8" />
+              <p className="text-sm text-center">Selecione um usuário acima para configurar suas impressoras.</p>
             </CardContent>
           </Card>
         )}
 
-        {/* Cards de impressora por tipo — exige usuário selecionado quando admin */}
-        {!loading && printers.length > 0 && (!isAdmin || targetUserId != null) && (
+        {/* Cards de configuração por tipo de impressão */}
+        {showConfigCards && (
           <>
-            {isAdmin && selectedUser && (
+            {selectedUser && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground px-1">
-                <User className="h-4 w-4" />
-                Configurando impressoras de:{" "}
+                <User className="h-3.5 w-3.5 shrink-0" />
+                <span>Configurando:</span>
                 <strong className="text-foreground">{selectedUser.name || selectedUser.username}</strong>
                 <span className="text-xs">({ROLE_LABELS[selectedUser.role] ?? selectedUser.role})</span>
+              </div>
+            )}
+
+            {loadingPrinters && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground py-2 px-1">
+                <Printer className="h-4 w-4 animate-pulse" />
+                Verificando impressoras disponíveis...
               </div>
             )}
 
@@ -223,36 +212,56 @@ export default function PrintSettingsPage() {
                   </CardTitle>
                   <CardDescription className="text-xs">
                     {configs[type]
-                      ? `Impressora configurada: ${configs[type]}`
-                      : "Sem impressora padrão configurada"}
+                      ? `Impressora atual: ${configs[type]}`
+                      : "Nenhuma impressora configurada para este tipo"}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col gap-3">
                   <div className="flex flex-col gap-1.5">
                     <Label>Impressora padrão</Label>
-                    <Select
-                      value={configs[type] ?? "__none__"}
-                      onValueChange={(v) =>
-                        setConfigs((prev) => ({ ...prev, [type]: v === "__none__" ? "" : v }))
-                      }
-                    >
-                      <SelectTrigger data-testid={`select-printer-${type}`}>
-                        <SelectValue placeholder="Selecionar impressora..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__none__">
-                          <span className="text-muted-foreground">Sem padrão</span>
-                        </SelectItem>
-                        {printers.map((p) => (
-                          <SelectItem key={p.name} value={p.name}>
-                            {p.name}
-                            {p.isDefault && (
-                              <span className="ml-2 text-xs text-muted-foreground">(padrão do sistema)</span>
-                            )}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+
+                    {/* Se o servidor retornou a lista de impressoras, mostra Select; caso contrário, campo de texto */}
+                    {hasPrinters ? (
+                      <Select
+                        value={configs[type] ?? "__none__"}
+                        onValueChange={(v) =>
+                          setConfigs((prev) => ({ ...prev, [type]: v === "__none__" ? "" : v }))
+                        }
+                      >
+                        <SelectTrigger data-testid={`select-printer-${type}`}>
+                          <SelectValue placeholder="Selecionar impressora..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">Sem padrão</SelectItem>
+                          {printers.map((p) => (
+                            <SelectItem key={p.name} value={p.name}>
+                              {p.name}{p.isDefault ? " (padrão do sistema)" : ""}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <div className="flex flex-col gap-1">
+                        <Input
+                          placeholder="Nome exato da impressora no Windows..."
+                          value={configs[type] ?? ""}
+                          onChange={(e) =>
+                            setConfigs((prev) => ({ ...prev, [type]: e.target.value }))
+                          }
+                          data-testid={`input-printer-${type}`}
+                        />
+                        {!loadingPrinters && (
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs text-muted-foreground">
+                              Servidor sem impressoras detectadas — digite o nome manualmente.
+                            </p>
+                            <Button variant="ghost" size="sm" className="text-xs h-7 px-2" onClick={() => refetch()}>
+                              <RotateCcw className="h-3 w-3 mr-1" /> Recarregar
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex gap-2">
@@ -282,23 +291,11 @@ export default function PrintSettingsPage() {
                 </CardContent>
               </Card>
             ))}
+
+            <p className="text-xs text-muted-foreground text-center px-4 pb-2">
+              As configurações são salvas por usuário neste dispositivo/navegador.
+            </p>
           </>
-        )}
-
-        {/* Admin sem usuário selecionado */}
-        {!loading && printers.length > 0 && isAdmin && targetUserId == null && (
-          <Card>
-            <CardContent className="py-10 flex flex-col items-center gap-3 text-muted-foreground">
-              <User className="h-8 w-8" />
-              <p className="text-sm text-center">Selecione um usuário acima para configurar suas impressoras.</p>
-            </CardContent>
-          </Card>
-        )}
-
-        {!loading && printers.length > 0 && (
-          <p className="text-xs text-muted-foreground text-center px-4">
-            As configurações são salvas por usuário neste navegador/dispositivo.
-          </p>
         )}
       </main>
     </div>
