@@ -24,6 +24,7 @@ import {
 import { useLocation } from "wouter";
 import { ProductStockInfo, StockLegend } from "@/components/wms/product-stock-info";
 import { useProductStockBatch } from "@/hooks/use-product-stock";
+import { PrintModal } from "@/components/ui/print-modal";
 
 interface PalletItemDraft {
   productId: string;
@@ -66,6 +67,8 @@ export default function RecebimentoPage() {
 
   const [labelDialog, setLabelDialog] = useState<any>(null);
   const [labelLoading, setLabelLoading] = useState(false);
+  const [palletPrintOpen, setPalletPrintOpen] = useState(false);
+  const [palletPrintHtml, setPalletPrintHtml] = useState("");
   const [showCreateConfirm, setShowCreateConfirm] = useState(false);
   const [editingQtyIdx, setEditingQtyIdx] = useState<number | null>(null);
   const [editingQtyValue, setEditingQtyValue] = useState("");
@@ -398,8 +401,6 @@ export default function RecebimentoPage() {
 
   const printLabel = async () => {
     if (!labelDialog) return;
-    const w = window.open("", "_blank", "width=420,height=650");
-    if (!w) return;
 
     let qrDataUrl = "";
     try {
@@ -409,13 +410,14 @@ export default function RecebimentoPage() {
         errorCorrectionLevel: "M",
       });
     } catch {
-      // QR code generation failed, continue without it
+      // QR code sem dados, continua sem ele
     }
 
-    w.document.write(`
-      <html><head><title>Etiqueta Pallet ${esc(labelDialog.palletCode)}</title>
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+      <title>Etiqueta Pallet ${esc(labelDialog.palletCode)}</title>
       <style>
-        body { font-family: monospace; padding: 8mm; margin: 0; font-size: 12px; }
+        @page { size: 10cm 15cm; margin: 0; }
+        body { font-family: monospace; padding: 8mm; margin: 0; font-size: 12px; box-sizing: border-box; }
         .header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
         .header-left { flex: 1; }
         .code { font-size: 26px; font-weight: bold; border: 2px solid #000; padding: 6px 10px; margin-bottom: 6px; text-align: center; }
@@ -427,14 +429,13 @@ export default function RecebimentoPage() {
         .item { border-bottom: 1px dashed #ccc; padding: 4px 0; }
         .item-name { font-weight: bold; }
         .nf { font-size: 10px; margin-top: 6px; color: #333; }
-        @media print { body { padding: 5mm; } }
       </style></head><body>
         <div class="header">
           <div class="header-left">
             <div class="code">${esc(labelDialog.palletCode)}</div>
             <div class="addr">${esc(labelDialog.address)}</div>
           </div>
-          ${qrDataUrl ? `<div class="qr"><img src="${qrDataUrl}" alt="QR Code" /></div>` : ""}
+          ${qrDataUrl ? `<div class="qr"><img src="${qrDataUrl}" alt="QR" /></div>` : ""}
         </div>
         <div class="meta">Criado: ${esc(new Date(labelDialog.createdAt).toLocaleString("pt-BR"))} | Por: ${esc(labelDialog.createdBy || "—")}</div>
         <div class="items">
@@ -446,10 +447,10 @@ export default function RecebimentoPage() {
           `).join("")}
         </div>
         ${labelDialog.nfIds?.length ? `<div class="nf">NF: ${esc(labelDialog.nfIds.join(", "))}</div>` : ""}
-      </body></html>
-    `);
-    w.document.close();
-    setTimeout(() => w.print(), 400);
+      </body></html>`;
+
+    setPalletPrintHtml(html);
+    setPalletPrintOpen(true);
   };
 
   const totalItems = palletItems.reduce((sum, i) => sum + i.quantity, 0);
@@ -457,6 +458,14 @@ export default function RecebimentoPage() {
   const { data: stockInfoMap = {} } = useProductStockBatch(palletProductIds);
 
   return (
+    <>
+    <PrintModal
+      open={palletPrintOpen}
+      onClose={() => setPalletPrintOpen(false)}
+      html={palletPrintHtml}
+      defaultCopies={1}
+      title="Imprimir Etiqueta de Palete"
+    />
     <div className="min-h-[100dvh] bg-background">
       <GradientHeader title="Recebimento" subtitle={companyId ? (companiesData?.find(c => c.id === companyId)?.name || "") : ""} compact>
         <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="text-white/70 hover:text-white hover:bg-white/10 h-9" data-testid="button-back">
@@ -998,5 +1007,6 @@ export default function RecebimentoPage() {
         </DialogContent>
       </Dialog>
     </div>
+    </>
   );
 }

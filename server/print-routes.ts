@@ -20,16 +20,19 @@ interface PrinterInfo {
 /** Lista impressoras instaladas na máquina do servidor via pdf-to-printer */
 async function getInstalledPrinters(): Promise<PrinterInfo[]> {
   try {
-    const [printerNames, defaultPrinter] = await Promise.all([
+    const [rawPrinters, rawDefault] = await Promise.all([
       pdfToPrinter.getPrinters(),
       pdfToPrinter.getDefaultPrinter().catch(() => null),
     ]);
-    const defName = (defaultPrinter as string | null) ?? "";
-    return printerNames.map((name: string) => ({
-      name,
-      isDefault: name === defName,
-      status: "ready",
-    }));
+    // pdf-to-printer no Windows retorna objetos {deviceId, name, paperSizes}
+    // em versões mais antigas retorna strings — tratamos ambos
+    const extractName = (p: any): string =>
+      typeof p === "string" ? p.trim() : String(p?.name ?? p?.deviceId ?? "").trim();
+
+    const defName = extractName(rawDefault);
+    return (rawPrinters as any[])
+      .map((p) => ({ name: extractName(p), isDefault: extractName(p) === defName, status: "ready" }))
+      .filter((p) => p.name);
   } catch {
     return [];
   }
