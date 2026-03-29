@@ -127,6 +127,47 @@ async function runSafeMigrations() {
       // coluna já existe ou tipo incompatível — ignorar
     }
   }
+
+  // Tabelas que podem não existir em bancos mais antigos
+  const tables: string[] = [
+    `CREATE TABLE IF NOT EXISTS product_addresses (
+      id text PRIMARY KEY,
+      product_id text NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+      company_id integer NOT NULL,
+      address_id text NOT NULL REFERENCES wms_addresses(id) ON DELETE CASCADE,
+      created_at text NOT NULL DEFAULT ''
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS product_addresses_unique_idx
+      ON product_addresses (product_id, company_id, address_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_product_addresses_product_company
+      ON product_addresses (product_id, company_id)`,
+
+    `CREATE TABLE IF NOT EXISTS address_picking_log (
+      id text PRIMARY KEY,
+      company_id integer NOT NULL,
+      address_id text NOT NULL REFERENCES wms_addresses(id),
+      address_code text NOT NULL,
+      product_id text NOT NULL REFERENCES products(id),
+      product_name text,
+      erp_code text,
+      quantity integer NOT NULL,
+      order_id text,
+      erp_order_id text,
+      work_unit_id text,
+      user_id text NOT NULL,
+      user_name text,
+      created_at text NOT NULL DEFAULT '',
+      notes text
+    )`,
+  ];
+
+  for (const ddl of tables) {
+    try {
+      await db.execute(sql.raw(ddl));
+    } catch {
+      // tabela/índice já existe — ignorar
+    }
+  }
 }
 
 (async () => {
