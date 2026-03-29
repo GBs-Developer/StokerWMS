@@ -144,7 +144,7 @@ export default function BalcaoPage() {
   const hasManualQtyPermission = !!userSettings.allowManualQty;
 
 
-  const workUnitsQueryKey = useSessionQueryKey(["/api/work-units", "balcao"]);
+  const workUnitsQueryKey = useSessionQueryKey(["/api/work-units?type=balcao"]);
 
   const { data: workUnits, isLoading } = useQuery<WorkUnitWithDetails[]>({
     queryKey: workUnitsQueryKey,
