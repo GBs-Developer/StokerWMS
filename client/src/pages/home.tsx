@@ -148,7 +148,7 @@ export default function HomePage() {
     : (roleModuleAccess[userRole] || []);
   // Administradores sempre enxergam módulos administrativos exclusivos,
   // mesmo quando possuem lista de módulos customizada.
-  const adminExclusive = ["/admin/permissoes", "/admin/limpeza"];
+  const adminExclusive = ["/admin/permissoes", "/admin/limpeza", "/supervisor/print-settings"];
   const allowedHrefs = userRole === "administrador"
     ? [...new Set([...baseHrefs, ...adminExclusive])]
     : baseHrefs;
