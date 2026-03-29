@@ -465,6 +465,8 @@ export default function RecebimentoPage() {
       html={palletPrintHtml}
       defaultCopies={1}
       title="Imprimir Etiqueta de Palete"
+      printType="pallet_label"
+      onError={(msg) => toast({ title: "Erro na impressão", description: msg, variant: "destructive" })}
     />
     <div className="min-h-[100dvh] bg-background">
       <GradientHeader title="Recebimento" subtitle={companyId ? (companiesData?.find(c => c.id === companyId)?.name || "") : ""} compact>

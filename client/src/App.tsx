@@ -41,6 +41,7 @@ import PermissoesPage from "@/pages/admin/permissoes";
 import LimpezaPage from "@/pages/admin/limpeza";
 import SeparationSettingsPage from "@/pages/supervisor/separation-settings";
 import ProductAddressesPage from "@/pages/supervisor/product-addresses";
+import PrintSettingsPage from "@/pages/supervisor/print-settings";
 import NotFound from "@/pages/not-found";
 import VolumeLabelPage from "@/pages/print/volume-label";
 import PalletLabelPage from "@/pages/print/pallet-label";
@@ -309,6 +310,12 @@ function Router() {
       <Route path="/supervisor/product-addresses">
         <ProtectedRoute allowedRoles={["supervisor", "administrador"]}>
           <ProductAddressesPage />
+        </ProtectedRoute>
+      </Route>
+
+      <Route path="/supervisor/print-settings">
+        <ProtectedRoute allowedRoles={["supervisor", "administrador"]}>
+          <PrintSettingsPage />
         </ProtectedRoute>
       </Route>
 

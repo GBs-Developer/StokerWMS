@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Dialog,
   DialogContent,
@@ -17,10 +17,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { Loader2, Printer, CheckCircle2, XCircle } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Loader2, Printer, XCircle } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
-
-type Status = "loading" | "idle" | "printing" | "success" | "error";
+import { getPrintConfig, setPrintConfig, type PrintType } from "@/lib/print-config";
 
 interface PrinterInfo {
   name: string;
@@ -28,14 +28,30 @@ interface PrinterInfo {
   status: string;
 }
 
+/** Cache de impressoras para evitar re-buscar a cada abertura */
+let cachedPrinters: PrinterInfo[] | null = null;
+let cacheExpiry = 0;
+
+async function fetchPrinters(): Promise<PrinterInfo[]> {
+  if (cachedPrinters && Date.now() < cacheExpiry) return cachedPrinters;
+  const res = await apiRequest("GET", "/api/print/printers");
+  const data = await res.json() as { success: boolean; printers: PrinterInfo[]; default_printer?: string };
+  if (!data.success) throw new Error("Erro ao listar impressoras");
+  cachedPrinters = data.printers;
+  cacheExpiry = Date.now() + 60_000;
+  return data.printers;
+}
+
 interface PrintModalProps {
   open: boolean;
   onClose: () => void;
-  /** HTML completo para impressão direta no servidor */
   html: string | (() => string);
   title?: string;
-  /** Quantidade padrão de cópias */
   defaultCopies?: number;
+  /** Tipo de impressão — usado para salvar/recuperar impressora padrão */
+  printType?: PrintType;
+  /** Chamado se a impressão falhar (para mostrar toast no componente pai) */
+  onError?: (msg: string) => void;
 }
 
 export function PrintModal({
@@ -44,73 +60,77 @@ export function PrintModal({
   html,
   title = "Imprimir",
   defaultCopies = 1,
+  printType,
+  onError,
 }: PrintModalProps) {
-  const [status, setStatus] = useState<Status>("loading");
+  const [loading, setLoading] = useState(false);
   const [printers, setPrinters] = useState<PrinterInfo[]>([]);
-  const [selectedPrinter, setSelectedPrinter] = useState<string>("");
-  const [copies, setCopies] = useState<number>(defaultCopies);
-  const [errorMsg, setErrorMsg] = useState<string>("");
+  const [selectedPrinter, setSelectedPrinter] = useState("");
+  const [copies, setCopies] = useState(defaultCopies);
+  const [saveDefault, setSaveDefault] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+  const firedRef = useRef(false);
 
   useEffect(() => {
     if (!open) {
-      setStatus("loading");
       setErrorMsg("");
       setCopies(defaultCopies);
+      setSaveDefault(false);
+      firedRef.current = false;
       return;
     }
-    loadPrinters();
+
+    const savedConfig = printType ? getPrintConfig(printType) : null;
+
+    if (savedConfig) {
+      // Impressora já configurada → disparar imediatamente e fechar
+      const htmlContent = typeof html === "function" ? html() : html;
+      onClose();
+      fireAndForget(htmlContent, savedConfig.printer, savedConfig.copies);
+    } else {
+      // Sem configuração → mostrar seleção
+      loadPrinters();
+    }
   }, [open]);
 
-  async function loadPrinters() {
-    setStatus("loading");
-    setErrorMsg("");
-    try {
-      const res = await apiRequest("GET", "/api/print/printers");
-      const data = await res.json() as {
-        success: boolean;
-        default_printer: string | null;
-        printers: PrinterInfo[];
-        error?: string;
-      };
-      if (!data.success) throw new Error(data.error ?? "Erro ao listar impressoras");
-      setPrinters(data.printers);
-      const def = data.default_printer ?? data.printers[0]?.name ?? "";
-      setSelectedPrinter(def);
-      setStatus("idle");
-    } catch (e: any) {
-      setErrorMsg(e.message ?? "Não foi possível obter a lista de impressoras do servidor.");
-      setStatus("error");
-    }
-  }
-
-  async function handlePrint() {
-    if (!selectedPrinter) return;
-    setStatus("printing");
-    setErrorMsg("");
-    try {
-      const htmlContent = typeof html === "function" ? html() : html;
-      const res = await apiRequest("POST", "/api/print/job", {
-        html: htmlContent,
-        printer: selectedPrinter,
-        copies,
+  function fireAndForget(htmlContent: string, printer: string, numCopies: number) {
+    apiRequest("POST", "/api/print/job", { html: htmlContent, printer, copies: numCopies })
+      .then((res) => res.json())
+      .then((data: { success: boolean; error?: string }) => {
+        if (!data.success) onError?.(data.error ?? "Erro ao imprimir.");
+      })
+      .catch((e: Error) => {
+        onError?.(e.message ?? "Erro de conexão ao imprimir.");
       });
-      const data = await res.json() as { success: boolean; error?: string };
-      if (data.success) {
-        setStatus("success");
-      } else {
-        setErrorMsg(data.error ?? "Erro desconhecido ao imprimir.");
-        setStatus("error");
-      }
+  }
+
+  async function loadPrinters() {
+    setLoading(true);
+    setErrorMsg("");
+    try {
+      const list = await fetchPrinters();
+      setPrinters(list);
+      const def = list.find((p) => p.isDefault)?.name ?? list[0]?.name ?? "";
+      setSelectedPrinter(def);
     } catch (e: any) {
-      setErrorMsg(e.message ?? "Erro de conexão com o servidor.");
-      setStatus("error");
+      setErrorMsg(e.message ?? "Não foi possível obter impressoras do servidor.");
+    } finally {
+      setLoading(false);
     }
   }
 
-  const isBusy = status === "loading" || status === "printing";
+  function handlePrint() {
+    if (!selectedPrinter) return;
+    if (saveDefault && printType) {
+      setPrintConfig(printType, { printer: selectedPrinter, copies });
+    }
+    const htmlContent = typeof html === "function" ? html() : html;
+    onClose();
+    fireAndForget(htmlContent, selectedPrinter, copies);
+  }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v && !isBusy) onClose(); }}>
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose(); }}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -122,107 +142,86 @@ export function PrintModal({
           </DialogDescription>
         </DialogHeader>
 
-        {/* Carregando impressoras */}
-        {status === "loading" && (
+        {loading && (
           <div className="flex items-center justify-center gap-2 py-8 text-muted-foreground">
             <Loader2 className="h-5 w-5 animate-spin" />
             Carregando impressoras...
           </div>
         )}
 
-        {/* Seleção de impressora */}
-        {(status === "idle" || status === "error") && (
+        {!loading && errorMsg && (
+          <div className="flex flex-col gap-3 py-1">
+            <div className="flex items-start gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+              <XCircle className="h-4 w-4 mt-0.5 shrink-0" />
+              {errorMsg}
+            </div>
+          </div>
+        )}
+
+        {!loading && !errorMsg && printers.length === 0 && (
+          <p className="text-sm text-muted-foreground text-center py-4">
+            Nenhuma impressora encontrada no servidor.
+          </p>
+        )}
+
+        {!loading && !errorMsg && printers.length > 0 && (
           <div className="flex flex-col gap-4 py-1">
-            {status === "error" && (
-              <div className="flex items-start gap-2 rounded-md bg-destructive/10 p-3 text-sm text-destructive">
-                <XCircle className="h-4 w-4 mt-0.5 shrink-0" />
-                {errorMsg}
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="printer-select">Impressora</Label>
+              <Select value={selectedPrinter} onValueChange={setSelectedPrinter}>
+                <SelectTrigger id="printer-select" data-testid="select-printer">
+                  <SelectValue placeholder="Selecione uma impressora" />
+                </SelectTrigger>
+                <SelectContent>
+                  {printers.map((p) => (
+                    <SelectItem key={p.name} value={p.name} data-testid={`printer-option-${p.name}`}>
+                      {p.name}{p.isDefault && <span className="ml-2 text-xs text-muted-foreground">(padrão)</span>}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="copies-input">Cópias</Label>
+              <Input
+                id="copies-input"
+                type="number"
+                min={1}
+                max={99}
+                value={copies}
+                onChange={(e) => setCopies(Math.max(1, parseInt(e.target.value) || 1))}
+                className="w-24"
+                data-testid="input-copies"
+              />
+            </div>
+
+            {printType && (
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="save-default"
+                  checked={saveDefault}
+                  onCheckedChange={(v) => setSaveDefault(!!v)}
+                  data-testid="checkbox-save-default"
+                />
+                <Label htmlFor="save-default" className="font-normal cursor-pointer text-sm">
+                  Sempre usar esta impressora para este tipo
+                </Label>
               </div>
             )}
-
-            {printers.length === 0 && status !== "error" && (
-              <p className="text-sm text-muted-foreground text-center py-4">
-                Nenhuma impressora encontrada no servidor.
-              </p>
-            )}
-
-            {printers.length > 0 && (
-              <>
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="printer-select">Impressora</Label>
-                  <Select value={selectedPrinter} onValueChange={setSelectedPrinter}>
-                    <SelectTrigger id="printer-select" data-testid="select-printer">
-                      <SelectValue placeholder="Selecione uma impressora" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {printers.map((p) => (
-                        <SelectItem
-                          key={p.name}
-                          value={p.name}
-                          data-testid={`printer-option-${p.name}`}
-                        >
-                          <span>{p.name}</span>
-                          {p.isDefault && (
-                            <span className="ml-2 text-xs text-muted-foreground">(padrão)</span>
-                          )}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="copies-input">Cópias</Label>
-                  <Input
-                    id="copies-input"
-                    type="number"
-                    min={1}
-                    max={99}
-                    value={copies}
-                    onChange={(e) => setCopies(Math.max(1, parseInt(e.target.value) || 1))}
-                    className="w-24"
-                    data-testid="input-copies"
-                  />
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* Imprimindo */}
-        {status === "printing" && (
-          <div className="flex items-center justify-center gap-2 py-8 text-muted-foreground">
-            <Loader2 className="h-5 w-5 animate-spin" />
-            Enviando para {selectedPrinter}...
-          </div>
-        )}
-
-        {/* Sucesso */}
-        {status === "success" && (
-          <div className="flex flex-col items-center gap-2 py-6 text-green-600">
-            <CheckCircle2 className="h-10 w-10" />
-            <p className="font-medium">Enviado para impressão!</p>
-            <p className="text-sm text-muted-foreground">{selectedPrinter}</p>
           </div>
         )}
 
         <DialogFooter className="gap-2">
-          {status === "error" && (
+          {errorMsg && (
             <>
-              <Button variant="ghost" onClick={onClose} data-testid="btn-print-cancel">
-                Cancelar
-              </Button>
-              <Button onClick={loadPrinters} data-testid="btn-print-retry">
-                Tentar novamente
-              </Button>
+              <Button variant="ghost" onClick={onClose} data-testid="btn-print-cancel">Cancelar</Button>
+              <Button onClick={loadPrinters} data-testid="btn-print-retry">Tentar novamente</Button>
             </>
           )}
-
-          {status === "idle" && (
+          {!loading && !errorMsg && (
             <>
-              <Button variant="ghost" onClick={onClose} data-testid="btn-print-cancel">
-                Cancelar
-              </Button>
+              <Button variant="ghost" onClick={onClose} data-testid="btn-print-cancel">Cancelar</Button>
               <Button
                 onClick={handlePrint}
                 disabled={!selectedPrinter || printers.length === 0}
@@ -232,12 +231,6 @@ export function PrintModal({
                 Imprimir
               </Button>
             </>
-          )}
-
-          {status === "success" && (
-            <Button onClick={onClose} data-testid="btn-print-close">
-              Fechar
-            </Button>
           )}
         </DialogFooter>
       </DialogContent>

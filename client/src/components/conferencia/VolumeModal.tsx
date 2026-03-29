@@ -276,6 +276,8 @@ export function VolumeModal({ open, onClose, defaultErpOrderId }: VolumeModalPro
             html={buildVolumesHtml()}
             defaultCopies={1}
             title="Imprimir Etiquetas de Volume"
+            printType="volume_label"
+            onError={(msg) => toast({ title: "Erro na impressão", description: msg, variant: "destructive" })}
         />
         <Dialog open={open} onOpenChange={v => !v && onClose()}>
             <DialogContent className="max-w-sm w-[95vw] p-0 gap-0 rounded-xl overflow-hidden flex flex-col" style={{ maxHeight: "88vh" }}>
@@ -487,13 +489,13 @@ export function VolumeModal({ open, onClose, defaultErpOrderId }: VolumeModalPro
                                 </Button>
                             )}
                             <Button
-                                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+                                className="flex-1 min-w-0 bg-blue-600 hover:bg-blue-700 text-white"
                                 onClick={() => saveMutation.mutate()}
                                 disabled={total === 0 || saveMutation.isPending}
                             >
                                 {saveMutation.isPending
-                                    ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Salvando...</>
-                                    : <><CheckCircle2 className="h-4 w-4 mr-2" />Salvar Volumes</>
+                                    ? <><Loader2 className="h-4 w-4 shrink-0 mr-1.5 animate-spin" /><span className="truncate">Salvando...</span></>
+                                    : <><CheckCircle2 className="h-4 w-4 shrink-0 mr-1.5" /><span className="truncate">Salvar</span></>
                                 }
                             </Button>
                         </div>

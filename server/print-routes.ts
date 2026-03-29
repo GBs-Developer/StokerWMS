@@ -75,50 +75,34 @@ async function printHtmlToPrinter(
     const htmlPath = path.join(tmpDir, `stoker_${jobId}.html`);
     const pdfPath  = path.join(tmpDir, `stoker_${jobId}.pdf`);
 
-    log(`[print] Novo trabalho #${jobId} | usuário: ${user} | impressora: "${printerName}" | cópias: ${copies}`, "print");
+    log(`[print] #${jobId} "${printerName}" x${copies} (${user})`, "print");
 
     try {
       fs.writeFileSync(htmlPath, html, "utf-8");
-      log(`[print] #${jobId} HTML salvo em ${htmlPath} (${html.length} bytes)`, "print");
     } catch (e: any) {
-      log(`[print] #${jobId} ERRO ao criar arquivo temporário: ${e.message}`, "print");
       resolve({ success: false, error: `Não foi possível criar arquivo temporário: ${e.message}` });
       return;
     }
 
     const browser = findBrowserExe();
     if (!browser) {
-      log(`[print] #${jobId} ERRO: Chrome/Edge não encontrado na máquina do servidor`, "print");
       cleanup(htmlPath);
-      resolve({
-        success: false,
-        error: "Chrome ou Edge não encontrado nesta máquina. Use a opção 'Abrir no navegador'.",
-      });
+      resolve({ success: false, error: "Chrome ou Edge não encontrado nesta máquina." });
       return;
     }
-
-    log(`[print] #${jobId} Usando navegador: ${browser}`, "print");
 
     const fileUrl = IS_WIN
       ? `file:///${htmlPath.replace(/\\/g, "/")}`
       : `file://${htmlPath}`;
 
-    // Etapa 1: HTML → PDF
-    log(`[print] #${jobId} Etapa 1/2: gerando PDF...`, "print");
     const chromeCmd = `"${browser}" --headless --disable-gpu --no-sandbox --print-to-pdf="${pdfPath}" --print-to-pdf-no-header --no-pdf-header-footer "${fileUrl}"`;
-    exec(chromeCmd, { timeout: 20000 }, (err1) => {
+    exec(chromeCmd, { timeout: 45000 }, (err1) => {
       if (err1 || !fs.existsSync(pdfPath)) {
-        const msg = err1?.message ?? "PDF não gerado";
-        log(`[print] #${jobId} ERRO ao gerar PDF: ${msg}`, "print");
         cleanup(htmlPath, pdfPath);
         resolve({ success: false, error: "Falha ao gerar PDF. Verifique se Chrome ou Edge está atualizado." });
         return;
       }
 
-      const pdfSize = fs.statSync(pdfPath).size;
-      log(`[print] #${jobId} PDF gerado (${pdfSize} bytes) — Etapa 2/2: enviando para "${printerName}"...`, "print");
-
-      // Etapa 2: PDF → Impressora via pdf-to-printer (SumatraPDF no Windows — sem janela)
       const sendCopies = async () => {
         for (let i = 0; i < copies; i++) {
           await pdfToPrinter.print(pdfPath, { printer: printerName, scale: "noscale" });
@@ -128,12 +112,12 @@ async function printHtmlToPrinter(
       sendCopies()
         .then(() => {
           setTimeout(() => cleanup(htmlPath, pdfPath), 10_000);
-          log(`[print] #${jobId} ✓ Impresso com sucesso em "${printerName}" (${copies} cópia(s))`, "print");
+          log(`[print] #${jobId} ✓ "${printerName}"`, "print");
           resolve({ success: true });
         })
         .catch((err2: Error) => {
           setTimeout(() => cleanup(htmlPath, pdfPath), 10_000);
-          log(`[print] #${jobId} ERRO ao enviar para impressora: ${err2.message}`, "print");
+          log(`[print] #${jobId} ERRO: ${err2.message}`, "print");
           resolve({ success: false, error: `Erro ao enviar para impressora: ${err2.message}` });
         });
     });
@@ -155,10 +139,8 @@ export function registerPrintRoutes(app: Express) {
   /** Lista impressoras disponíveis no servidor */
   app.get("/api/print/printers", isAuthenticated, async (req: Request, res: Response) => {
     try {
-      log(`[print] Listando impressoras — solicitado por ${req.ip ?? "?"}`, "print");
       const printers = await getInstalledPrinters();
       const defaultPrinter = printers.find((p) => p.isDefault)?.name ?? printers[0]?.name ?? null;
-      log(`[print] ${printers.length} impressora(s) encontrada(s)${defaultPrinter ? ` | padrão: "${defaultPrinter}"` : ""}`, "print");
       res.json({ success: true, default_printer: defaultPrinter, printers });
     } catch (e: any) {
       log(`[print] ERRO ao listar impressoras: ${e.message}`, "print");
