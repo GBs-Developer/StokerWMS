@@ -89,7 +89,6 @@ export default function HomePage() {
       iconColor: "text-emerald-500",
       iconBg: "bg-emerald-500/10",
       modules: [
-        { icon: ClipboardList, title: "Fila de Pedidos", description: "Acompanhamento real-time", href: "/fila-pedidos" },
         { icon: Package, title: "Pedidos", description: "Gerenciar pedidos", href: "/supervisor/orders" },
         { icon: Truck, title: "Rotas", description: "Gerenciar rotas", href: "/supervisor/routes" },
         { icon: ScrollText, title: "Expedição", description: "Atribuir pedidos a rotas", href: "/supervisor/route-orders" },
@@ -153,7 +152,7 @@ export default function HomePage() {
   if (userRole === "balcao" || allowedHrefs.includes("/balcao")) {
     legacyStandaloneModules.push({ icon: Store, title: "Balcão", description: "Atendimento ao cliente", href: "/balcao" });
   }
-  if (userRole === "fila_pedidos" || (allowedHrefs.includes("/fila-pedidos") && !allowedHrefs.some(h => h.startsWith("/supervisor/")))) {
+  if (allowedHrefs.includes("/fila-pedidos")) {
     legacyStandaloneModules.push({ icon: ClipboardList, title: "Fila de Pedidos", description: "Acompanhamento real-time", href: "/fila-pedidos" });
   }
 
