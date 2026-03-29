@@ -5,6 +5,7 @@ import { storage } from "./storage";
 import { hashPassword, verifyPassword, createAuthSession, isAuthenticated, requireRole, requireCompany, getTokenFromRequest, getUserFromToken, generateBadgeCode } from "./auth";
 import { loginSchema, insertRouteSchema, orderItems, pickingSessions, pickupPoints, type MappingField, datasetEnum, type User, type OrderItem, type Product, type WorkUnit, type Exception, type PickingSession, type ExceptionType, type ManualQtyRule, type UserSettings, BatchSyncPayload } from "@shared/schema";
 import { registerWmsRoutes } from "./wms-routes";
+import { registerPrintRoutes } from "./print-routes";
 import { z } from "zod";
 import { exec, spawn } from "child_process";
 import path from "path";
@@ -3463,6 +3464,7 @@ export async function registerRoutes(
   });
 
   registerWmsRoutes(app);
+  registerPrintRoutes(app);
 
   return httpServer;
 }

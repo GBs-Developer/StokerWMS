@@ -42,6 +42,8 @@ import LimpezaPage from "@/pages/admin/limpeza";
 import SeparationSettingsPage from "@/pages/supervisor/separation-settings";
 import ProductAddressesPage from "@/pages/supervisor/product-addresses";
 import NotFound from "@/pages/not-found";
+import VolumeLabelPage from "@/pages/print/volume-label";
+import PalletLabelPage from "@/pages/print/pallet-label";
 import { Loader2 } from "lucide-react";
 
 function LoadingScreen() {
@@ -308,6 +310,15 @@ function Router() {
         <ProtectedRoute allowedRoles={["supervisor", "administrador"]}>
           <ProductAddressesPage />
         </ProtectedRoute>
+      </Route>
+
+      {/* Páginas de impressão — sem sidebar, abertas em nova aba */}
+      <Route path="/print/volume-label">
+        <VolumeLabelPage />
+      </Route>
+
+      <Route path="/print/pallet-label">
+        <PalletLabelPage />
       </Route>
 
       <Route component={NotFound} />
