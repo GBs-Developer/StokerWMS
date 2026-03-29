@@ -110,12 +110,80 @@ app.use((req, res, next) => {
 /** Garante que colunas novas do schema existam no banco sem quebrar dados existentes. */
 async function runSafeMigrations() {
   const migrations: { table: string; column: string; type: string }[] = [
-    { table: "users", column: "allowed_reports",  type: "jsonb" },
-    { table: "users", column: "allowed_modules",  type: "jsonb" },
+    // users
+    { table: "users", column: "allowed_reports",   type: "jsonb" },
+    { table: "users", column: "allowed_modules",   type: "jsonb" },
     { table: "users", column: "allowed_companies", type: "jsonb" },
-    { table: "users", column: "default_company_id", type: "integer" },
+    { table: "users", column: "default_company_id",type: "integer" },
     { table: "users", column: "badge_code",        type: "text" },
     { table: "users", column: "settings",          type: "jsonb" },
+    // pallets — colunas adicionadas em versões recentes
+    { table: "pallets", column: "allocated_at",   type: "text" },
+    { table: "pallets", column: "cancelled_at",   type: "text" },
+    { table: "pallets", column: "cancelled_by",   type: "text" },
+    { table: "pallets", column: "cancel_reason",  type: "text" },
+    { table: "pallets", column: "notes",          type: "text" },
+    { table: "pallets", column: "work_unit_id",   type: "text" },
+    { table: "pallets", column: "nf_id",          type: "text" },
+    // pallet_items
+    { table: "pallet_items", column: "erp_nf_id",    type: "text" },
+    { table: "pallet_items", column: "expiry_date",   type: "text" },
+    { table: "pallet_items", column: "fefo_enabled",  type: "boolean DEFAULT false" },
+    { table: "pallet_items", column: "company_id",    type: "integer" },
+    { table: "pallet_items", column: "unit",          type: "text" },
+    { table: "pallet_items", column: "nf_item_id",    type: "text" },
+    { table: "pallet_items", column: "nf_id",         type: "text" },
+    // pallet_movements
+    { table: "pallet_movements", column: "from_pallet_id", type: "text" },
+    { table: "pallet_movements", column: "company_id",     type: "integer" },
+    { table: "pallet_movements", column: "movement_type",  type: "text" },
+    // counting_cycles
+    { table: "counting_cycles", column: "name",        type: "text" },
+    { table: "counting_cycles", column: "approved_by", type: "text" },
+    { table: "counting_cycles", column: "approved_at", type: "text" },
+    { table: "counting_cycles", column: "notes",       type: "text" },
+    { table: "counting_cycles", column: "completed_at",type: "text" },
+    // counting_cycle_items
+    { table: "counting_cycle_items", column: "old_lot",         type: "text" },
+    { table: "counting_cycle_items", column: "old_expiry_date", type: "text" },
+    { table: "counting_cycle_items", column: "divergence_pct",  type: "double precision" },
+    { table: "counting_cycle_items", column: "notes",           type: "text" },
+    // nf_cache — novos nomes de colunas (versão antiga usava numero/serie/emitente)
+    { table: "nf_cache", column: "nf_number",     type: "text" },
+    { table: "nf_cache", column: "nf_series",     type: "text" },
+    { table: "nf_cache", column: "supplier_name", type: "text" },
+    { table: "nf_cache", column: "supplier_cnpj", type: "text" },
+    { table: "nf_cache", column: "issue_date",    type: "text" },
+    { table: "nf_cache", column: "total_value",   type: "double precision" },
+    { table: "nf_cache", column: "synced_at",     type: "text" },
+    { table: "nf_cache", column: "received_by",   type: "text" },
+    { table: "nf_cache", column: "received_at",   type: "text" },
+    { table: "nf_cache", column: "notes",         type: "text" },
+    // nf_items
+    { table: "nf_items", column: "company_id",   type: "integer" },
+    { table: "nf_items", column: "expiry_date",  type: "text" },
+    { table: "nf_items", column: "unit_cost",    type: "double precision" },
+    { table: "nf_items", column: "total_cost",   type: "double precision" },
+    { table: "nf_items", column: "barcode",      type: "text" },
+    // products
+    { table: "products", column: "box_barcodes",    type: "jsonb" },
+    { table: "products", column: "box_barcode",     type: "text" },
+    // orders
+    { table: "orders", column: "observation2",    type: "text" },
+    { table: "orders", column: "pickup_points",   type: "jsonb" },
+    { table: "orders", column: "separation_code", type: "text" },
+    { table: "orders", column: "load_code",       type: "text" },
+    // section_groups
+    { table: "section_groups", column: "updated_at", type: "text" },
+    // product_company_stock
+    { table: "product_company_stock", column: "palletized_stock", type: "double precision" },
+    { table: "product_company_stock", column: "picking_stock",    type: "double precision" },
+    { table: "product_company_stock", column: "unit",             type: "text" },
+    // db2_mappings
+    { table: "db2_mappings", column: "extra", type: "jsonb" },
+    // wms_addresses
+    { table: "wms_addresses", column: "capacity",     type: "integer" },
+    { table: "wms_addresses", column: "description",  type: "text" },
   ];
 
   for (const m of migrations) {
