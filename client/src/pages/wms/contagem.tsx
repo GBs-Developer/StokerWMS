@@ -409,7 +409,6 @@ export default function ContagemPage() {
                             onKeyDown={e => e.key === "Enter" && addItemByScan()}
                             className="pl-10 pr-12 h-11 rounded-xl text-sm font-mono"
                             inputMode={keyboardEnabled ? "text" : "none"}
-                            readOnly={!keyboardEnabled}
                             autoFocus
                             data-testid="input-scan-count"
                           />

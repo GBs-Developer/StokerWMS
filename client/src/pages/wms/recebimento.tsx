@@ -496,7 +496,6 @@ export default function RecebimentoPage() {
                 onKeyDown={e => e.key === "Enter" && handleScan()}
                 className="pl-10 pr-20 h-12 rounded-xl text-sm font-mono"
                 inputMode={keyboardEnabled ? "text" : "none"}
-                readOnly={!keyboardEnabled}
                 autoFocus
                 disabled={scanLoading}
                 data-testid="input-barcode-scan"
