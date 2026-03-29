@@ -757,11 +757,24 @@ export default function ConferenciaPage() {
         const alreadyComplete = serverChecked + itemDelta >= targetQty;
 
         if (alreadyComplete) {
-          setScanStatus("warning");
-          setScanMessage(targetQty <= 0
-            ? `"${matchedItem.product.name}" está totalmente em exceção. Conferência bloqueada.`
-            : `"${matchedItem.product.name}" já atingiu a quantidade máxima (${targetQty}).`
-          );
+          if (targetQty <= 0) {
+            setScanStatus("warning");
+            setScanMessage(`"${matchedItem.product.name}" está totalmente em exceção. Conferência bloqueada.`);
+            break;
+          }
+          usePendingDeltaStore.getState().clearItem("conferencia", matchedItem.id);
+          usePendingDeltaStore.getState().resetBaseline("conferencia", matchedItem.id);
+          setOverQtyContext({
+            productName: matchedItem.product.name,
+            itemIds: [matchedItem.id],
+            workUnitId: finalUnit.id,
+            barcode,
+            targetQty,
+            message: `"${matchedItem.product.name}" já atingiu a quantidade máxima (${targetQty}). A conferência será resetada para ser realizada novamente.`,
+            serverAlreadyReset: false,
+          });
+          setOverQtyModalOpen(true);
+          overQtyModalOpenRef.current = true;
           break;
         }
 

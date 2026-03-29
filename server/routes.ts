@@ -1800,6 +1800,43 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/work-units/:id/reset-item-picking", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
+    try {
+      const { itemIds } = req.body;
+      const workUnit = await storage.getWorkUnitById(req.params.id as string);
+
+      if (!workUnit) {
+        return res.status(404).json({ error: "Unidade não encontrada" });
+      }
+
+      if (workUnit.lockedBy !== (req as any).user?.id) {
+        return res.status(403).json({ error: "Você não tem permissão para resetar itens desta unidade." });
+      }
+
+      if (!Array.isArray(itemIds) || itemIds.length === 0) {
+        return res.status(400).json({ error: "Nenhum item informado para reset" });
+      }
+
+      await db.transaction(async (tx) => {
+        for (const id of itemIds) {
+          const itemBelongsToWu = workUnit.items.some(i => i.id === id);
+          if (itemBelongsToWu) {
+            await tx.update(orderItems)
+              .set({ separatedQty: 0, status: "recontagem" })
+              .where(eq(orderItems.id, id));
+          }
+        }
+      });
+
+      await storage.updateWorkUnit(req.params.id as string, { status: "em_andamento" });
+      const resetWorkUnit = await storage.getWorkUnitById(req.params.id as string);
+      res.json({ status: "success", workUnit: resetWorkUnit });
+    } catch (error) {
+      console.error("Reset item picking error:", error);
+      res.status(500).json({ error: "Erro interno no reset" });
+    }
+  });
+
   app.post("/api/work-units/:id/balcao-item", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const { barcode } = req.body;

@@ -784,8 +784,20 @@ export default function SeparacaoPage() {
         });
 
         if (alreadyComplete) {
-          setScanStatus("warning");
-          setScanMessage(`"${matchedItem.product.name}" já atingiu a quantidade máxima.`);
+          usePendingDeltaStore.getState().clearItem("separacao", matchedItem.id);
+          usePendingDeltaStore.getState().resetBaseline("separacao", matchedItem.id);
+          const targetQty = Number(matchedItem.quantity) - exceptionQty;
+          setOverQtyContext({
+            productName: matchedItem.product.name,
+            itemIds: [matchedItem.id],
+            workUnitId: finalUnit.id,
+            barcode,
+            targetQty,
+            message: `"${matchedItem.product.name}" já atingiu a quantidade máxima (${targetQty}). A separação será resetada para ser realizada novamente.`,
+            serverAlreadyReset: false,
+          });
+          setOverQtyModalOpen(true);
+          overQtyModalOpenRef.current = true;
           break;
         }
 
@@ -966,7 +978,7 @@ export default function SeparacaoPage() {
 
     try {
       if (!ctx.serverAlreadyReset) {
-        await apiRequest("POST", `/api/work-units/${ctx.workUnitId}/scan-item`, { barcode: ctx.barcode });
+        await apiRequest("POST", `/api/work-units/${ctx.workUnitId}/reset-item-picking`, { itemIds: ctx.itemIds });
       }
     } catch (err) {
       console.error("Recount error:", err);

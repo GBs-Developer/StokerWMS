@@ -30,6 +30,15 @@ import { Input } from "@/components/ui/input";
 import type { WorkUnitWithDetails, OrderItem, Product, ExceptionType, UserSettings, Exception } from "@shared/schema";
 import { ExceptionDialog } from "@/components/orders/exception-dialog";
 import { ExceptionAuthorizationModal } from "@/components/orders/exception-authorization-modal";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { getCurrentWeekRange } from "@/lib/date-utils";
 import { format } from "date-fns";
 
@@ -113,6 +122,18 @@ export default function BalcaoPage() {
 
   const [elapsedTime, setElapsedTime] = useState(0);
 
+  const [overQtyModalOpen, setOverQtyModalOpen] = useState(false);
+  const overQtyModalOpenRef = useRef(false);
+  const [overQtyContext, setOverQtyContext] = useState<{
+    productName: string;
+    itemIds: string[];
+    workUnitId: string;
+    barcode: string;
+    targetQty: number;
+    message: string;
+    serverAlreadyReset: boolean;
+  } | null>(null);
+
   const scanWorkerRunningRef = useRef(false);
   const scanQueueRef = useRef<string[]>([]);
   const syncTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -183,6 +204,10 @@ export default function BalcaoPage() {
       if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
     };
   }, [queryClient, workUnitsQueryKey]);
+
+  useEffect(() => {
+    overQtyModalOpenRef.current = overQtyModalOpen;
+  }, [overQtyModalOpen]);
 
   const handleSSEMessage = useCallback((type: string, _data: any) => {
     if (scanWorkerRunningRef.current || scanQueueRef.current.length > 0) {
@@ -269,7 +294,7 @@ export default function BalcaoPage() {
   const currentProduct = aggregatedProducts[currentProductIndex] || aggregatedProducts[0] || null;
 
   useEffect(() => {
-    if (currentProduct && step === "picking" && !showResultDialog) {
+    if (currentProduct && step === "picking" && !showResultDialog && !overQtyModalOpen) {
       const remaining = currentProduct.totalQty - currentProduct.separatedQty - currentProduct.exceptionQty;
       const isComplete = remaining <= 0;
       if (isComplete && currentProduct.separatedQty > 0) {
@@ -294,7 +319,7 @@ export default function BalcaoPage() {
         }
       }
     }
-  }, [currentProduct?.separatedQty, currentProduct?.totalQty, step, aggregatedProducts, currentProductIndex, showResultDialog]);
+  }, [currentProduct?.separatedQty, currentProduct?.totalQty, step, aggregatedProducts, currentProductIndex, showResultDialog, overQtyModalOpen]);
 
   useEffect(() => {
     if (aggregatedProducts.length > 0 && currentProductIndex >= aggregatedProducts.length) {
@@ -676,6 +701,8 @@ export default function BalcaoPage() {
 
     try {
       while (scanQueueRef.current.length > 0) {
+        if (overQtyModalOpenRef.current) break;
+
         const barcode = scanQueueRef.current.shift()!;
 
         const currentCache = queryClient.getQueryData<any[]>(workUnitsQueryKey) || [];
@@ -724,8 +751,20 @@ export default function BalcaoPage() {
         const alreadyComplete = serverSeparated + itemDelta + exceptionQty >= Number(matchedItem.quantity);
 
         if (alreadyComplete) {
-          setScanStatus("warning");
-          setScanMessage(`"${matchedItem.product.name}" já atingiu a quantidade máxima.`);
+          usePendingDeltaStore.getState().clearItem("balcao", matchedItem.id);
+          usePendingDeltaStore.getState().resetBaseline("balcao", matchedItem.id);
+          const targetQtyOver = Number(matchedItem.quantity) - exceptionQty;
+          setOverQtyContext({
+            productName: matchedItem.product.name,
+            itemIds: [matchedItem.id],
+            workUnitId: finalUnit.id,
+            barcode,
+            targetQty: targetQtyOver,
+            message: `"${matchedItem.product.name}" já atingiu a quantidade máxima (${targetQtyOver}). O atendimento será resetado para ser realizado novamente.`,
+            serverAlreadyReset: false,
+          });
+          setOverQtyModalOpen(true);
+          overQtyModalOpenRef.current = true;
           break;
         }
 
@@ -754,10 +793,18 @@ export default function BalcaoPage() {
             usePendingDeltaStore.getState().dec("balcao", matchedItem.id, multiplier);
             usePendingDeltaStore.getState().clearItem("balcao", matchedItem.id);
             usePendingDeltaStore.getState().resetBaseline("balcao", matchedItem.id);
-            setScanStatus("error");
-            setScanMessage(result.message || "Quantidade excedida");
-            setResultDialogConfig({ type: "warning", title: "Quantidade Excedida", message: result.message || "Quantidade excedida." });
-            setShowResultDialog(true);
+            const tQty = Number(matchedItem.quantity) - Number(matchedItem.exceptionQty || 0);
+            setOverQtyContext({
+              productName: matchedItem.product.name,
+              itemIds: [matchedItem.id],
+              workUnitId: finalUnit.id,
+              barcode,
+              targetQty: tQty,
+              message: result.message || `Quantidade excedida! Atendimento resetado. Bipe os ${tQty} itens novamente.`,
+              serverAlreadyReset: true,
+            });
+            setOverQtyModalOpen(true);
+            overQtyModalOpenRef.current = true;
             queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
             break;
           } else if (result.status === "not_found") {
@@ -837,12 +884,18 @@ export default function BalcaoPage() {
         });
         setMultiplierValue(1);
         queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
-        setResultDialogConfig({
-          type: "warning",
-          title: "Quantidade Excedida",
-          message: result.message || "Quantidade excedida. Separação resetada."
+        const tQtyManual = ap.totalQty - ap.exceptionQty;
+        setOverQtyContext({
+          productName: ap.product.name,
+          itemIds: ap.items.map(i => i.id),
+          workUnitId: wu.id,
+          barcode,
+          targetQty: tQtyManual,
+          message: result.message || `Quantidade excedida! Atendimento resetado. Bipe os ${tQtyManual} itens novamente.`,
+          serverAlreadyReset: true,
         });
-        setShowResultDialog(true);
+        setOverQtyModalOpen(true);
+        overQtyModalOpenRef.current = true;
       } else {
         setScanStatus("error");
         setScanMessage("Erro ao incrementar");
@@ -851,6 +904,45 @@ export default function BalcaoPage() {
       setScanStatus("error");
       setScanMessage("Erro ao incrementar");
     }
+  };
+
+  const handleConfirmOverQty = async () => {
+    if (!overQtyContext) return;
+    const ctx = overQtyContext;
+
+    ctx.itemIds.forEach(id => {
+      usePendingDeltaStore.getState().clearItem("balcao", id);
+      usePendingDeltaStore.getState().resetBaseline("balcao", id);
+    });
+
+    queryClient.setQueryData(workUnitsQueryKey, (old: any) => {
+      if (!old) return old;
+      return old.map((wu: any) => ({
+        ...wu,
+        items: wu.items.map((item: any) =>
+          ctx.itemIds.includes(item.id)
+            ? { ...item, separatedQty: 0, status: "recontagem" }
+            : item
+        ),
+      }));
+    });
+
+    setOverQtyModalOpen(false);
+    overQtyModalOpenRef.current = false;
+    setOverQtyContext(null);
+    setScanStatus("idle");
+    setScanMessage("");
+    scanQueueRef.current = [];
+    setTimeout(() => processScanQueue(), 0);
+
+    try {
+      if (!ctx.serverAlreadyReset) {
+        await apiRequest("POST", `/api/work-units/${ctx.workUnitId}/reset-item-picking`, { itemIds: ctx.itemIds });
+      }
+    } catch (err) {
+      console.error("Recount error:", err);
+    }
+    queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
   };
 
   const handleCancelPicking = () => {
@@ -1437,6 +1529,30 @@ export default function BalcaoPage() {
         exceptions={pendingExceptions}
         onAuthorized={handleExceptionAuthorized}
       />
+
+      {overQtyContext && (
+        <AlertDialog open={overQtyModalOpen} onOpenChange={setOverQtyModalOpen} key={overQtyContext.workUnitId || "qty-modal"}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="text-amber-600 dark:text-amber-400">
+                Quantidade Excedida
+              </AlertDialogTitle>
+              <AlertDialogDescription className="text-sm text-foreground">
+                {overQtyContext.message}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogAction
+                onClick={handleConfirmOverQty}
+                className="bg-amber-500 hover:bg-amber-600 text-white"
+                data-testid="button-confirm-overqty"
+              >
+                Entendido — Reiniciar coleta
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
 
     </div >
   );
