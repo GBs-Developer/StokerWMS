@@ -6,6 +6,8 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { seedDatabase } from "./seed";
+import { sql } from "drizzle-orm";
+import { db } from "./db";
 
 const app = express();
 const httpServer = createServer(app);
@@ -105,10 +107,35 @@ app.use((req, res, next) => {
   next();
 });
 
+/** Garante que colunas novas do schema existam no banco sem quebrar dados existentes. */
+async function runSafeMigrations() {
+  const migrations: { table: string; column: string; type: string }[] = [
+    { table: "users", column: "allowed_reports",  type: "jsonb" },
+    { table: "users", column: "allowed_modules",  type: "jsonb" },
+    { table: "users", column: "allowed_companies", type: "jsonb" },
+    { table: "users", column: "default_company_id", type: "integer" },
+    { table: "users", column: "badge_code",        type: "text" },
+    { table: "users", column: "settings",          type: "jsonb" },
+  ];
+
+  for (const m of migrations) {
+    try {
+      await db.execute(
+        sql.raw(`ALTER TABLE ${m.table} ADD COLUMN IF NOT EXISTS "${m.column}" ${m.type}`)
+      );
+    } catch {
+      // coluna já existe ou tipo incompatível — ignorar
+    }
+  }
+}
+
 (async () => {
+  // Migrações seguras antes do seed
+  await runSafeMigrations();
+
   // Seed database on startup
   try {
-    await seedDatabase(); // Changed from seedDatabase() to seed() based on instruction, assuming seedDatabase is now 'seed'
+    await seedDatabase();
   } catch (error) {
     log("Seeding error (non-critical): " + (error as Error).message);
   }
