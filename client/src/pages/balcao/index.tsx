@@ -32,7 +32,6 @@ import { ExceptionDialog } from "@/components/orders/exception-dialog";
 import { ExceptionAuthorizationModal } from "@/components/orders/exception-authorization-modal";
 import {
   AlertDialog,
-  AlertDialogAction,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -760,7 +759,7 @@ export default function BalcaoPage() {
             workUnitId: finalUnit.id,
             barcode,
             targetQty: targetQtyOver,
-            message: `"${matchedItem.product.name}" já atingiu a quantidade máxima (${targetQtyOver}). O atendimento será resetado para ser realizado novamente.`,
+            message: `"${matchedItem.product.name}" já atingiu a quantidade máxima (${targetQtyOver}). A coleta será reiniciada.`,
             serverAlreadyReset: false,
           });
           setOverQtyModalOpen(true);
@@ -800,7 +799,7 @@ export default function BalcaoPage() {
               workUnitId: finalUnit.id,
               barcode,
               targetQty: tQty,
-              message: result.message || `Quantidade excedida! Atendimento resetado. Bipe os ${tQty} itens novamente.`,
+              message: result.message || `A quantidade de "${matchedItem.product.name}" excedeu o máximo permitido (${tQty}). A coleta foi reiniciada.`,
               serverAlreadyReset: true,
             });
             setOverQtyModalOpen(true);
@@ -892,7 +891,7 @@ export default function BalcaoPage() {
           workUnitId: wu.id,
           barcode,
           targetQty: tQtyManual,
-          message: result.message || `Quantidade excedida! Atendimento resetado. Bipe os ${tQtyManual} itens novamente.`,
+          message: result.message || `A quantidade de "${ap.product.name}" excedeu o máximo permitido (${tQtyManual}). A coleta foi reiniciada.`,
           serverAlreadyReset: true,
         });
         setOverQtyModalOpen(true);
@@ -1534,23 +1533,24 @@ export default function BalcaoPage() {
 
       {overQtyContext && (
         <AlertDialog open={overQtyModalOpen} onOpenChange={setOverQtyModalOpen} key={overQtyContext.workUnitId || "qty-modal"}>
-          <AlertDialogContent>
+          <AlertDialogContent className="max-w-sm">
             <AlertDialogHeader>
-              <AlertDialogTitle className="text-amber-600 dark:text-amber-400">
+              <AlertDialogTitle className="flex items-center gap-2 text-orange-600">
+                <AlertTriangle className="h-5 w-5" />
                 Quantidade Excedida
               </AlertDialogTitle>
-              <AlertDialogDescription className="text-sm text-foreground">
+              <AlertDialogDescription className="text-sm">
                 {overQtyContext.message}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogAction
+              <Button
+                className="w-full bg-orange-600 hover:bg-orange-700 text-white"
                 onClick={handleConfirmOverQty}
-                className="bg-amber-500 hover:bg-amber-600 text-white"
                 data-testid="button-confirm-overqty"
               >
-                Entendido — Reiniciar coleta
-              </AlertDialogAction>
+                Recontar produto
+              </Button>
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>

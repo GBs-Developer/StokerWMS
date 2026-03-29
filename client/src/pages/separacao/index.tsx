@@ -793,7 +793,7 @@ export default function SeparacaoPage() {
             workUnitId: finalUnit.id,
             barcode,
             targetQty,
-            message: `"${matchedItem.product.name}" já atingiu a quantidade máxima (${targetQty}). A separação será resetada para ser realizada novamente.`,
+            message: `"${matchedItem.product.name}" já atingiu a quantidade máxima (${targetQty}). A coleta será reiniciada.`,
             serverAlreadyReset: false,
           });
           setOverQtyModalOpen(true);
@@ -834,7 +834,7 @@ export default function SeparacaoPage() {
               workUnitId: finalUnit.id,
               barcode,
               targetQty,
-              message: result.message || `Coleta de "${matchedItem.product.name}" excedeu a quantidade solicitada (${targetQty}).`,
+              message: result.message || `A quantidade de "${matchedItem.product.name}" excedeu o máximo permitido (${targetQty}). A coleta foi reiniciada.`,
               serverAlreadyReset: true,
             });
             setOverQtyModalOpen(true);
@@ -933,7 +933,7 @@ export default function SeparacaoPage() {
           workUnitId: wu.id,
           barcode: ap.product.barcode || "",
           targetQty,
-          message: result.message || `Coleta de "${ap.product.name}" excedeu a quantidade solicitada (${targetQty}).`,
+          message: result.message || `A quantidade de "${ap.product.name}" excedeu o máximo permitido (${targetQty}). A coleta foi reiniciada.`,
           serverAlreadyReset: true,
         });
         setOverQtyModalOpen(true);
@@ -1595,7 +1595,7 @@ export default function SeparacaoPage() {
             </AlertDialogHeader >
             <AlertDialogFooter>
               <Button
-                className="w-full bg-blue-600 hover:bg-blue-700"
+                className="w-full bg-orange-600 hover:bg-orange-700 text-white"
                 onClick={handleOverQtyRecount}
               >
                 Recontar produto

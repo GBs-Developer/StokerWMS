@@ -765,7 +765,7 @@ export default function ConferenciaPage() {
             workUnitId: finalUnit.id,
             barcode,
             targetQty,
-            message: `"${matchedItem.product.name}" já atingiu a quantidade máxima (${targetQty}). A conferência será resetada para ser realizada novamente.`,
+            message: `"${matchedItem.product.name}" já atingiu a quantidade máxima (${targetQty}). A coleta será reiniciada.`,
             serverAlreadyReset: false,
           });
           setOverQtyModalOpen(true);
@@ -816,7 +816,7 @@ export default function ConferenciaPage() {
               workUnitId: finalUnit.id,
               barcode: barcode,
               targetQty,
-              message: result.message || `Conferência de "${matchedItem.product.name}" excedeu a quantidade separada. A contagem anterior foi mantida.`,
+              message: result.message || `A quantidade de "${matchedItem.product.name}" excedeu o máximo permitido (${targetQty}). A coleta foi reiniciada.`,
               serverAlreadyReset: false,
             });
             setOverQtyModalOpen(true);
@@ -922,7 +922,7 @@ export default function ConferenciaPage() {
           workUnitId: wu.id,
           barcode: ap.product.barcode || "",
           targetQty,
-          message: result.message || `Conferência de "${ap.product.name}" excedeu a quantidade solicitada (${targetQty}). A contagem anterior foi mantida.`,
+          message: result.message || `A quantidade de "${ap.product.name}" excedeu o máximo permitido (${targetQty}). A coleta foi reiniciada.`,
           serverAlreadyReset: false,
         });
         setOverQtyModalOpen(true);
@@ -1522,10 +1522,10 @@ export default function ConferenciaPage() {
             </AlertDialogHeader>
             <AlertDialogFooter>
               <Button
-                className="w-full bg-blue-600 hover:bg-blue-700"
+                className="w-full bg-orange-600 hover:bg-orange-700 text-white"
                 onClick={handleOverQtyRecount}
               >
-                Entendi, tentar novamente
+                Recontar produto
               </Button>
             </AlertDialogFooter>
           </AlertDialogContent>
