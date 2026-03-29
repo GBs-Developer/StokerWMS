@@ -886,18 +886,23 @@ export default function ConferenciaPage() {
     const barcode = ap.product.barcode;
     if (!barcode) return;
 
+    const incompleteItem = ap.items.find(it => {
+      const iExc = Number(it.exceptionQty || 0);
+      const iTarget = Number(it.quantity) - iExc;
+      return Number(it.checkedQty) < iTarget;
+    });
+    if (!incompleteItem) return;
+
+    const wu = allMyUnits.find(w => w.items.some(it => it.id === incompleteItem.id));
+    if (!wu) return;
+
+    usePendingDeltaStore.getState().inc("conferencia", incompleteItem.id, qty);
+    setMultiplierValue(1);
+    setScanStatus("idle");
+    setScanMessage("");
+
+    const currentToken = activeSessionTokenRef.current;
     try {
-      const incompleteItem = ap.items.find(it => {
-        const iExc = Number(it.exceptionQty || 0);
-        const iTarget = Number(it.quantity) - iExc;
-        return Number(it.checkedQty) < iTarget;
-      });
-      if (!incompleteItem) return;
-
-      const wu = allMyUnits.find(w => w.items.some(it => it.id === incompleteItem.id));
-      if (!wu) return;
-
-      const currentToken = activeSessionTokenRef.current;
       const result = await scanItemMutation.mutateAsync({
         workUnitId: wu.id,
         barcode,
@@ -909,18 +914,12 @@ export default function ConferenciaPage() {
         return;
       }
 
-      if (result.status === "success") {
-        setScanStatus("idle");
-        setScanMessage("");
-        setMultiplierValue(1);
-      } else if (result.status === "over_quantity" || result.status === "over_quantity_with_exception") {
+      if (result.status === "over_quantity" || result.status === "over_quantity_with_exception") {
         ap.items.forEach(item => {
           usePendingDeltaStore.getState().clearItem("conferencia", item.id);
           usePendingDeltaStore.getState().resetBaseline("conferencia", item.id);
         });
-        setMultiplierValue(1);
         queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
-
         const targetQty = ap.totalSeparatedQty;
         setOverQtyContext({
           productName: ap.product.name,
@@ -933,11 +932,13 @@ export default function ConferenciaPage() {
         });
         setOverQtyModalOpen(true);
         overQtyModalOpenRef.current = true;
-      } else {
+      } else if (result.status !== "success") {
+        usePendingDeltaStore.getState().dec("conferencia", incompleteItem.id, qty);
         setScanStatus("error");
         setScanMessage("Erro ao incrementar");
       }
     } catch {
+      usePendingDeltaStore.getState().dec("conferencia", incompleteItem.id, qty);
       setScanStatus("error");
       setScanMessage("Erro ao incrementar");
     }
@@ -1288,7 +1289,6 @@ export default function ConferenciaPage() {
                               className="h-10 px-3"
                               onClick={() => handleIncrementProduct(currentProduct, multiplierValue)}
                               disabled={
-                                scanItemMutation.isPending ||
                                 (currentProduct.checkedQty >= currentProduct.totalSeparatedQty) ||
                                 !currentProduct.product.barcode
                               }

@@ -900,31 +900,31 @@ export default function SeparacaoPage() {
     const barcode = ap.product.barcode;
     if (!barcode) return;
 
+    const incompleteItem = ap.items.find(it =>
+      Number(it.separatedQty) + Number(it.exceptionQty || 0) < Number(it.quantity)
+    );
+    if (!incompleteItem) return;
+
+    const wu = allMyUnits.find(w => w.items.some(it => it.id === incompleteItem.id));
+    if (!wu) return;
+
+    usePendingDeltaStore.getState().inc("separacao", incompleteItem.id, qty);
+    setMultiplierValue(1);
+    setScanStatus("idle");
+    setScanMessage("");
+
     try {
-      const incompleteItem = ap.items.find(it =>
-        Number(it.separatedQty) + Number(it.exceptionQty || 0) < Number(it.quantity)
-      );
-      if (!incompleteItem) return;
-
-      const wu = allMyUnits.find(w => w.items.some(it => it.id === incompleteItem.id));
-      if (!wu) return;
-
       const result = await scanItemMutation.mutateAsync({
         workUnitId: wu.id,
         barcode,
         quantity: qty
       });
 
-      if (result.status === "success") {
-        setScanStatus("idle");
-        setScanMessage("");
-        setMultiplierValue(1);
-      } else if (result.status === "over_quantity" || result.status === "over_quantity_with_exception") {
+      if (result.status === "over_quantity" || result.status === "over_quantity_with_exception") {
         ap.items.forEach(item => {
           usePendingDeltaStore.getState().clearItem("separacao", item.id);
           usePendingDeltaStore.getState().resetBaseline("separacao", item.id);
         });
-        setMultiplierValue(1);
         queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
         const targetQty = ap.totalQty - ap.exceptionQty;
         setOverQtyContext({
@@ -938,11 +938,13 @@ export default function SeparacaoPage() {
         });
         setOverQtyModalOpen(true);
         overQtyModalOpenRef.current = true;
-      } else {
+      } else if (result.status !== "success") {
+        usePendingDeltaStore.getState().dec("separacao", incompleteItem.id, qty);
         setScanStatus("error");
         setScanMessage("Erro ao incrementar");
       }
     } catch {
+      usePendingDeltaStore.getState().dec("separacao", incompleteItem.id, qty);
       setScanStatus("error");
       setScanMessage("Erro ao incrementar");
     }
@@ -1319,7 +1321,6 @@ export default function SeparacaoPage() {
                               className="h-10 px-3"
                               onClick={() => handleIncrementProduct(currentProduct, multiplierValue)}
                               disabled={
-                                scanItemMutation.isPending ||
                                 (currentProduct.separatedQty + currentProduct.exceptionQty >= currentProduct.totalQty) ||
                                 !currentProduct.product.barcode
                               }
