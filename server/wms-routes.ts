@@ -373,50 +373,6 @@ export function registerWmsRoutes(app: Express) {
       const companyId = getCompanyId(req);
       const userId = getUserId(req);
 
-      // Validação de estoque real do ERP (só bloqueia quando há saldo positivo registrado)
-      if (Array.isArray(items)) {
-        for (const item of items) {
-          const [stockRecord] = await db.select()
-            .from(productCompanyStock)
-            .where(and(
-              eq(productCompanyStock.productId, item.productId),
-              eq(productCompanyStock.companyId, companyId)
-            ));
-
-          // Se não há registro de estoque para esta empresa, permite a criação
-          // (produto sendo recebido pela primeira vez ou ERP ainda não sincronizado)
-          if (!stockRecord) continue;
-
-          const erpStock = Number(stockRecord.stockQty || 0);
-
-          // Se o saldo ERP é 0, não bloqueia — pode ser um recebimento de NF ainda não processado
-          if (erpStock <= 0) continue;
-
-          const otherPalletsItems = await db.select({
-            quantity: sql<number>`SUM(${palletItems.quantity})`
-          })
-          .from(palletItems)
-          .innerJoin(pallets, eq(palletItems.palletId, pallets.id))
-          .where(and(
-            eq(palletItems.productId, item.productId),
-            eq(palletItems.companyId, companyId),
-            sql`${pallets.status} != 'cancelado'`
-          ));
-
-          const alreadyInPallets = Number(otherPalletsItems[0]?.quantity || 0);
-          const currentPalletRequestTotal = items
-            .filter(i => i.productId === item.productId)
-            .reduce((acc, curr) => acc + Number(curr.quantity), 0);
-
-          if (alreadyInPallets + currentPalletRequestTotal > erpStock) {
-            const [product] = await db.select().from(products).where(eq(products.id, item.productId));
-            return res.status(400).json({ 
-              error: `Estoque insuficiente para ${product?.name || item.productId} (Cód: ${product?.erpCode || ''}). Saldo ERP: ${erpStock}, Já em pallets: ${alreadyInPallets}, Solicitado: ${currentPalletRequestTotal}` 
-            });
-          }
-        }
-      }
-
       const seq = Date.now().toString(36).toUpperCase().slice(-6);
       const code = `P${companyId}-${seq}`;
       const now = new Date().toISOString();
@@ -520,44 +476,6 @@ export function registerWmsRoutes(app: Express) {
 
       if (pallet.status === "cancelado") {
         return res.status(400).json({ error: "Pallet cancelado não pode ser editado" });
-      }
-
-      // Validação de estoque real do ERP
-      if (Array.isArray(items)) {
-        for (const item of items) {
-          const [stockRecord] = await db.select()
-            .from(productCompanyStock)
-            .where(and(
-              eq(productCompanyStock.productId, item.productId),
-              eq(productCompanyStock.companyId, companyId)
-            ));
-
-          const erpStock = Number(stockRecord?.stockQty || 0);
-
-          const otherPalletsItems = await db.select({
-            quantity: sql<number>`SUM(${palletItems.quantity})`
-          })
-          .from(palletItems)
-          .innerJoin(pallets, eq(palletItems.palletId, pallets.id))
-          .where(and(
-            eq(palletItems.productId, item.productId),
-            eq(palletItems.companyId, companyId),
-            sql`${pallets.status} != 'cancelado'`,
-            sql`${pallets.id} != ${id}`
-          ));
-
-          const alreadyInPallets = Number(otherPalletsItems[0]?.quantity || 0);
-          const currentPalletRequestTotal = items
-            .filter(i => i.productId === item.productId)
-            .reduce((acc, curr) => acc + Number(curr.quantity), 0);
-
-          if (alreadyInPallets + currentPalletRequestTotal > erpStock) {
-            const [product] = await db.select().from(products).where(eq(products.id, item.productId));
-            return res.status(400).json({ 
-              error: `Estoque insuficiente para o produto ${product?.erpCode || item.productId}. ERP: ${erpStock.toLocaleString()}, Já em outros pallets: ${alreadyInPallets.toLocaleString()}, Solicitado: ${currentPalletRequestTotal.toLocaleString()}` 
-            });
-          }
-        }
       }
 
       if (Array.isArray(items)) {
