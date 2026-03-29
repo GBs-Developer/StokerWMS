@@ -28,6 +28,7 @@ import {
   BoxesIcon,
   ScrollText,
   Search,
+  Trash2,
 } from "lucide-react";
 
 interface ModuleItem {
@@ -110,6 +111,7 @@ export default function HomePage() {
         { icon: ClipboardCheck, title: "Auditoria", description: "Logs de operações", href: "/supervisor/audit" },
         { icon: ShieldCheck, title: "Permissões", description: "Definir acessos", href: "/admin/permissoes" },
         { icon: Cog, title: "Modo Separação", description: "Configurar separação", href: "/supervisor/separation-settings" },
+        { icon: Trash2, title: "Limpeza de Dados", description: "Resetar dados de teste", href: "/admin/limpeza" },
       ],
     },
   ];
@@ -119,7 +121,7 @@ export default function HomePage() {
       "/wms/recebimento", "/wms/checkin", "/wms/transferencia", "/wms/contagem", "/wms/enderecos", "/wms/produtos",
       "/fila-pedidos", "/supervisor/orders", "/supervisor/routes", "/supervisor/route-orders", "/supervisor/exceptions",
       "/supervisor/users", "/supervisor/manual-qty-rules", "/supervisor/product-addresses", "/supervisor/mapping-studio",
-      "/supervisor/reports", "/supervisor/audit", "/admin/permissoes", "/supervisor/separation-settings",
+      "/supervisor/reports", "/supervisor/audit", "/admin/permissoes", "/supervisor/separation-settings", "/admin/limpeza",
     ],
     supervisor: [
       "/wms/recebimento", "/wms/checkin", "/wms/transferencia", "/wms/contagem", "/wms/enderecos", "/wms/produtos",

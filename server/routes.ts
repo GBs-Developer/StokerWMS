@@ -3098,6 +3098,173 @@ export async function registerRoutes(
     }
   });
 
+  // ─── Admin: Data Cleanup ──────────────────────────────────────────────────────
+
+  // Counts per module for current company
+  app.get("/api/admin/cleanup/counts", isAuthenticated, requireCompany, requireRole("administrador"), async (req: Request, res: Response) => {
+    try {
+      const companyId = (req as any).companyId as number;
+      const { sql: rawSql } = await import("drizzle-orm");
+
+      const safeCount = async (query: string) => {
+        try {
+          const result = await db.execute(rawSql.raw(query));
+          return Number((result.rows?.[0] as any)?.count ?? 0);
+        } catch { return 0; }
+      };
+
+      const cid = companyId;
+      const counts = {
+        pedidos: {
+          orders: await safeCount(`SELECT COUNT(*) as count FROM orders WHERE company_id = ${cid}`),
+          order_items: await safeCount(`SELECT COUNT(*) as count FROM order_items WHERE order_id IN (SELECT id FROM orders WHERE company_id = ${cid})`),
+          work_units: await safeCount(`SELECT COUNT(*) as count FROM work_units WHERE company_id = ${cid}`),
+          exceptions: await safeCount(`SELECT COUNT(*) as count FROM exceptions WHERE order_item_id IN (SELECT id FROM order_items WHERE order_id IN (SELECT id FROM orders WHERE company_id = ${cid}))`),
+          picking_sessions: await safeCount(`SELECT COUNT(*) as count FROM picking_sessions WHERE order_id IN (SELECT id FROM orders WHERE company_id = ${cid})`),
+          order_volumes: await safeCount(`SELECT COUNT(*) as count FROM order_volumes WHERE order_id IN (SELECT id FROM orders WHERE company_id = ${cid})`),
+          cache_orcamentos: await safeCount(`SELECT COUNT(*) as count FROM cache_orcamentos WHERE "IDEMPRESA" = ${cid}`),
+        },
+        rotas: {
+          routes: await safeCount(`SELECT COUNT(*) as count FROM routes WHERE company_id = ${cid}`),
+        },
+        recebimento: {
+          nf_cache: await safeCount(`SELECT COUNT(*) as count FROM nf_cache WHERE company_id = ${cid}`),
+          nf_items: await safeCount(`SELECT COUNT(*) as count FROM nf_items WHERE company_id = ${cid}`),
+        },
+        pallets: {
+          pallets: await safeCount(`SELECT COUNT(*) as count FROM pallets WHERE company_id = ${cid}`),
+          pallet_items: await safeCount(`SELECT COUNT(*) as count FROM pallet_items WHERE company_id = ${cid}`),
+          pallet_movements: await safeCount(`SELECT COUNT(*) as count FROM pallet_movements WHERE company_id = ${cid}`),
+        },
+        contagens: {
+          counting_cycles: await safeCount(`SELECT COUNT(*) as count FROM counting_cycles WHERE company_id = ${cid}`),
+          counting_cycle_items: await safeCount(`SELECT COUNT(*) as count FROM counting_cycle_items WHERE company_id = ${cid}`),
+        },
+        enderecos: {
+          wms_addresses: await safeCount(`SELECT COUNT(*) as count FROM wms_addresses WHERE company_id = ${cid}`),
+          product_company_stock: await safeCount(`SELECT COUNT(*) as count FROM product_company_stock WHERE company_id = ${cid}`),
+        },
+        logs: {
+          audit_logs: await safeCount(`SELECT COUNT(*) as count FROM audit_logs WHERE company_id = ${cid}`),
+        },
+      };
+
+      res.json(counts);
+    } catch (error) {
+      console.error("Cleanup counts error:", error);
+      res.status(500).json({ error: "Erro ao obter contagens" });
+    }
+  });
+
+  // Execute cleanup for selected modules
+  app.post("/api/admin/cleanup", isAuthenticated, requireCompany, requireRole("administrador"), async (req: Request, res: Response) => {
+    try {
+      const companyId = (req as any).companyId as number;
+      const { modules, confirmation }: { modules: string[]; confirmation: string } = req.body;
+
+      if (confirmation !== "LIMPAR DADOS") {
+        return res.status(400).json({ error: "Confirmação inválida" });
+      }
+      if (!modules || !Array.isArray(modules) || modules.length === 0) {
+        return res.status(400).json({ error: "Selecione ao menos um módulo" });
+      }
+
+      const validModules = ["pedidos", "rotas", "recebimento", "pallets", "contagens", "enderecos", "logs"];
+      const invalidMods = modules.filter(m => !validModules.includes(m));
+      if (invalidMods.length > 0) {
+        return res.status(400).json({ error: `Módulos inválidos: ${invalidMods.join(", ")}` });
+      }
+
+      const cid = companyId;
+      const deleted: Record<string, number> = {};
+
+      const execDel = async (client: any, query: string, label: string) => {
+        try {
+          const result = await client.execute(query);
+          deleted[label] = (deleted[label] || 0) + (result.rowCount ?? 0);
+        } catch (e) {
+          console.warn(`Cleanup skip ${label}:`, e);
+        }
+      };
+
+      const { sql: rawSql } = await import("drizzle-orm");
+
+      await db.transaction(async (tx) => {
+        const run = async (query: string, label: string) => {
+          try {
+            const result = await tx.execute(rawSql.raw(query));
+            deleted[label] = (deleted[label] || 0) + ((result as any).rowCount ?? 0);
+          } catch (e) {
+            console.warn(`Cleanup skip ${label}:`, (e as any)?.message);
+          }
+        };
+
+        // Step 1: Pedidos — FK order: exceptions → picking_sessions → work_units → order_volumes → order_items → orders → cache
+        if (modules.includes("pedidos")) {
+          await run(`DELETE FROM exceptions WHERE order_item_id IN (SELECT id FROM order_items WHERE order_id IN (SELECT id FROM orders WHERE company_id = ${cid}))`, "exceptions");
+          await run(`DELETE FROM picking_sessions WHERE order_id IN (SELECT id FROM orders WHERE company_id = ${cid})`, "picking_sessions");
+          await run(`DELETE FROM work_units WHERE company_id = ${cid}`, "work_units");
+          await run(`DELETE FROM order_volumes WHERE order_id IN (SELECT id FROM orders WHERE company_id = ${cid})`, "order_volumes");
+          await run(`DELETE FROM order_items WHERE order_id IN (SELECT id FROM orders WHERE company_id = ${cid})`, "order_items");
+          await run(`DELETE FROM orders WHERE company_id = ${cid}`, "orders");
+          await run(`DELETE FROM cache_orcamentos WHERE "IDEMPRESA" = ${cid}`, "cache_orcamentos");
+        }
+
+        // Step 2: Rotas (routes only, filtered by company)
+        if (modules.includes("rotas")) {
+          // Nullify route references in orders if not cleaning pedidos
+          if (!modules.includes("pedidos")) {
+            await run(`UPDATE orders SET route_id = NULL WHERE company_id = ${cid}`, "orders_route_nullify");
+          }
+          await run(`DELETE FROM routes WHERE company_id = ${cid}`, "routes");
+        }
+
+        // Step 3: Recebimento & NFs
+        if (modules.includes("recebimento")) {
+          await run(`DELETE FROM nf_items WHERE company_id = ${cid}`, "nf_items");
+          await run(`DELETE FROM nf_cache WHERE company_id = ${cid}`, "nf_cache");
+        }
+
+        // Step 4: Contagens (must come before enderecos if both selected)
+        if (modules.includes("contagens") || modules.includes("enderecos")) {
+          await run(`DELETE FROM counting_cycle_items WHERE company_id = ${cid}`, "counting_cycle_items");
+          await run(`DELETE FROM counting_cycles WHERE company_id = ${cid}`, "counting_cycles");
+        }
+
+        // Step 5: Pallets (must come before enderecos if both selected)
+        if (modules.includes("pallets") || modules.includes("enderecos")) {
+          await run(`DELETE FROM pallet_movements WHERE company_id = ${cid}`, "pallet_movements");
+          await run(`DELETE FROM pallet_items WHERE company_id = ${cid}`, "pallet_items");
+          await run(`DELETE FROM pallets WHERE company_id = ${cid}`, "pallets");
+        }
+
+        // Step 6: Endereços (+ product stock)
+        if (modules.includes("enderecos")) {
+          await run(`DELETE FROM product_company_stock WHERE company_id = ${cid}`, "product_company_stock");
+          await run(`DELETE FROM wms_addresses WHERE company_id = ${cid}`, "wms_addresses");
+        }
+
+        // Step 7: Logs
+        if (modules.includes("logs")) {
+          await run(`DELETE FROM audit_logs WHERE company_id = ${cid}`, "audit_logs");
+        }
+      });
+
+      // Log the cleanup action
+      try {
+        const userId = (req as any).user?.id;
+        await db.execute(rawSql.raw(
+          `INSERT INTO audit_logs (id, user_id, company_id, action, entity_type, entity_id, details, created_at) VALUES (gen_random_uuid(), '${userId || "system"}', ${cid}, 'cleanup', 'system', 'cleanup', '{"modules": ${JSON.stringify(JSON.stringify(modules))}, "deleted": ${JSON.stringify(JSON.stringify(deleted))}}', NOW())`
+        ));
+      } catch { /* non-critical */ }
+
+      res.json({ ok: true, deleted, modulesProcessed: modules });
+    } catch (error) {
+      console.error("Cleanup execution error:", error);
+      res.status(500).json({ error: "Erro ao executar limpeza" });
+    }
+  });
+
   // ─── Reports: Pallet Movements ───────────────────────────────────────────────
   app.get("/api/reports/pallet-movements", isAuthenticated, requireCompany, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
     try {

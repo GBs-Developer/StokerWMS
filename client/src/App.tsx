@@ -38,6 +38,7 @@ import TransferenciaPage from "@/pages/wms/transferencia";
 import ContagemPage from "@/pages/wms/contagem";
 import ProdutosPage from "@/pages/wms/produtos";
 import PermissoesPage from "@/pages/admin/permissoes";
+import LimpezaPage from "@/pages/admin/limpeza";
 import SeparationSettingsPage from "@/pages/supervisor/separation-settings";
 import ProductAddressesPage from "@/pages/supervisor/product-addresses";
 import NotFound from "@/pages/not-found";
@@ -288,6 +289,12 @@ function Router() {
       <Route path="/admin/permissoes">
         <ProtectedRoute allowedRoles={["administrador"]}>
           <PermissoesPage />
+        </ProtectedRoute>
+      </Route>
+
+      <Route path="/admin/limpeza">
+        <ProtectedRoute allowedRoles={["administrador"]}>
+          <LimpezaPage />
         </ProtectedRoute>
       </Route>
 
