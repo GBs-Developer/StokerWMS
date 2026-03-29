@@ -3124,8 +3124,21 @@ export async function registerRoutes(
           order_volumes: await safeCount(`SELECT COUNT(*) as count FROM order_volumes WHERE order_id IN (SELECT id FROM orders WHERE company_id = ${cid})`),
           cache_orcamentos: await safeCount(`SELECT COUNT(*) as count FROM cache_orcamentos WHERE "IDEMPRESA" = ${cid}`),
         },
-        rotas: {
-          routes: await safeCount(`SELECT COUNT(*) as count FROM routes WHERE company_id = ${cid}`),
+        usuarios: {
+          users: await safeCount(`SELECT COUNT(*) as count FROM users WHERE id NOT IN (
+            SELECT user_id FROM picking_sessions WHERE user_id IS NOT NULL
+            UNION SELECT locked_by FROM work_units WHERE locked_by IS NOT NULL
+            UNION SELECT reported_by FROM exceptions WHERE reported_by IS NOT NULL
+            UNION SELECT authorized_by FROM exceptions WHERE authorized_by IS NOT NULL
+            UNION SELECT user_id FROM audit_logs WHERE user_id IS NOT NULL
+            UNION SELECT user_id FROM pallet_movements WHERE user_id IS NOT NULL
+            UNION SELECT counted_by FROM counting_cycle_items WHERE counted_by IS NOT NULL
+            UNION SELECT created_by FROM pallets WHERE created_by IS NOT NULL
+            UNION SELECT cancelled_by FROM pallets WHERE cancelled_by IS NOT NULL
+            UNION SELECT created_by FROM wms_addresses WHERE created_by IS NOT NULL
+            UNION SELECT approved_by FROM counting_cycles WHERE approved_by IS NOT NULL
+            UNION SELECT created_by FROM counting_cycles WHERE created_by IS NOT NULL
+          ) AND id != '${(req as any).user?.id || "00000000"}'`),
         },
         recebimento: {
           nf_cache: await safeCount(`SELECT COUNT(*) as count FROM nf_cache WHERE company_id = ${cid}`),
@@ -3169,7 +3182,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Selecione ao menos um módulo" });
       }
 
-      const validModules = ["pedidos", "rotas", "recebimento", "pallets", "contagens", "enderecos", "logs"];
+      const validModules = ["pedidos", "usuarios", "recebimento", "pallets", "contagens", "enderecos", "logs"];
       const invalidMods = modules.filter(m => !validModules.includes(m));
       if (invalidMods.length > 0) {
         return res.status(400).json({ error: `Módulos inválidos: ${invalidMods.join(", ")}` });
@@ -3210,13 +3223,23 @@ export async function registerRoutes(
           await run(`DELETE FROM cache_orcamentos WHERE "IDEMPRESA" = ${cid}`, "cache_orcamentos");
         }
 
-        // Step 2: Rotas (routes only, filtered by company)
-        if (modules.includes("rotas")) {
-          // Nullify route references in orders if not cleaning pedidos
-          if (!modules.includes("pedidos")) {
-            await run(`UPDATE orders SET route_id = NULL WHERE company_id = ${cid}`, "orders_route_nullify");
-          }
-          await run(`DELETE FROM routes WHERE company_id = ${cid}`, "routes");
+        // Step 2: Usuários sem movimentações — exclui apenas usuários sem registros atribuídos
+        if (modules.includes("usuarios")) {
+          const currentUserId = (req as any).user?.id || "00000000";
+          await run(`DELETE FROM users WHERE id NOT IN (
+            SELECT user_id FROM picking_sessions WHERE user_id IS NOT NULL
+            UNION SELECT locked_by FROM work_units WHERE locked_by IS NOT NULL
+            UNION SELECT reported_by FROM exceptions WHERE reported_by IS NOT NULL
+            UNION SELECT authorized_by FROM exceptions WHERE authorized_by IS NOT NULL
+            UNION SELECT user_id FROM audit_logs WHERE user_id IS NOT NULL
+            UNION SELECT user_id FROM pallet_movements WHERE user_id IS NOT NULL
+            UNION SELECT counted_by FROM counting_cycle_items WHERE counted_by IS NOT NULL
+            UNION SELECT created_by FROM pallets WHERE created_by IS NOT NULL
+            UNION SELECT cancelled_by FROM pallets WHERE cancelled_by IS NOT NULL
+            UNION SELECT created_by FROM wms_addresses WHERE created_by IS NOT NULL
+            UNION SELECT approved_by FROM counting_cycles WHERE approved_by IS NOT NULL
+            UNION SELECT created_by FROM counting_cycles WHERE created_by IS NOT NULL
+          ) AND id != '${currentUserId}'`, "users");
         }
 
         // Step 3: Recebimento & NFs
