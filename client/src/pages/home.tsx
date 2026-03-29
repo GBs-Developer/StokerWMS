@@ -59,7 +59,7 @@ export default function HomePage() {
     supervisor: "Supervisor",
     separacao: "Separador",
     conferencia: "Conferente",
-    balcao: "Balcao",
+    balcao: "Balcão",
     fila_pedidos: "Fila de Pedidos",
     recebedor: "Recebedor",
     empilhador: "Empilhador",
@@ -69,22 +69,22 @@ export default function HomePage() {
   const allSections: ModuleSection[] = [
     {
       id: "operacao",
-      title: "Operacao",
+      title: "Operação",
       icon: BoxesIcon,
       iconColor: "text-blue-500",
       iconBg: "bg-blue-500/10",
       modules: [
         { icon: PackagePlus, title: "Recebimento", description: "Receber NFs e gerar pallets", href: "/wms/recebimento" },
-        { icon: MapPin, title: "Enderecamento", description: "Alocar pallets em enderecos", href: "/wms/checkin" },
-        { icon: ArrowRightLeft, title: "Transferencia", description: "Movimentar pallets", href: "/wms/transferencia" },
+        { icon: MapPin, title: "Endereçamento", description: "Alocar pallets em endereços", href: "/wms/checkin" },
+        { icon: ArrowRightLeft, title: "Transferência", description: "Movimentar pallets", href: "/wms/transferencia" },
         { icon: BarChart3, title: "Contagem", description: "Ciclos de contagem", href: "/wms/contagem" },
-        { icon: Warehouse, title: "Enderecos", description: "Gerenciar enderecos", href: "/wms/enderecos" },
+        { icon: Warehouse, title: "Endereços", description: "Gerenciar endereços", href: "/wms/enderecos" },
         { icon: Search, title: "Buscar Produtos", description: "Pesquisar estoque", href: "/wms/produtos" },
       ],
     },
     {
       id: "logistica",
-      title: "Logistica",
+      title: "Logística",
       icon: Truck,
       iconColor: "text-emerald-500",
       iconBg: "bg-emerald-500/10",
@@ -92,25 +92,25 @@ export default function HomePage() {
         { icon: ClipboardList, title: "Fila de Pedidos", description: "Acompanhamento real-time", href: "/fila-pedidos" },
         { icon: Package, title: "Pedidos", description: "Gerenciar pedidos", href: "/supervisor/orders" },
         { icon: Truck, title: "Rotas", description: "Gerenciar rotas", href: "/supervisor/routes" },
-        { icon: ScrollText, title: "Expedicao", description: "Atribuir pedidos a rotas", href: "/supervisor/route-orders" },
-        { icon: AlertTriangle, title: "Excecoes", description: "Excecoes pendentes", href: "/supervisor/exceptions" },
+        { icon: ScrollText, title: "Expedição", description: "Atribuir pedidos a rotas", href: "/supervisor/route-orders" },
+        { icon: AlertTriangle, title: "Exceções", description: "Exceções pendentes", href: "/supervisor/exceptions" },
       ],
     },
     {
       id: "administracao",
-      title: "Administracao",
+      title: "Administração",
       icon: Cog,
       iconColor: "text-amber-500",
       iconBg: "bg-amber-500/10",
       modules: [
-        { icon: Users, title: "Usuarios", description: "Gerenciar operadores", href: "/supervisor/users" },
+        { icon: Users, title: "Usuários", description: "Gerenciar operadores", href: "/supervisor/users" },
         { icon: SlidersHorizontal, title: "Regras Qtd Manual", description: "Configurar regras", href: "/supervisor/manual-qty-rules" },
-        { icon: MapPin, title: "Enderecos Produto", description: "Vincular produtos a enderecos", href: "/supervisor/product-addresses" },
+        { icon: MapPin, title: "Endereços Produto", description: "Vincular produtos a endereços", href: "/supervisor/product-addresses" },
         { icon: Settings, title: "Mapping Studio", description: "Mapeamento DB2", href: "/supervisor/mapping-studio" },
-        { icon: FileText, title: "Relatorios", description: "Gerar relatorios", href: "/supervisor/reports" },
-        { icon: ClipboardCheck, title: "Auditoria", description: "Logs de operacoes", href: "/supervisor/audit" },
-        { icon: ShieldCheck, title: "Permissoes", description: "Definir acessos", href: "/admin/permissoes" },
-        { icon: Cog, title: "Modo Separacao", description: "Configurar separacao", href: "/supervisor/separation-settings" },
+        { icon: FileText, title: "Relatórios", description: "Gerar relatórios", href: "/supervisor/reports" },
+        { icon: ClipboardCheck, title: "Auditoria", description: "Logs de operações", href: "/supervisor/audit" },
+        { icon: ShieldCheck, title: "Permissões", description: "Definir acessos", href: "/admin/permissoes" },
+        { icon: Cog, title: "Modo Separação", description: "Configurar separação", href: "/supervisor/separation-settings" },
       ],
     },
   ];
@@ -145,13 +145,16 @@ export default function HomePage() {
 
   const legacyStandaloneModules: ModuleItem[] = [];
   if (userRole === "separacao" || allowedHrefs.includes("/separacao")) {
-    legacyStandaloneModules.push({ icon: Package, title: "Separacao", description: "Separar pedidos de entrega", href: "/separacao" });
+    legacyStandaloneModules.push({ icon: Package, title: "Separação", description: "Separar pedidos de entrega", href: "/separacao" });
   }
   if (userRole === "conferencia" || allowedHrefs.includes("/conferencia")) {
-    legacyStandaloneModules.push({ icon: ClipboardCheck, title: "Conferencia", description: "Conferir pedidos separados", href: "/conferencia" });
+    legacyStandaloneModules.push({ icon: ClipboardCheck, title: "Conferência", description: "Conferir pedidos separados", href: "/conferencia" });
   }
   if (userRole === "balcao" || allowedHrefs.includes("/balcao")) {
-    legacyStandaloneModules.push({ icon: Store, title: "Balcao", description: "Atendimento ao cliente", href: "/balcao" });
+    legacyStandaloneModules.push({ icon: Store, title: "Balcão", description: "Atendimento ao cliente", href: "/balcao" });
+  }
+  if (userRole === "fila_pedidos" || (allowedHrefs.includes("/fila-pedidos") && !allowedHrefs.some(h => h.startsWith("/supervisor/")))) {
+    legacyStandaloneModules.push({ icon: ClipboardList, title: "Fila de Pedidos", description: "Acompanhamento real-time", href: "/fila-pedidos" });
   }
 
   const filteredSections = allSections
@@ -230,7 +233,7 @@ export default function HomePage() {
                 </div>
                 <div className="flex-1 text-left min-w-0">
                   <h2 className="text-sm font-semibold text-foreground">{section.title}</h2>
-                  <p className="text-[11px] text-muted-foreground">{section.modules.length} modulo{section.modules.length !== 1 ? "s" : ""}</p>
+                  <p className="text-[11px] text-muted-foreground">{section.modules.length} módulo{section.modules.length !== 1 ? "s" : ""}</p>
                 </div>
                 <div className="text-muted-foreground/50 shrink-0">
                   {isExpanded ? (
@@ -265,7 +268,7 @@ export default function HomePage() {
             <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-muted flex items-center justify-center">
               <Package className="h-8 w-8 opacity-30" />
             </div>
-            <p className="text-base font-medium">Nenhum modulo disponivel</p>
+            <p className="text-base font-medium">Nenhum módulo disponível</p>
             <p className="text-sm mt-1">Entre em contato com o administrador</p>
           </div>
         )}

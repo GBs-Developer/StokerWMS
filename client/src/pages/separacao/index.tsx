@@ -23,19 +23,9 @@ import {
   ArrowRight,
   Calendar,
   Truck,
-  History,
   CheckCircle2,
-  X,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogClose,
-} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -118,8 +108,6 @@ export default function SeparacaoPage() {
   const [currentProductIndex, setCurrentProductIndex] = useState(0);
 
   const [selectedAddresses, setSelectedAddresses] = useState<Record<string, { code: string; addressId: string; quantity: number } | null>>({});
-  const [showAddressLog, setShowAddressLog] = useState(false);
-  const [addressLogFilters, setAddressLogFilters] = useState<{ addressId?: string; productId?: string }>({});
 
   const [scanStatus, setScanStatus] = useState<"idle" | "success" | "error" | "warning">("idle");
   const [scanMessage, setScanMessage] = useState("");
@@ -322,19 +310,6 @@ export default function SeparacaoPage() {
   const productIds = useMemo(() => aggregatedProducts.map(ap => ap.product.id), [aggregatedProducts]);
   const { data: addressesMap } = useProductAddressesBatch(productIds);
 
-  const { data: addressLog = [], refetch: refetchAddressLog } = useQuery<any[]>({
-    queryKey: ["address-picking-log", addressLogFilters],
-    queryFn: async () => {
-      const params = new URLSearchParams({ limit: "100" });
-      if (addressLogFilters.addressId) params.set("addressId", addressLogFilters.addressId);
-      if (addressLogFilters.productId) params.set("productId", addressLogFilters.productId);
-      const res = await fetch(`/api/picking/address-log?${params}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Erro ao buscar log");
-      return res.json();
-    },
-    enabled: showAddressLog,
-    staleTime: 0,
-  });
 
   // Buscar regras de quantidade manual para os produtos atuais
   const { data: manualQtyRulesMap } = useQuery<Record<string, boolean>>({
@@ -1199,14 +1174,6 @@ export default function SeparacaoPage() {
               <span className="text-xs text-muted-foreground truncate">
                 {allMyUnits.map(wu => wu.order.erpOrderId).filter((v, i, a) => a.indexOf(v) === i).join(", ")}
               </span>
-              <button
-                data-testid="button-address-log"
-                onClick={() => { setAddressLogFilters({}); setShowAddressLog(true); }}
-                className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-blue-600 transition-colors ml-2 shrink-0"
-              >
-                <History className="h-3 w-3" />
-                Log Endereços
-              </button>
             </div>
             <ScanInput
               placeholder="Leia o código de barras..."
@@ -1625,53 +1592,6 @@ export default function SeparacaoPage() {
         </AlertDialog>
       )}
 
-      {/* Dialog: Log de movimentação de endereços */}
-      <Dialog open={showAddressLog} onOpenChange={setShowAddressLog}>
-        <DialogContent className="max-w-lg p-0 gap-0" data-testid="dialog-address-log">
-          <DialogHeader className="px-4 pt-4 pb-2 border-b">
-            <div className="flex items-center justify-between">
-              <DialogTitle className="flex items-center gap-2 text-base">
-                <History className="h-4 w-4 text-blue-500" />
-                Log de Endereços
-              </DialogTitle>
-              <DialogDescription className="sr-only">Histórico de movimentações de endereços durante a separação</DialogDescription>
-              <DialogClose asChild>
-                <button className="text-muted-foreground hover:text-foreground" data-testid="button-close-address-log">
-                  <X className="h-4 w-4" />
-                </button>
-              </DialogClose>
-            </div>
-          </DialogHeader>
-          <div className="overflow-y-auto max-h-[60vh] px-4 py-3 space-y-2">
-            {addressLog.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground text-sm">
-                <History className="h-10 w-10 mx-auto mb-3 opacity-30" />
-                <p>Nenhuma movimentação registrada</p>
-              </div>
-            ) : (
-              addressLog.map((entry: any) => (
-                <div key={entry.id} className="bg-muted/30 rounded-xl px-3 py-2 text-xs border border-border/50">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="font-semibold text-sm truncate">{entry.productName || entry.productId}</p>
-                      <p className="text-muted-foreground mt-0.5 font-mono">{entry.erpCode && <span className="mr-2">{entry.erpCode}</span>}</p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <span className="font-mono font-bold text-blue-600 dark:text-blue-400">{entry.addressCode}</span>
-                      <p className="text-orange-600 font-bold">−{Number(entry.quantity).toLocaleString("pt-BR")} un</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between mt-1 text-[10px] text-muted-foreground">
-                    <span>{entry.userName || "—"}</span>
-                    {entry.erpOrderId && <span>Pedido {entry.erpOrderId}</span>}
-                    <span>{new Date(entry.createdAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

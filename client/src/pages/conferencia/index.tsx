@@ -37,7 +37,7 @@ import { getCurrentWeekRange, isDateInRange } from "@/lib/date-utils";
 import { format } from "date-fns";
 import { usePendingDeltaStore } from "@/lib/pendingDeltaStore";
 import { useProductAddressesBatch, type ProductAddress } from "@/hooks/use-product-stock";
-import { MapPin, History } from "lucide-react";
+import { MapPin } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -1236,15 +1236,11 @@ export default function ConferenciaPage() {
                       <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-blue-50 dark:bg-blue-950/50 border border-blue-200 dark:border-blue-800" data-testid="product-picked-address">
                         <MapPin className="h-4 w-4 text-blue-500 shrink-0" />
                         <div className="min-w-0">
-                          <p className="text-[10px] text-blue-500 font-semibold uppercase tracking-wide">Coletado de</p>
+                          <p className="text-[10px] text-blue-500 font-semibold uppercase tracking-wide">Separado do endereço</p>
                           <p className="font-mono font-bold text-blue-700 dark:text-blue-300 text-sm">
                             {separadorAddressMap[currentProduct.product.id].addressCode}
                           </p>
-                          {separadorAddressMap[currentProduct.product.id].userName && (
-                            <p className="text-[10px] text-muted-foreground">por {separadorAddressMap[currentProduct.product.id].userName}</p>
-                          )}
                         </div>
-                        <History className="h-3.5 w-3.5 text-blue-400 ml-auto shrink-0" />
                       </div>
                     ) : null}
 

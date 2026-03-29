@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogHeader,
@@ -16,7 +17,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Plus, MapPin, Loader2, ToggleLeft, ToggleRight, Trash2, Search, Package, X, Filter } from "lucide-react";
+import { ArrowLeft, Plus, MapPin, Loader2, ToggleLeft, ToggleRight, Trash2, Search, Package, X, Filter, History } from "lucide-react";
 import { useLocation } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -35,6 +36,7 @@ export default function EnderecosPage() {
   const [filterType, setFilterType] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
   const [deleteTarget, setDeleteTarget] = useState<any>(null);
+  const [logAddress, setLogAddress] = useState<{ id: string; code: string } | null>(null);
 
   const { data: addresses = [], isLoading } = useQuery({
     queryKey: ["wms-addresses-occupancy", companyId],
@@ -44,6 +46,18 @@ export default function EnderecosPage() {
       return res.json();
     },
     enabled: !!companyId,
+  });
+
+  const { data: addressLog = [], isLoading: logLoading } = useQuery<any[]>({
+    queryKey: ["address-picking-log", logAddress?.id],
+    queryFn: async () => {
+      const params = new URLSearchParams({ addressId: logAddress!.id, limit: "100" });
+      const res = await fetch(`/api/picking/address-log?${params}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Erro ao buscar log");
+      return res.json();
+    },
+    enabled: !!logAddress,
+    staleTime: 0,
   });
 
   const createMutation = useMutation({
@@ -297,6 +311,16 @@ export default function EnderecosPage() {
                   <Badge variant={addr.type === "standard" ? "outline" : "secondary"} className="text-[9px]">
                     {typeLabels[addr.type] || addr.type}
                   </Badge>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-8 w-8 p-0 text-muted-foreground hover:text-blue-600"
+                    onClick={() => setLogAddress({ id: addr.id, code: addr.code })}
+                    title="Ver log de movimentações"
+                    data-testid={`button-log-${addr.id}`}
+                  >
+                    <History className="h-4 w-4" />
+                  </Button>
                   <Button variant="ghost" size="sm" onClick={() => toggleMutation.mutate({ id: addr.id, active: !addr.active })} data-testid={`button-toggle-${addr.id}`}>
                     {addr.active ? <ToggleRight className="h-4 w-4 text-green-600" /> : <ToggleLeft className="h-4 w-4 text-gray-400" />}
                   </Button>
@@ -317,6 +341,7 @@ export default function EnderecosPage() {
         )}
       </main>
 
+      {/* Dialog: Apagar endereço */}
       <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <DialogContent>
           <DialogHeader>
@@ -339,6 +364,55 @@ export default function EnderecosPage() {
               Remover
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog: Log de picking do endereço */}
+      <Dialog open={!!logAddress} onOpenChange={(open) => !open && setLogAddress(null)}>
+        <DialogContent className="max-w-lg p-0 gap-0" data-testid="dialog-address-log">
+          <DialogHeader className="px-4 pt-4 pb-2 border-b">
+            <div className="flex items-center justify-between">
+              <DialogTitle className="flex items-center gap-2 text-base">
+                <History className="h-4 w-4 text-blue-500" />
+                Log de Picking — <span className="font-mono">{logAddress?.code}</span>
+              </DialogTitle>
+              <DialogDescription className="sr-only">Histórico de coletas registradas neste endereço durante a separação</DialogDescription>
+              <DialogClose asChild>
+                <Button variant="ghost" size="sm" className="h-7 w-7 p-0" data-testid="button-close-address-log">
+                  <X className="h-4 w-4" />
+                </Button>
+              </DialogClose>
+            </div>
+          </DialogHeader>
+          <div className="overflow-y-auto max-h-[60vh] px-4 py-3 space-y-2">
+            {logLoading ? (
+              <div className="text-center py-8"><Loader2 className="h-6 w-6 mx-auto animate-spin text-muted-foreground" /></div>
+            ) : addressLog.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground text-sm">
+                <History className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                <p>Nenhuma movimentação registrada neste endereço</p>
+              </div>
+            ) : (
+              addressLog.map((entry: any) => (
+                <div key={entry.id} className="bg-muted/30 rounded-xl px-3 py-2 text-xs border border-border/50">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-sm truncate">{entry.productName || entry.productId}</p>
+                      {entry.erpCode && <p className="text-muted-foreground font-mono">{entry.erpCode}</p>}
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="text-orange-600 font-bold text-sm">−{Number(entry.quantity).toLocaleString("pt-BR")} un</p>
+                      {entry.erpOrderId && <p className="text-muted-foreground">Pedido {entry.erpOrderId}</p>}
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between mt-1 text-[10px] text-muted-foreground">
+                    <span>{entry.userName || "—"}</span>
+                    <span>{new Date(entry.createdAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </div>
