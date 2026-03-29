@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from "express";
-import { isAuthenticated, getTokenFromRequest, getUserFromToken } from "./auth";
+import { isAuthenticated, requireRole, getTokenFromRequest, getUserFromToken } from "./auth";
+import { storage } from "./storage";
 import { exec } from "child_process";
 import os from "os";
 import fs from "fs";
@@ -172,5 +173,36 @@ export function registerPrintRoutes(app: Express) {
       username
     );
     res.json(result);
+  });
+
+  /** Retorna a config de impressoras do usuário logado */
+  app.get("/api/print/config", isAuthenticated, async (req: Request, res: Response) => {
+    const userId = (req as any).user?.id as string;
+    const user = await storage.getUser(userId);
+    const printConfig = (user?.settings as any)?.printConfig ?? {};
+    res.json({ success: true, printConfig });
+  });
+
+  /** Retorna a config de impressoras de um usuário específico (admin) */
+  app.get("/api/print/config/:userId", isAuthenticated, requireRole("administrador"), async (req: Request, res: Response) => {
+    const user = await storage.getUser(req.params.userId);
+    if (!user) return res.status(404).json({ error: "Usuário não encontrado" });
+    const printConfig = (user.settings as any)?.printConfig ?? {};
+    res.json({ success: true, printConfig });
+  });
+
+  /** Salva a config de impressoras de um usuário específico (admin) */
+  app.put("/api/print/config/:userId", isAuthenticated, requireRole("administrador"), async (req: Request, res: Response) => {
+    const { printConfig } = req.body as { printConfig: Record<string, { printer: string; copies: number }> };
+    if (!printConfig || typeof printConfig !== "object") {
+      return res.status(400).json({ error: "printConfig inválido" });
+    }
+    const user = await storage.getUser(req.params.userId);
+    if (!user) return res.status(404).json({ error: "Usuário não encontrado" });
+    const currentSettings = (user.settings as any) ?? {};
+    await storage.updateUser(req.params.userId, {
+      settings: { ...currentSettings, printConfig },
+    } as any);
+    res.json({ success: true });
   });
 }

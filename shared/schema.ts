@@ -44,10 +44,16 @@ export type NfStatus = typeof nfStatusEnum[number];
 export const separationModeEnum = ["by_order", "by_section"] as const;
 export type SeparationMode = typeof separationModeEnum[number];
 
+export interface PrintConfig {
+  printer: string;
+  copies: number;
+}
+
 export interface UserSettings {
   allowManualQty?: boolean;
   allowMultiplier?: boolean;
   canAuthorizeOwnExceptions?: boolean;
+  printConfig?: Record<string, PrintConfig>;
 }
 
 export const companies = pgTable("companies", {
