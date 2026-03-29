@@ -154,17 +154,16 @@ export default function PrintSettingsPage() {
                 <div className="text-sm text-muted-foreground">Carregando usuários...</div>
               ) : (
                 <Select
-                  value={selectedUserId != null ? String(selectedUserId) : "__none__"}
-                  onValueChange={(v) => setSelectedUserId(v === "__none__" ? null : Number(v))}
+                  value={selectedUserId != null ? String(selectedUserId) : ""}
+                  onValueChange={(v) => setSelectedUserId(v ? Number(v) : null)}
                 >
                   <SelectTrigger data-testid="select-user">
                     <SelectValue placeholder="Selecionar usuário..." />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__none__">Selecionar usuário...</SelectItem>
                     {users.map((u) => (
                       <SelectItem key={u.id} value={String(u.id)}>
-                        {u.name || u.username} ({ROLE_LABELS[u.role] ?? u.role})
+                        {`${u.name || u.username} (${ROLE_LABELS[u.role] ?? u.role})`}
                       </SelectItem>
                     ))}
                   </SelectContent>
