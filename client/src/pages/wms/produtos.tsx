@@ -5,7 +5,7 @@ import { GradientHeader } from "@/components/ui/gradient-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Search, Loader2, Package, Barcode, Hash, Type, X, MapPin, Clock, AlertTriangle, TrendingUp, TrendingDown } from "lucide-react";
+import { ArrowLeft, Search, Loader2, Package, Barcode, Hash, Type, X, MapPin, Clock, AlertTriangle, TrendingUp, TrendingDown, Keyboard } from "lucide-react";
 import { useLocation } from "wouter";
 import { ProductStockInfo, StockLegend } from "@/components/wms/product-stock-info";
 
@@ -17,6 +17,7 @@ export default function ProdutosPage() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [searchType, setSearchType] = useState("all");
   const inputRef = useRef<HTMLInputElement>(null);
+  const [keyboardEnabled, setKeyboardEnabled] = useState(false);
 
   const handleSearch = useCallback((value: string) => {
     setSearchQuery(value);
@@ -88,16 +89,36 @@ export default function ProdutosPage() {
               value={searchQuery}
               onChange={e => handleSearch(e.target.value)}
               onKeyDown={handleKeyDown}
-              className="pl-10 pr-10 h-12 rounded-xl text-sm"
+              className="pl-10 pr-20 h-12 rounded-xl text-sm"
+              inputMode={keyboardEnabled ? "text" : "none"}
               autoFocus
               data-testid="input-product-search"
             />
-            {searchQuery && (
-              <button className="absolute right-3 top-1/2 -translate-y-1/2" onClick={clearSearch} data-testid="button-clear-search">
-                {isFetching ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : <X className="h-4 w-4 text-muted-foreground" />}
-              </button>
-            )}
+            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+              {searchQuery && (
+                <button onClick={clearSearch} data-testid="button-clear-search">
+                  {isFetching ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : <X className="h-4 w-4 text-muted-foreground" />}
+                </button>
+              )}
+              <Button
+                variant={keyboardEnabled ? "default" : "ghost"}
+                size="sm"
+                className="h-8 w-8 p-0 rounded-lg"
+                onClick={() => {
+                  setKeyboardEnabled(v => !v);
+                  setTimeout(() => inputRef.current?.focus(), 50);
+                }}
+                data-testid="button-keyboard-toggle"
+              >
+                <Keyboard className="h-3.5 w-3.5" />
+              </Button>
+            </div>
           </div>
+          {!keyboardEnabled && (
+            <p className="text-[10px] text-muted-foreground text-center">
+              Bipe o produto ou toque <Keyboard className="h-3 w-3 inline" /> para digitar
+            </p>
+          )}
 
           <div className="flex rounded-xl border bg-muted/30 p-1 gap-1">
             {searchTypes.map(st => {
