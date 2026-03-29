@@ -130,7 +130,7 @@ export default function HomePage() {
       "/wms/recebimento", "/wms/checkin", "/wms/transferencia", "/wms/contagem", "/wms/enderecos", "/wms/produtos",
       "/fila-pedidos", "/supervisor/orders", "/supervisor/routes", "/supervisor/route-orders", "/supervisor/exceptions",
       "/supervisor/users", "/supervisor/product-addresses", "/supervisor/reports", "/supervisor/audit",
-      "/supervisor/separation-settings", "/supervisor/print-settings",
+      "/supervisor/separation-settings",
     ],
     separacao: ["/separacao"],
     conferencia: ["/conferencia"],
