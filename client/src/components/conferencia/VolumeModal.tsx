@@ -10,7 +10,7 @@ import {
     Package, ShoppingBag, Archive, Box, Tag,
     Loader2, CheckCircle2, PackageOpen, Search, X, ArrowLeft, Trash2, Printer,
 } from "lucide-react";
-import { PrintModal } from "@/components/ui/print-modal";
+import { usePrint } from "@/hooks/use-print";
 import { DatePickerWithRange } from "@/components/ui/date-range-picker";
 import type { DateRange } from "react-day-picker";
 import { format, subDays } from "date-fns";
@@ -76,7 +76,7 @@ export function VolumeModal({ open, onClose, defaultErpOrderId }: VolumeModalPro
     const [searching, setSearching] = useState(false);
     const [searchError, setSearchError] = useState("");
     const [counts, setCounts] = useState({ sacola: 0, caixa: 0, saco: 0, avulso: 0 });
-    const [printModalOpen, setPrintModalOpen] = useState(false);
+    const { printing, print: printVolume } = usePrint();
 
     const [dateRange, setDateRange] = useState<DateRange | undefined>({
         from: subDays(new Date(), 6),
@@ -251,7 +251,7 @@ export function VolumeModal({ open, onClose, defaultErpOrderId }: VolumeModalPro
 
     const handleSaveAndPrint = async () => {
         saveMutation.mutate(undefined, {
-            onSuccess: () => setPrintModalOpen(true),
+            onSuccess: () => printVolume(buildVolumesHtml(), "volume_label"),
         });
     };
 
@@ -270,15 +270,6 @@ export function VolumeModal({ open, onClose, defaultErpOrderId }: VolumeModalPro
 
     return (
         <>
-        <PrintModal
-            open={printModalOpen}
-            onClose={() => setPrintModalOpen(false)}
-            html={buildVolumesHtml()}
-            defaultCopies={1}
-            title="Imprimir Etiquetas de Volume"
-            printType="volume_label"
-            onError={(msg) => toast({ title: "Erro na impressão", description: msg, variant: "destructive" })}
-        />
         <Dialog open={open} onOpenChange={v => !v && onClose()}>
             <DialogContent className="max-w-sm w-[95vw] p-0 gap-0 rounded-xl overflow-hidden flex flex-col" style={{ maxHeight: "88vh" }}>
 
@@ -480,12 +471,15 @@ export function VolumeModal({ open, onClose, defaultErpOrderId }: VolumeModalPro
                                 <Button
                                     variant="outline"
                                     className="shrink-0"
-                                    onClick={() => setPrintModalOpen(true)}
-                                    disabled={saveMutation.isPending}
+                                    onClick={() => printVolume(buildVolumesHtml(), "volume_label")}
+                                    disabled={saveMutation.isPending || printing}
                                     title="Imprimir etiquetas de volume"
                                     data-testid="btn-volume-print"
                                 >
-                                    <Printer className="h-4 w-4" />
+                                    {printing
+                                        ? <Loader2 className="h-4 w-4 animate-spin" />
+                                        : <Printer className="h-4 w-4" />
+                                    }
                                 </Button>
                             )}
                             <Button

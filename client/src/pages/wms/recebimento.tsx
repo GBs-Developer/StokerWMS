@@ -24,7 +24,7 @@ import {
 import { useLocation } from "wouter";
 import { ProductStockInfo, StockLegend } from "@/components/wms/product-stock-info";
 import { useProductStockBatch } from "@/hooks/use-product-stock";
-import { PrintModal } from "@/components/ui/print-modal";
+import { usePrint } from "@/hooks/use-print";
 
 interface PalletItemDraft {
   productId: string;
@@ -65,10 +65,9 @@ export default function RecebimentoPage() {
   const [nfListLoading, setNfListLoading] = useState(false);
   const [nfImportProgress, setNfImportProgress] = useState<{ current: number; total: number } | null>(null);
 
+  const { printing: palletPrinting, print: printPallet } = usePrint();
   const [labelDialog, setLabelDialog] = useState<any>(null);
   const [labelLoading, setLabelLoading] = useState(false);
-  const [palletPrintOpen, setPalletPrintOpen] = useState(false);
-  const [palletPrintHtml, setPalletPrintHtml] = useState("");
   const [showCreateConfirm, setShowCreateConfirm] = useState(false);
   const [editingQtyIdx, setEditingQtyIdx] = useState<number | null>(null);
   const [editingQtyValue, setEditingQtyValue] = useState("");
@@ -449,8 +448,7 @@ export default function RecebimentoPage() {
         ${labelDialog.nfIds?.length ? `<div class="nf">NF: ${esc(labelDialog.nfIds.join(", "))}</div>` : ""}
       </body></html>`;
 
-    setPalletPrintHtml(html);
-    setPalletPrintOpen(true);
+    printPallet(html, "pallet_label");
   };
 
   const totalItems = palletItems.reduce((sum, i) => sum + i.quantity, 0);
@@ -459,15 +457,6 @@ export default function RecebimentoPage() {
 
   return (
     <>
-    <PrintModal
-      open={palletPrintOpen}
-      onClose={() => setPalletPrintOpen(false)}
-      html={palletPrintHtml}
-      defaultCopies={1}
-      title="Imprimir Etiqueta de Palete"
-      printType="pallet_label"
-      onError={(msg) => toast({ title: "Erro na impressão", description: msg, variant: "destructive" })}
-    />
     <div className="min-h-[100dvh] bg-background">
       <GradientHeader title="Recebimento" subtitle={companyId ? (companiesData?.find(c => c.id === companyId)?.name || "") : ""} compact>
         <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="text-white/70 hover:text-white hover:bg-white/10 h-9" data-testid="button-back">
@@ -1002,8 +991,11 @@ export default function RecebimentoPage() {
           )}
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setLabelDialog(null)} className="rounded-xl">Fechar</Button>
-            <Button onClick={printLabel} className="rounded-xl" data-testid="button-print-label">
-              <Printer className="h-4 w-4 mr-1.5" />Imprimir
+            <Button onClick={printLabel} className="rounded-xl" disabled={palletPrinting} data-testid="button-print-label">
+              {palletPrinting
+                ? <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Enviando...</>
+                : <><Printer className="h-4 w-4 mr-1.5" />Imprimir</>
+              }
             </Button>
           </DialogFooter>
         </DialogContent>
