@@ -6,6 +6,7 @@ import { eq, and, sql, desc, isNull, ilike, or, inArray, ne } from "drizzle-orm"
 import {
   wmsAddresses, pallets, palletItems, palletMovements, nfCache, nfItems,
   countingCycles, countingCycleItems, productCompanyStock, products, productAddresses,
+  addressPickingLog,
   insertProductAddressSchema,
   type WmsAddress, type Pallet, type PalletItem,
 } from "@shared/schema";
@@ -1915,11 +1916,12 @@ export function registerWmsRoutes(app: Express) {
       }
 
       const ids = productIds.slice(0, 200);
-      const result: Record<string, { code: string; type: string | null; quantity: number }[]> = {};
+      const result: Record<string, { code: string; type: string | null; quantity: number; addressId: string }[]> = {};
 
       // 1) Pallet-based addresses
       const palletRows = await db.select({
           productId: palletItems.productId,
+          addressId: wmsAddresses.id,
           addressCode: wmsAddresses.code,
           addressType: wmsAddresses.type,
           quantity: sql<number>`SUM(${palletItems.quantity})`,
@@ -1932,11 +1934,12 @@ export function registerWmsRoutes(app: Express) {
           eq(palletItems.companyId, companyId),
           ne(pallets.status, 'cancelado')
         ))
-        .groupBy(palletItems.productId, wmsAddresses.code, wmsAddresses.type);
+        .groupBy(palletItems.productId, wmsAddresses.id, wmsAddresses.code, wmsAddresses.type);
 
       for (const row of palletRows) {
         if (!result[row.productId]) result[row.productId] = [];
         result[row.productId].push({
+          addressId: row.addressId,
           code: row.addressCode,
           type: row.addressType,
           quantity: Number(row.quantity),
@@ -1946,6 +1949,7 @@ export function registerWmsRoutes(app: Express) {
       // 2) Direct product-address mappings
       const directRows = await db.select({
           productId: productAddresses.productId,
+          addressId: wmsAddresses.id,
           addressCode: wmsAddresses.code,
           addressType: wmsAddresses.type,
         })
@@ -1961,6 +1965,7 @@ export function registerWmsRoutes(app: Express) {
         const exists = result[row.productId].some(a => a.code === row.addressCode);
         if (!exists) {
           result[row.productId].push({
+            addressId: row.addressId,
             code: row.addressCode,
             type: row.addressType,
             quantity: 0,
@@ -1972,6 +1977,136 @@ export function registerWmsRoutes(app: Express) {
     } catch (error) {
       console.error("Batch addresses error:", error);
       res.status(500).json({ error: "Erro ao buscar endereços" });
+    }
+  });
+
+  // Endpoint: deduzir quantidade de endereço durante separação
+  const pickingRoles = requireRole("separacao", "supervisor", "administrador");
+
+  app.post("/api/picking/deduct-address", ...authMiddleware, pickingRoles, async (req: Request, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const userId = getUserId(req);
+      const { deductions } = req.body as {
+        deductions: Array<{
+          productId: string;
+          addressId: string;
+          quantity: number;
+          orderId?: string;
+          erpOrderId?: string;
+          workUnitId?: string;
+        }>;
+      };
+
+      if (!Array.isArray(deductions) || deductions.length === 0) {
+        return res.status(400).json({ error: "Nenhuma dedução fornecida" });
+      }
+
+      const now = new Date().toISOString();
+      const results = [];
+
+      for (const ded of deductions) {
+        const { productId, addressId, quantity, orderId, erpOrderId, workUnitId } = ded;
+
+        // Busca dados do endereço e produto para log
+        const [addr] = await db.select().from(wmsAddresses).where(eq(wmsAddresses.id, addressId));
+        if (!addr) continue;
+
+        const [product] = await db.select().from(products).where(eq(products.id, productId));
+        const [usr] = await db.select({ name: sql<string>`name` }).from(sql`users`).where(sql`id = ${userId}`).catch(() => [null]);
+
+        // Busca pallets no endereço com este produto (FIFO: mais antigo primeiro)
+        const palletItemsAtAddress = await db.select({
+          palletItemId: palletItems.id,
+          palletId: palletItems.palletId,
+          palletItemQty: palletItems.quantity,
+          palletCreatedAt: pallets.createdAt,
+        })
+        .from(palletItems)
+        .innerJoin(pallets, eq(palletItems.palletId, pallets.id))
+        .where(and(
+          eq(palletItems.productId, productId),
+          eq(palletItems.companyId, companyId),
+          eq(pallets.addressId, addressId),
+          ne(pallets.status, 'cancelado')
+        ))
+        .orderBy(pallets.createdAt);
+
+        // Deduz FIFO
+        let remaining = quantity;
+        for (const pi of palletItemsAtAddress) {
+          if (remaining <= 0) break;
+          const currentQty = Number(pi.palletItemQty);
+          const deductQty = Math.min(remaining, currentQty);
+          const newQty = currentQty - deductQty;
+
+          if (newQty <= 0) {
+            await db.delete(palletItems).where(eq(palletItems.id, pi.palletItemId));
+          } else {
+            await db.update(palletItems)
+              .set({ quantity: newQty })
+              .where(eq(palletItems.id, pi.palletItemId));
+          }
+          remaining -= deductQty;
+        }
+
+        // Registra no log de auditoria de endereço
+        await db.insert(addressPickingLog).values({
+          companyId,
+          addressId,
+          addressCode: addr.code,
+          productId,
+          productName: product?.name || null,
+          erpCode: product?.erpCode || null,
+          quantity,
+          orderId: orderId || null,
+          erpOrderId: erpOrderId || null,
+          workUnitId: workUnitId || null,
+          userId,
+          userName: (usr as any)?.name || null,
+          createdAt: now,
+          notes: remaining > 0 ? `Saldo insuficiente: ${remaining} un não deduzidas` : null,
+        });
+
+        results.push({
+          productId,
+          addressId,
+          addressCode: addr.code,
+          requestedQty: quantity,
+          deduzido: quantity - remaining,
+          semSaldo: remaining,
+        });
+      }
+
+      res.json({ ok: true, results });
+    } catch (error) {
+      console.error("Deduct address error:", error);
+      res.status(500).json({ error: "Erro ao deduzir endereço" });
+    }
+  });
+
+  // Endpoint: log de movimentação de endereço (auditoria)
+  app.get("/api/picking/address-log", ...authMiddleware, anyWmsRole, async (req: Request, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const { addressId, productId, limit: limitParam, offset: offsetParam } = req.query as Record<string, string>;
+      const limitN = Math.min(parseInt(limitParam || "50"), 200);
+      const offsetN = parseInt(offsetParam || "0");
+
+      const conditions = [eq(addressPickingLog.companyId, companyId)];
+      if (addressId) conditions.push(eq(addressPickingLog.addressId, addressId));
+      if (productId) conditions.push(eq(addressPickingLog.productId, productId));
+
+      const rows = await db.select().from(addressPickingLog)
+        .where(and(...conditions))
+        .orderBy(desc(addressPickingLog.createdAt))
+        .limit(limitN)
+        .offset(offsetN);
+
+      res.json(rows);
+    } catch (error) {
+      console.error("Address log error:", error);
+      res.status(500).json({ error: "Erro ao buscar log" });
     }
   });
 

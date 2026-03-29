@@ -33,6 +33,7 @@ export interface ProductAddress {
   code: string;
   type: string | null;
   quantity: number;
+  addressId?: string;
 }
 
 export function useProductAddressesBatch(productIds: string[]) {

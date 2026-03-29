@@ -510,6 +510,28 @@ export const productAddresses = pgTable("product_addresses", {
 
 export const insertProductAddressSchema = createInsertSchema(productAddresses).omit({ id: true, createdAt: true });
 
+export const addressPickingLog = pgTable("address_picking_log", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: integer("company_id").notNull(),
+  addressId: text("address_id").notNull().references(() => wmsAddresses.id),
+  addressCode: text("address_code").notNull(),
+  productId: text("product_id").notNull().references(() => products.id),
+  productName: text("product_name"),
+  erpCode: text("erp_code"),
+  quantity: integer("quantity").notNull(),
+  orderId: text("order_id"),
+  erpOrderId: text("erp_order_id"),
+  workUnitId: text("work_unit_id"),
+  userId: text("user_id").notNull(),
+  userName: text("user_name"),
+  createdAt: text("created_at").notNull().default(new Date().toISOString()),
+  notes: text("notes"),
+});
+
+export const insertAddressPickingLogSchema = createInsertSchema(addressPickingLog).omit({ id: true });
+export type AddressPickingLog = typeof addressPickingLog.$inferSelect;
+export type InsertAddressPickingLog = z.infer<typeof insertAddressPickingLogSchema>;
+
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 export type InsertRoute = z.infer<typeof insertRouteSchema>;
