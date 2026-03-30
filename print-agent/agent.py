@@ -20,14 +20,17 @@ import hashlib
 import socket
 
 # ── Logging ────────────────────────────────────────────────────────────────────
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler("agent.log", encoding="utf-8"),
-    ],
+from logging.handlers import RotatingFileHandler
+
+_fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+_file_handler = RotatingFileHandler(
+    "agent.log", maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
 )
+_file_handler.setFormatter(_fmt)
+_console_handler = logging.StreamHandler(sys.stdout)
+_console_handler.setFormatter(_fmt)
+
+logging.basicConfig(level=logging.INFO, handlers=[_console_handler, _file_handler])
 log = logging.getLogger("print-agent")
 
 # ── Config ─────────────────────────────────────────────────────────────────────
@@ -206,7 +209,10 @@ def print_html(html: str, printer: str, copies: int) -> dict:
             ]
             r = subprocess.run(sumatra_cmd, timeout=30, capture_output=True)
             if r.returncode != 0:
-                return {"success": False, "error": f"SumatraPDF retornou erro na cópia {i+1}."}
+                stderr_msg = (r.stderr or b"").decode("utf-8", errors="replace").strip()
+                detail = f" ({stderr_msg[:200]})" if stderr_msg else ""
+                log.error(f"[{job_id}] SumatraPDF falhou na cópia {i+1} (rc={r.returncode}){detail}")
+                return {"success": False, "error": f"SumatraPDF retornou erro na cópia {i+1}.{detail}"}
             if copies > 1:
                 time.sleep(0.2)
 
@@ -298,16 +304,25 @@ class PrintAgent:
             log.warning(f"Servidor retornou erro: {msg.get('message', '?')}")
 
     def _handle_print(self, msg: dict):
-        job_id = msg.get("jobId", "?")
+        job_id  = msg.get("jobId", "?")
         printer = msg.get("printer", "")
         html    = msg.get("html", "")
-        copies  = int(msg.get("copies", 1))
         user    = msg.get("user", "?")
+
+        # Proteção contra copies inválido (float, string, None)
+        try:
+            copies = max(1, min(int(float(msg.get("copies", 1))), 99))
+        except (TypeError, ValueError):
+            copies = 1
 
         log.info(f"Job #{job_id} recebido: impressora='{printer}' copies={copies} user='{user}'")
 
         if not printer or not html:
             self.send({"type": "print_result", "jobId": job_id, "success": False, "error": "Dados incompletos no job."})
+            return
+
+        if len(html) > 5 * 1024 * 1024:  # 5 MB
+            self.send({"type": "print_result", "jobId": job_id, "success": False, "error": "HTML do job excede 5 MB."})
             return
 
         result = print_html(html, printer, copies)

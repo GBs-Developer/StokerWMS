@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { isAuthenticated, requireRole } from "./auth";
 import { storage } from "./storage";
-import { exec } from "child_process";
+import { execFile } from "child_process";
 import os from "os";
 import fs from "fs";
 import path from "path";
@@ -73,66 +73,85 @@ function cleanup(...files: string[]) {
   }
 }
 
-/** Imprime HTML em uma impressora específica via headless Chrome/Edge */
+/** Tenta gerar PDF via headless Chrome/Edge.
+ *  Chrome 112+ exige --headless=old para --print-to-pdf funcionar. */
+async function generatePdf(browserPath: string, fileUrl: string, pdfPath: string): Promise<{ success: boolean; error?: string }> {
+  const baseArgs = [
+    "--disable-gpu", "--no-sandbox",
+    "--disable-dev-shm-usage", "--disable-extensions",
+    `--print-to-pdf=${pdfPath}`,
+    "--print-to-pdf-no-header",
+    "--no-pdf-header-footer",
+    "--run-all-compositor-stages-before-draw",
+    "--virtual-time-budget=5000",
+    fileUrl,
+  ];
+
+  // Tenta --headless=old primeiro (Chrome 112+), depois --headless (Chrome antigo)
+  for (const flag of ["--headless=old", "--headless"]) {
+    try { if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath); } catch {}
+
+    const ok = await new Promise<boolean>((res) => {
+      execFile(browserPath, [flag, ...baseArgs], { timeout: 45_000 }, (err, _stdout, stderr) => {
+        const exists = fs.existsSync(pdfPath);
+        const size = exists ? fs.statSync(pdfPath).size : 0;
+        const generated = !err && exists && size > 0;
+        if (!generated && stderr) {
+          log(`[pdf] Chrome ${flag} falhou: ${stderr.slice(0, 200)}`, "print");
+        }
+        res(generated);
+      });
+    });
+
+    if (ok) return { success: true };
+  }
+
+  return { success: false, error: "Falha ao gerar PDF. Verifique se Chrome ou Edge está atualizado." };
+}
+
+/** Imprime HTML em uma impressora local do servidor via headless Chrome + pdf-to-printer */
 async function printHtmlToPrinter(
   html: string,
   printerName: string,
   copies: number,
   user: string
 ): Promise<{ success: boolean; error?: string }> {
-  return new Promise((resolve) => {
-    const tmpDir = os.tmpdir();
-    const jobId = crypto.randomUUID().slice(0, 8);
-    const htmlPath = path.join(tmpDir, `stoker_${jobId}.html`);
-    const pdfPath  = path.join(tmpDir, `stoker_${jobId}.pdf`);
+  const tmpDir  = os.tmpdir();
+  const jobId   = crypto.randomUUID().slice(0, 8);
+  const htmlPath = path.join(tmpDir, `stoker_${jobId}.html`);
+  const pdfPath  = path.join(tmpDir, `stoker_${jobId}.pdf`);
 
-    log(`#${jobId} "${printerName}" x${copies} (${user})`, "print");
+  log(`#${jobId} "${printerName}" x${copies} (${user})`, "print");
 
-    try {
-      fs.writeFileSync(htmlPath, html, "utf-8");
-    } catch (e: any) {
-      resolve({ success: false, error: `Não foi possível criar arquivo temporário: ${e.message}` });
-      return;
-    }
+  try {
+    fs.writeFileSync(htmlPath, html, "utf-8");
 
     const browser = findBrowserExe();
     if (!browser) {
-      cleanup(htmlPath);
-      resolve({ success: false, error: "Chrome ou Edge não encontrado nesta máquina." });
-      return;
+      return { success: false, error: "Chrome ou Edge não encontrado nesta máquina." };
     }
 
     const fileUrl = IS_WIN
       ? `file:///${htmlPath.replace(/\\/g, "/")}`
       : `file://${htmlPath}`;
 
-    const chromeCmd = `"${browser}" --headless --disable-gpu --no-sandbox --print-to-pdf="${pdfPath}" --print-to-pdf-no-header --no-pdf-header-footer "${fileUrl}"`;
-    exec(chromeCmd, { timeout: 45000 }, (err1) => {
-      if (err1 || !fs.existsSync(pdfPath)) {
-        cleanup(htmlPath, pdfPath);
-        resolve({ success: false, error: "Falha ao gerar PDF. Verifique se Chrome ou Edge está atualizado." });
-        return;
-      }
+    const pdfResult = await generatePdf(browser, fileUrl, pdfPath);
+    if (!pdfResult.success) return pdfResult;
 
-      const sendCopies = async () => {
-        for (let i = 0; i < copies; i++) {
-          await pdfToPrinter.print(pdfPath, { printer: printerName, scale: "noscale" });
-        }
-      };
+    const n = Math.max(1, Math.min(copies, 99));
+    for (let i = 0; i < n; i++) {
+      await pdfToPrinter.print(pdfPath, { printer: printerName, scale: "noscale" });
+    }
 
-      sendCopies()
-        .then(() => {
-          setTimeout(() => cleanup(htmlPath, pdfPath), 10_000);
-          log(`#${jobId} ✓ "${printerName}"`, "print");
-          resolve({ success: true });
-        })
-        .catch((err2: Error) => {
-          setTimeout(() => cleanup(htmlPath, pdfPath), 10_000);
-          log(`#${jobId} ERRO: ${err2.message}`, "print");
-          resolve({ success: false, error: `Erro ao enviar para impressora: ${err2.message}` });
-        });
-    });
-  });
+    log(`#${jobId} ✓ "${printerName}"`, "print");
+    return { success: true };
+
+  } catch (e: any) {
+    log(`#${jobId} ERRO: ${e.message}`, "print");
+    return { success: false, error: `Erro ao imprimir: ${e.message}` };
+  } finally {
+    setTimeout(() => cleanup(htmlPath, pdfPath), 10_000);
+  }
 }
 
 function resolveUsername(req: Request): string {
