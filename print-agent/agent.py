@@ -2,8 +2,11 @@
 Stoker WMS — Print Agent
 Connects to the main server via WebSocket and handles local print jobs.
 
-Requirements: websocket-client, requests
+Requirements: websocket-client, xhtml2pdf
+Optional: pywin32 (for win32print printer listing)
 Python 3.8+
+
+Install: pip install websocket-client xhtml2pdf
 """
 
 import sys
@@ -101,20 +104,7 @@ def get_printers():
         log.warning(f"Erro ao listar impressoras: {e}")
     return printers
 
-# ── HTML → PDF → Printer ───────────────────────────────────────────────────────
-
-def find_browser():
-    """Finds Chrome or Edge executable on Windows."""
-    candidates = [
-        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
-        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-    ]
-    for c in candidates:
-        if os.path.exists(c):
-            return c
-    return None
+# ── HTML → PDF via xhtml2pdf (sem Chrome, sem navegador) ──────────────────────
 
 def find_sumatra():
     """Finds SumatraPDF executable."""
@@ -128,85 +118,30 @@ def find_sumatra():
             return c
     return None
 
-# ── Geração de PDF via Chrome --print-to-pdf (sem CDP, sem porta de debug) ────
-
 _pdf_lock = threading.Lock()
-_profile_counter = 0
 
-def generate_pdf_via_chrome(html_path: str, pdf_path: str, job_id: str) -> bool:
+def generate_pdf(html_content: str, pdf_path: str, job_id: str) -> bool:
     """
-    Gera PDF usando Chrome headless via --print-to-pdf com URL file://.
-    Sem CDP, sem porta de debug, sem WebSocket, sem servidor HTTP.
-    Chrome lê o arquivo direto do disco e gera o PDF.
+    Gera PDF a partir de HTML usando xhtml2pdf.
+    Sem Chrome, sem navegador, sem porta de debug, sem WebSocket.
+    100% Python puro.
     """
-    global _profile_counter
-
-    browser = find_browser()
-    if not browser:
-        raise RuntimeError("Chrome ou Edge não encontrado nesta máquina.")
+    from xhtml2pdf import pisa
 
     with _pdf_lock:
-        _profile_counter += 1
-        counter = _profile_counter
+        log.info(f"[{job_id}] Gerando PDF via xhtml2pdf...")
 
-    profile_dir = os.path.join(tempfile.gettempdir(), f"stoker_chrome_{counter}")
+        with open(pdf_path, "wb") as pdf_file:
+            pisa_status = pisa.CreatePDF(html_content, dest=pdf_file)
 
-    file_url = "file:///" + html_path.replace("\\", "/")
-
-    try:
-        cmd = [
-            browser,
-            "--headless=old",
-            "--disable-gpu",
-            "--no-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-extensions",
-            "--disable-background-networking",
-            "--disable-default-apps",
-            "--disable-sync",
-            "--disable-translate",
-            "--no-first-run",
-            "--run-all-compositor-stages-before-draw",
-            "--print-to-pdf-no-header",
-            f"--print-to-pdf={pdf_path}",
-            f"--user-data-dir={profile_dir}",
-            file_url,
-        ]
-
-        log.info(f"[{job_id}] Executando Chrome: --print-to-pdf (file://)")
-
-        result = subprocess.run(
-            cmd,
-            timeout=45,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-
-        stderr_text = (result.stderr or b"").decode("utf-8", errors="replace").strip()
-        stdout_text = (result.stdout or b"").decode("utf-8", errors="replace").strip()
-
-        if result.returncode != 0:
-            log.warning(f"[{job_id}] Chrome retornou código {result.returncode}")
-            if stderr_text:
-                log.warning(f"[{job_id}] Chrome stderr: {stderr_text[:500]}")
-            if stdout_text:
-                log.warning(f"[{job_id}] Chrome stdout: {stdout_text[:500]}")
+        if pisa_status.err:
+            raise RuntimeError(f"xhtml2pdf retornou {pisa_status.err} erro(s)")
 
         if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0:
             log.info(f"[{job_id}] PDF gerado com sucesso ({os.path.getsize(pdf_path)} bytes)")
             return True
 
-        detail = f" stderr={stderr_text[:200]}" if stderr_text else ""
-        detail += f" stdout={stdout_text[:200]}" if stdout_text else ""
-        raise RuntimeError(f"Chrome não gerou o PDF (rc={result.returncode}).{detail}")
-
-    finally:
-        import shutil
-        try:
-            if os.path.exists(profile_dir):
-                shutil.rmtree(profile_dir, ignore_errors=True)
-        except Exception:
-            pass
+        raise RuntimeError("xhtml2pdf não gerou o arquivo PDF")
 
 
 # ── Limpeza de arquivos temporários antigos na inicialização ──────────────────
@@ -237,22 +172,17 @@ _cleanup_stale_temp_files()
 # ── Impressão ─────────────────────────────────────────────────────────────────
 
 def print_html(html: str, printer: str, copies: int) -> dict:
-    """Converts HTML to PDF via Chrome CLI (--print-to-pdf), then sends to printer via SumatraPDF."""
+    """Converts HTML to PDF via xhtml2pdf (pure Python), then sends to printer via SumatraPDF."""
     tmp = tempfile.gettempdir()
     job_id = os.urandom(4).hex()
-    html_filename = f"stoker_{job_id}.html"
-    html_path     = os.path.join(tmp, html_filename)
-    pdf_path      = os.path.join(tmp, f"stoker_{job_id}.pdf")
+    pdf_path = os.path.join(tmp, f"stoker_{job_id}.pdf")
 
     try:
-        with open(html_path, "w", encoding="utf-8") as f:
-            f.write(html)
-
-        log.info(f"[{job_id}] Gerando PDF via Chrome CLI para impressora '{printer}' x{copies}")
+        log.info(f"[{job_id}] Gerando PDF via xhtml2pdf para impressora '{printer}' x{copies}")
 
         t_start = time.time()
         try:
-            generate_pdf_via_chrome(html_path, pdf_path, job_id)
+            generate_pdf(html, pdf_path, job_id)
         except Exception as e:
             log.error(f"[{job_id}] Falha ao gerar PDF: {e}")
             return {"success": False, "error": f"Falha ao gerar PDF: {e}"}
@@ -300,12 +230,11 @@ def print_html(html: str, printer: str, copies: int) -> dict:
         log.error(f"[{job_id}] Erro ao imprimir: {e}\n{traceback.format_exc()}")
         return {"success": False, "error": str(e)}
     finally:
-        for p in [html_path, pdf_path]:
-            try:
-                if os.path.exists(p):
-                    os.remove(p)
-            except Exception:
-                pass
+        try:
+            if os.path.exists(pdf_path):
+                os.remove(pdf_path)
+        except Exception:
+            pass
 
 # ── WebSocket Agent ────────────────────────────────────────────────────────────
 
