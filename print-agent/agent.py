@@ -120,13 +120,28 @@ def find_sumatra():
 
 _pdf_lock = threading.Lock()
 
+def _strip_external_fonts(html: str) -> str:
+    """Remove @font-face rules and Google Fonts imports that xhtml2pdf can't handle."""
+    import re
+    html = re.sub(r'@font-face\s*\{[^}]*\}', '', html, flags=re.DOTALL | re.IGNORECASE)
+    html = re.sub(r'@import\s+url\([^)]*fonts[^)]*\)\s*;?', '', html, flags=re.IGNORECASE)
+    html = re.sub(r'<link[^>]*fonts\.googleapis\.com[^>]*/?\s*>', '', html, flags=re.IGNORECASE)
+    html = re.sub(r'<link[^>]*fonts\.gstatic\.com[^>]*/?\s*>', '', html, flags=re.IGNORECASE)
+    return html
+
 def generate_pdf(html_content: str, pdf_path: str, job_id: str) -> bool:
     """
     Gera PDF a partir de HTML usando xhtml2pdf.
     Sem Chrome, sem navegador, sem porta de debug, sem WebSocket.
     100% Python puro.
     """
+    import logging as _logging
+    _logging.getLogger("xhtml2pdf").setLevel(_logging.ERROR)
+    _logging.getLogger("reportlab").setLevel(_logging.ERROR)
+
     from xhtml2pdf import pisa
+
+    html_content = _strip_external_fonts(html_content)
 
     with _pdf_lock:
         log.info(f"[{job_id}] Gerando PDF via xhtml2pdf...")
