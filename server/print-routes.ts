@@ -10,6 +10,9 @@ import { log } from "./log";
 // pdf-to-printer: usa SumatraPDF no Windows — impressão silenciosa sem abrir janela
 import pdfToPrinter from "pdf-to-printer";
 import { getAgentPrinters, isAgentPrinter, parseAgentPrinter, printViaAgent } from "./print-agent";
+import { db } from "./db";
+import { printAgents as printAgentsTable } from "@shared/schema";
+import { eq as eqFn } from "drizzle-orm";
 
 const IS_WIN = process.platform === "win32";
 
@@ -160,25 +163,27 @@ export function registerPrintRoutes(app: Express) {
     let offlineAgentPrinters: Array<{ name: string; isDefault: boolean; status: string; agentName: string; machineId: string; online: boolean }> = [];
     if (companyId) {
       try {
-        const { printAgents: agentsTable } = await import("@shared/schema");
-        const { eq: eqFn } = await import("drizzle-orm");
         const records = await db.select({
-          id: agentsTable.id,
-          name: agentsTable.name,
-          machineId: agentsTable.machineId,
-          printers: agentsTable.printers,
-          active: agentsTable.active,
-        }).from(agentsTable).where(eqFn(agentsTable.companyId, companyId));
+          id: printAgentsTable.id,
+          name: printAgentsTable.name,
+          machineId: printAgentsTable.machineId,
+          printers: printAgentsTable.printers,
+          active: printAgentsTable.active,
+        }).from(printAgentsTable).where(eqFn(printAgentsTable.companyId, companyId));
 
-        const onlineAgentIds = new Set(onlineAgentPrinters.map(p => p.name.split("\\")[0]));
+        // IDs das máquinas dos agentes já representados como online
+        const onlineAgentIds = new Set(onlineAgentPrinters.map(p => p.machineId));
 
         for (const rec of records) {
           if (!rec.active || !rec.printers || !rec.machineId) continue;
-          if (onlineAgentIds.has(rec.machineId)) continue; // já está online
+          if (onlineAgentIds.has(rec.machineId)) continue; // agente online, já incluído
           try {
-            const pList = JSON.parse(rec.printers) as Array<{ name: string }>;
+            const pList = JSON.parse(rec.printers);
+            if (!Array.isArray(pList)) continue;
             for (const p of pList) {
-              const fullName = `${rec.machineId}\\${p.name}`;
+              const printerName = String(p?.name ?? "").trim();
+              if (!printerName) continue;
+              const fullName = `${rec.machineId}\\${printerName}`;
               if (!onlineNames.has(fullName)) {
                 offlineAgentPrinters.push({
                   name: fullName,
@@ -190,9 +195,13 @@ export function registerPrintRoutes(app: Express) {
                 });
               }
             }
-          } catch {}
+          } catch (parseErr: any) {
+            log(`[printers] Erro ao parsear impressoras do agente "${rec.name}": ${parseErr.message}`, "print");
+          }
         }
-      } catch {}
+      } catch (dbErr: any) {
+        log(`[printers] Erro ao buscar agentes offline: ${dbErr.message}`, "print");
+      }
     }
 
     const allPrinters = [

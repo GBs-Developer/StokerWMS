@@ -9,7 +9,7 @@ import type { Server as HttpServer } from "http";
 import crypto from "crypto";
 import { db } from "./db";
 import { printAgents } from "@shared/schema";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { log } from "./log";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -210,6 +210,12 @@ export function setupPrintAgentWS(httpServer: HttpServer): void {
     // vaze para o processo principal, independente do que aconteça.
     ws.on("message", async (data: Buffer) => {
       try {
+        // Limite de tamanho de mensagem: 512 KB para evitar ataques de memória
+        if (data.length > 512 * 1024) {
+          log("[agent] Mensagem muito grande — descartada", "print");
+          return;
+        }
+
         let msg: AgentMessage;
         try {
           msg = JSON.parse(data.toString());
@@ -226,10 +232,13 @@ export function setupPrintAgentWS(httpServer: HttpServer): void {
             const token = String(msg.token ?? "");
             const machineId = String(msg.machineId ?? "").toUpperCase().replace(/[^A-Z0-9_-]/g, "").slice(0, 64);
             const printers: AgentPrinter[] = Array.isArray(msg.printers)
-              ? (msg.printers as any[]).map(p => ({
-                  name: String(p.name ?? p).trim(),
-                  isDefault: Boolean(p.isDefault),
-                })).filter(p => p.name)
+              ? (msg.printers as any[])
+                  .slice(0, 100)
+                  .map(p => ({
+                    name: String(p.name ?? p).trim().slice(0, 200),
+                    isDefault: Boolean(p.isDefault),
+                  }))
+                  .filter(p => p.name)
               : [];
 
             if (!token || !machineId) {
@@ -319,17 +328,23 @@ export function setupPrintAgentWS(httpServer: HttpServer): void {
         // ── Atualização da lista de impressoras ──────────────────────────────
         if (msg.type === "printers_update") {
           const printers: AgentPrinter[] = Array.isArray(msg.printers)
-            ? (msg.printers as any[]).map(p => ({
-                name: String(p.name ?? p).trim(),
-                isDefault: Boolean(p.isDefault),
-              })).filter(p => p.name)
+            ? (msg.printers as any[])
+                .slice(0, 100)
+                .map(p => ({
+                  name: String(p.name ?? p).trim().slice(0, 200),
+                  isDefault: Boolean(p.isDefault),
+                }))
+                .filter(p => p.name)
             : [];
           agent.printers = printers;
-          // Persiste lista de impressoras no banco
-          db.update(printAgents)
-            .set({ printers: JSON.stringify(printers) })
-            .where(eq(printAgents.id, registeredAgentId!))
-            .catch(() => {});
+          // Persiste lista de impressoras no banco (usa referência local para evitar race condition)
+          const agentIdForUpdate = registeredAgentId;
+          if (agentIdForUpdate) {
+            db.update(printAgents)
+              .set({ printers: JSON.stringify(printers) })
+              .where(eq(printAgents.id, agentIdForUpdate))
+              .catch(() => {});
+          }
           log(`[agent] "${agent.name}" atualizou impressoras: ${printers.map(p => p.name).join(", ")}`, "print");
           return;
         }
