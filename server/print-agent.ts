@@ -174,162 +174,179 @@ export function getConnectedAgents(companyId?: number): Array<{
 export function setupPrintAgentWS(httpServer: HttpServer): void {
   const wss = new WebSocketServer({ noServer: true });
 
-  // Upgrade only on /ws/print-agent path
+  // ── Guarda de erros no servidor WSS ───────────────────────────────────────────
+  // Sem este handler, qualquer erro emitido pelo WSS seria uma exceção não capturada
+  // e derrubaria o processo principal do Node.js.
+  wss.on("error", (err) => {
+    log(`[agent] WebSocket server erro (não-fatal): ${err.message}`, "print");
+  });
+
+  // ── Upgrade HTTP → WebSocket (apenas no path correto) ─────────────────────────
   httpServer.on("upgrade", (request, socket, head) => {
     if (request.url !== "/ws/print-agent") return;
+    // Guarda de erro no socket bruto — evita crash por ECONNRESET/EPIPE
+    socket.on("error", (err: Error) => {
+      log(`[agent] Socket upgrade erro: ${err.message}`, "print");
+    });
     wss.handleUpgrade(request, socket as any, head, (ws) => {
       wss.emit("connection", ws, request);
     });
   });
 
+  // ── Conexão de um agente ──────────────────────────────────────────────────────
   wss.on("connection", (ws: WebSocket) => {
     let registeredAgentId: string | null = null;
 
-    // Authentication timeout: agent must register within 10s
+    // Timeout de autenticação: o agente deve se registrar em 10s
     const authTimeout = setTimeout(() => {
       if (!registeredAgentId) {
         log("[agent] Conexão sem autenticação — fechando", "print");
-        ws.close(4001, "authentication timeout");
+        try { ws.close(4001, "authentication timeout"); } catch {}
       }
     }, 10_000);
 
+    // ── Mensagens recebidas do agente ─────────────────────────────────────────
+    // O try/catch externo garante que nenhuma rejeição não capturada
+    // vaze para o processo principal, independente do que aconteça.
     ws.on("message", async (data: Buffer) => {
-      let msg: AgentMessage;
       try {
-        msg = JSON.parse(data.toString());
-      } catch {
-        ws.send(JSON.stringify({ type: "error", message: "JSON inválido" }));
-        return;
-      }
-
-      // ── Register ──────────────────────────────────────────────────────────
-      if (msg.type === "register") {
+        let msg: AgentMessage;
         try {
-          clearTimeout(authTimeout);
+          msg = JSON.parse(data.toString());
+        } catch {
+          try { ws.send(JSON.stringify({ type: "error", message: "JSON inválido" })); } catch {}
+          return;
+        }
 
-          const token = String(msg.token ?? "");
-          const machineId = String(msg.machineId ?? "").toUpperCase().replace(/[^A-Z0-9_-]/g, "").slice(0, 64);
+        // ── Register ────────────────────────────────────────────────────────
+        if (msg.type === "register") {
+          try {
+            clearTimeout(authTimeout);
+
+            const token = String(msg.token ?? "");
+            const machineId = String(msg.machineId ?? "").toUpperCase().replace(/[^A-Z0-9_-]/g, "").slice(0, 64);
+            const printers: AgentPrinter[] = Array.isArray(msg.printers)
+              ? (msg.printers as any[]).map(p => ({
+                  name: String(p.name ?? p).trim(),
+                  isDefault: Boolean(p.isDefault),
+                })).filter(p => p.name)
+              : [];
+
+            if (!token || !machineId) {
+              try { ws.send(JSON.stringify({ type: "register_error", message: "token e machineId obrigatórios" })); } catch {}
+              try { ws.close(4002, "missing fields"); } catch {}
+              return;
+            }
+
+            const tokenHash = hashToken(token);
+
+            const [agentRecord] = await db
+              .select()
+              .from(printAgents)
+              .where(eq(printAgents.tokenHash, tokenHash))
+              .limit(1);
+
+            if (!agentRecord || !agentRecord.active) {
+              log(`[agent] Token inválido de ${machineId}`, "print");
+              try { ws.send(JSON.stringify({ type: "register_error", message: "Token inválido ou agente desativado" })); } catch {}
+              try { ws.close(4003, "invalid token"); } catch {}
+              return;
+            }
+
+            // Desconecta conexão anterior do mesmo agente (reconexão)
+            const existing = agents.get(agentRecord.id);
+            if (existing && existing.ws.readyState === WebSocket.OPEN) {
+              try { existing.ws.close(4004, "nova conexão para mesmo agente"); } catch {}
+            }
+
+            registeredAgentId = agentRecord.id;
+
+            agents.set(agentRecord.id, {
+              ws,
+              agentId: agentRecord.id,
+              companyId: agentRecord.companyId,
+              machineId,
+              name: agentRecord.name,
+              printers,
+              connectedAt: new Date(),
+              lastPing: new Date(),
+            });
+
+            // Atualiza last_seen_at no banco de forma não-bloqueante
+            db.update(printAgents)
+              .set({ lastSeenAt: new Date().toISOString(), machineId })
+              .where(eq(printAgents.id, agentRecord.id))
+              .catch(() => {});
+
+            log(`[agent] "${agentRecord.name}" (${machineId}) conectado — ${printers.length} impressora(s)`, "print");
+
+            try {
+              ws.send(JSON.stringify({
+                type: "registered",
+                agentId: agentRecord.id,
+                name: agentRecord.name,
+                machineId,
+              }));
+            } catch {}
+          } catch (err: any) {
+            log(`[agent] Erro no registro: ${err.message}`, "print");
+            try { ws.send(JSON.stringify({ type: "register_error", message: "Erro interno no servidor" })); } catch {}
+            try { ws.close(4005, "server error"); } catch {}
+          }
+          return;
+        }
+
+        // Mensagens abaixo exigem autenticação prévia
+        if (!registeredAgentId) {
+          try { ws.send(JSON.stringify({ type: "error", message: "não autenticado" })); } catch {}
+          return;
+        }
+
+        const agent = agents.get(registeredAgentId);
+        if (!agent) return;
+
+        // ── Ping / Pong ─────────────────────────────────────────────────────
+        if (msg.type === "ping") {
+          agent.lastPing = new Date();
+          try { ws.send(JSON.stringify({ type: "pong", ts: Date.now() })); } catch {}
+          return;
+        }
+
+        // ── Atualização da lista de impressoras ──────────────────────────────
+        if (msg.type === "printers_update") {
           const printers: AgentPrinter[] = Array.isArray(msg.printers)
             ? (msg.printers as any[]).map(p => ({
                 name: String(p.name ?? p).trim(),
                 isDefault: Boolean(p.isDefault),
               })).filter(p => p.name)
             : [];
-
-          if (!token || !machineId) {
-            ws.send(JSON.stringify({ type: "register_error", message: "token e machineId obrigatórios" }));
-            ws.close(4002, "missing fields");
-            return;
-          }
-
-          const tokenHash = hashToken(token);
-
-          // Lookup agent in DB by token hash
-          const [agentRecord] = await db
-            .select()
-            .from(printAgents)
-            .where(eq(printAgents.tokenHash, tokenHash))
-            .limit(1);
-
-          if (!agentRecord || !agentRecord.active) {
-            log(`[agent] Token inválido de ${machineId}`, "print");
-            ws.send(JSON.stringify({ type: "register_error", message: "Token inválido ou agente desativado" }));
-            ws.close(4003, "invalid token");
-            return;
-          }
-
-          // Disconnect any existing connection for this agent
-          const existing = agents.get(agentRecord.id);
-          if (existing && existing.ws.readyState === WebSocket.OPEN) {
-            existing.ws.close(4004, "nova conexão para mesmo agente");
-          }
-
-          registeredAgentId = agentRecord.id;
-
-          const connected: ConnectedAgent = {
-            ws,
-            agentId: agentRecord.id,
-            companyId: agentRecord.companyId,
-            machineId,
-            name: agentRecord.name,
-            printers,
-            connectedAt: new Date(),
-            lastPing: new Date(),
-          };
-
-          agents.set(agentRecord.id, connected);
-
-          // Update last_seen_at in DB (non-blocking)
-          db.update(printAgents)
-            .set({ lastSeenAt: new Date().toISOString(), machineId })
-            .where(eq(printAgents.id, agentRecord.id))
-            .catch(() => {});
-
-          log(`[agent] "${agentRecord.name}" (${machineId}) conectado — ${printers.length} impressora(s)`, "print");
-
-          ws.send(JSON.stringify({
-            type: "registered",
-            agentId: agentRecord.id,
-            name: agentRecord.name,
-            machineId,
-          }));
-        } catch (err: any) {
-          log(`[agent] Erro no registro: ${err.message}`, "print");
-          ws.send(JSON.stringify({ type: "register_error", message: "Erro interno no servidor" }));
-          ws.close(4005, "server error");
+          agent.printers = printers;
+          log(`[agent] "${agent.name}" atualizou impressoras: ${printers.map(p => p.name).join(", ")}`, "print");
+          return;
         }
-        return;
-      }
 
-      // All messages below require authentication
-      if (!registeredAgentId) {
-        ws.send(JSON.stringify({ type: "error", message: "não autenticado" }));
-        return;
-      }
-
-      const agent = agents.get(registeredAgentId);
-      if (!agent) return;
-
-      // ── Ping / Pong ───────────────────────────────────────────────────────
-      if (msg.type === "ping") {
-        agent.lastPing = new Date();
-        ws.send(JSON.stringify({ type: "pong", ts: Date.now() }));
-        return;
-      }
-
-      // ── Printer list update ───────────────────────────────────────────────
-      if (msg.type === "printers_update") {
-        const printers: AgentPrinter[] = Array.isArray(msg.printers)
-          ? (msg.printers as any[]).map(p => ({
-              name: String(p.name ?? p).trim(),
-              isDefault: Boolean(p.isDefault),
-            })).filter(p => p.name)
-          : [];
-        agent.printers = printers;
-        log(`[agent] "${agent.name}" atualizou impressoras: ${printers.map(p => p.name).join(", ")}`, "print");
-        return;
-      }
-
-      // ── Print result ──────────────────────────────────────────────────────
-      if (msg.type === "print_result") {
-        const jobId = String(msg.jobId ?? "");
-        const pending = pendingJobs.get(jobId);
-        if (pending) {
-          clearTimeout(pending.timeoutId);
-          pendingJobs.delete(jobId);
-          const success = Boolean(msg.success);
-          const error = msg.error ? String(msg.error) : undefined;
-          if (success) {
-            log(`[agent] Job #${jobId} ✓ ${agent.machineId}`, "print");
-          } else {
-            log(`[agent] Job #${jobId} ERRO: ${error}`, "print");
+        // ── Resultado de job de impressão ────────────────────────────────────
+        if (msg.type === "print_result") {
+          const jobId = String(msg.jobId ?? "");
+          const pending = pendingJobs.get(jobId);
+          if (pending) {
+            clearTimeout(pending.timeoutId);
+            pendingJobs.delete(jobId);
+            const success = Boolean(msg.success);
+            const error = msg.error ? String(msg.error) : undefined;
+            log(`[agent] Job #${jobId} ${success ? "✓" : "ERRO: " + error} ${agent.machineId}`, "print");
+            pending.resolve({ success, error });
           }
-          pending.resolve({ success, error });
+          return;
         }
-        return;
+
+      } catch (err: any) {
+        // Guarda final — nunca propaga para o processo
+        log(`[agent] Erro inesperado no handler de mensagem: ${err.message}`, "print");
       }
     });
 
+    // ── Desconexão do agente ───────────────────────────────────────────────────
     ws.on("close", () => {
       clearTimeout(authTimeout);
       if (registeredAgentId) {
@@ -341,9 +358,11 @@ export function setupPrintAgentWS(httpServer: HttpServer): void {
       }
     });
 
+    // ── Erros de socket do agente ─────────────────────────────────────────────
+    // Sem este handler, um ECONNRESET ou EPIPE ao fechar o agente derrubaria
+    // o servidor principal (exceção não capturada no EventEmitter).
     ws.on("error", (err) => {
-      // Never propagate WS errors to main server
-      log(`[agent] WebSocket erro: ${err.message}`, "print");
+      log(`[agent] WebSocket erro (não-fatal): ${err.message}`, "print");
     });
   });
 

@@ -10,6 +10,17 @@ import { sql } from "drizzle-orm";
 import { db } from "./db";
 import { setupPrintAgentWS } from "./print-agent";
 
+// ── Guardas globais contra crashes ────────────────────────────────────────────
+// Impede que erros em subsistemas (ex: agente de impressão WebSocket)
+// derrubem o processo principal do servidor.
+process.on("uncaughtException", (err) => {
+  log(`[server] Exceção não capturada (não-fatal): ${err.message}\n${err.stack ?? ""}`, "express");
+});
+process.on("unhandledRejection", (reason) => {
+  const msg = reason instanceof Error ? reason.message : String(reason);
+  log(`[server] Promise rejeitada não tratada (não-fatal): ${msg}`, "express");
+});
+
 const app = express();
 const httpServer = createServer(app);
 
