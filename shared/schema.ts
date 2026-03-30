@@ -538,6 +538,21 @@ export const insertAddressPickingLogSchema = createInsertSchema(addressPickingLo
 export type AddressPickingLog = typeof addressPickingLog.$inferSelect;
 export type InsertAddressPickingLog = z.infer<typeof insertAddressPickingLogSchema>;
 
+export const printAgents = pgTable("print_agents", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: integer("company_id").notNull(),
+  name: text("name").notNull(),
+  machineId: text("machine_id").notNull(),
+  tokenHash: text("token_hash").notNull(),
+  active: boolean("active").notNull().default(true),
+  createdAt: text("created_at").notNull().default(new Date().toISOString()),
+  lastSeenAt: text("last_seen_at"),
+});
+
+export const insertPrintAgentSchema = createInsertSchema(printAgents).omit({ id: true, createdAt: true, lastSeenAt: true });
+export type PrintAgent = typeof printAgents.$inferSelect;
+export type InsertPrintAgent = z.infer<typeof insertPrintAgentSchema>;
+
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 export type InsertRoute = z.infer<typeof insertRouteSchema>;

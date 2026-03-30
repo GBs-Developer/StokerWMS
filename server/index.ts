@@ -8,6 +8,7 @@ import { createServer } from "http";
 import { seedDatabase } from "./seed";
 import { sql } from "drizzle-orm";
 import { db } from "./db";
+import { setupPrintAgentWS } from "./print-agent";
 
 const app = express();
 const httpServer = createServer(app);
@@ -198,6 +199,16 @@ async function runSafeMigrations() {
 
   // Tabelas que podem não existir em bancos mais antigos
   const tables: string[] = [
+    `CREATE TABLE IF NOT EXISTS print_agents (
+      id text PRIMARY KEY,
+      company_id integer NOT NULL,
+      name text NOT NULL,
+      machine_id text NOT NULL DEFAULT '',
+      token_hash text NOT NULL,
+      active boolean NOT NULL DEFAULT true,
+      created_at text NOT NULL DEFAULT '',
+      last_seen_at text
+    )`,
     `CREATE TABLE IF NOT EXISTS product_addresses (
       id text PRIMARY KEY,
       product_id text NOT NULL REFERENCES products(id) ON DELETE CASCADE,
@@ -250,6 +261,13 @@ async function runSafeMigrations() {
   }
 
   await registerRoutes(httpServer, app);
+
+  // Inicia WebSocket para agentes de impressão (nunca lança exceção)
+  try {
+    setupPrintAgentWS(httpServer);
+  } catch (e: any) {
+    log(`[agent] Falha ao iniciar WebSocket (não crítico): ${e.message}`, "print");
+  }
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

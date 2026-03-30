@@ -6,9 +6,11 @@ import { hashPassword, verifyPassword, createAuthSession, isAuthenticated, requi
 import { loginSchema, insertRouteSchema, orderItems, pickingSessions, pickupPoints, type MappingField, datasetEnum, type User, type OrderItem, type Product, type WorkUnit, type Exception, type PickingSession, type ExceptionType, type ManualQtyRule, type UserSettings, BatchSyncPayload } from "@shared/schema";
 import { registerWmsRoutes } from "./wms-routes";
 import { registerPrintRoutes, refreshPrinterCache } from "./print-routes";
+import { getConnectedAgents } from "./print-agent";
 import { z } from "zod";
 import { exec, spawn } from "child_process";
 import path from "path";
+import crypto from "crypto";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import { setupSSE, broadcastSSE } from "./sse";
@@ -3687,6 +3689,86 @@ export async function registerRoutes(
     } catch (error) {
       log(`KPI operators error: ${(error as Error).message}`, "error");
       res.status(500).json({ error: "Erro ao gerar KPIs" });
+    }
+  });
+
+  // ── Print Agents ──────────────────────────────────────────────────────────
+  app.get("/api/print-agents", isAuthenticated, requireCompany, requireRole("administrador"), async (req: Request, res: Response) => {
+    try {
+      const { printAgents: agentsTable } = await import("@shared/schema");
+      const { eq: eqFn } = await import("drizzle-orm");
+      const companyId = (req as any).companyId as number;
+      const records = await db.select({
+        id: agentsTable.id,
+        name: agentsTable.name,
+        machineId: agentsTable.machineId,
+        active: agentsTable.active,
+        createdAt: agentsTable.createdAt,
+        lastSeenAt: agentsTable.lastSeenAt,
+      }).from(agentsTable).where(eqFn(agentsTable.companyId, companyId));
+      const connected = getConnectedAgents(companyId);
+      const result = records.map(r => ({
+        ...r,
+        online: connected.some(c => c.agentId === r.id),
+        printers: connected.find(c => c.agentId === r.id)?.printers ?? [],
+        lastPing: connected.find(c => c.agentId === r.id)?.lastPing ?? null,
+      }));
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: "Erro ao buscar agentes" });
+    }
+  });
+
+  app.post("/api/print-agents", isAuthenticated, requireCompany, requireRole("administrador"), async (req: Request, res: Response) => {
+    try {
+      const { printAgents: agentsTable } = await import("@shared/schema");
+      const companyId = (req as any).companyId as number;
+      const { name } = req.body as { name: string };
+      if (!name?.trim()) return res.status(400).json({ error: "Nome obrigatório" });
+
+      // Gera token aleatório (64 hex chars) — retornado UMA VEZ ao admin
+      const token = crypto.randomBytes(32).toString("hex");
+      const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
+      const [agent] = await db.insert(agentsTable).values({
+        id: crypto.randomUUID(),
+        companyId,
+        name: name.trim(),
+        machineId: "",
+        tokenHash,
+        active: true,
+        createdAt: new Date().toISOString(),
+      }).returning();
+
+      res.status(201).json({ ...agent, token, tokenHash: undefined });
+    } catch (err: any) {
+      res.status(500).json({ error: "Erro ao criar agente" });
+    }
+  });
+
+  app.delete("/api/print-agents/:id", isAuthenticated, requireCompany, requireRole("administrador"), async (req: Request, res: Response) => {
+    try {
+      const { printAgents: agentsTable } = await import("@shared/schema");
+      const { eq: eqFn, and: andFn } = await import("drizzle-orm");
+      const companyId = (req as any).companyId as number;
+      await db.delete(agentsTable).where(andFn(eqFn(agentsTable.id, req.params.id), eqFn(agentsTable.companyId, companyId)));
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: "Erro ao remover agente" });
+    }
+  });
+
+  app.patch("/api/print-agents/:id/toggle", isAuthenticated, requireCompany, requireRole("administrador"), async (req: Request, res: Response) => {
+    try {
+      const { printAgents: agentsTable } = await import("@shared/schema");
+      const { eq: eqFn, and: andFn } = await import("drizzle-orm");
+      const companyId = (req as any).companyId as number;
+      const [current] = await db.select().from(agentsTable).where(andFn(eqFn(agentsTable.id, req.params.id), eqFn(agentsTable.companyId, companyId))).limit(1);
+      if (!current) return res.status(404).json({ error: "Agente não encontrado" });
+      await db.update(agentsTable).set({ active: !current.active }).where(eqFn(agentsTable.id, req.params.id));
+      res.json({ success: true, active: !current.active });
+    } catch (err: any) {
+      res.status(500).json({ error: "Erro ao atualizar agente" });
     }
   });
 

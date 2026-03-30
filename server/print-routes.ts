@@ -9,6 +9,7 @@ import crypto from "crypto";
 import { log } from "./log";
 // pdf-to-printer: usa SumatraPDF no Windows — impressão silenciosa sem abrir janela
 import pdfToPrinter from "pdf-to-printer";
+import { getAgentPrinters, isAgentPrinter, parseAgentPrinter, printViaAgent } from "./print-agent";
 
 const IS_WIN = process.platform === "win32";
 
@@ -143,18 +144,33 @@ async function resolveUsername(req: Request): Promise<string> {
 }
 
 export function registerPrintRoutes(app: Express) {
-  /** Lista impressoras disponíveis no servidor */
-  app.get("/api/print/printers", isAuthenticated, async (_req: Request, res: Response) => {
-    // Se o cache ainda não foi carregado, tenta carregar agora (primeira vez)
+  /** Lista impressoras disponíveis: locais do servidor + agentes conectados */
+  app.get("/api/print/printers", isAuthenticated, async (req: Request, res: Response) => {
     if (!printerCache) await refreshPrinterCache();
-    const printers = printerCache ?? [];
-    const defaultPrinter = printers.find((p) => p.isDefault)?.name ?? printers[0]?.name ?? null;
-    res.json({ success: true, default_printer: defaultPrinter, printers });
+    const localPrinters = printerCache ?? [];
+    const defaultPrinter = localPrinters.find((p) => p.isDefault)?.name ?? localPrinters[0]?.name ?? null;
+
+    // Inclui impressoras dos agentes conectados da empresa
+    const companyId = (req as any).companyId as number | undefined;
+    const agentPrinters = companyId ? getAgentPrinters(companyId) : [];
+
+    const allPrinters = [
+      ...localPrinters,
+      ...agentPrinters.map(p => ({
+        name: p.name,
+        isDefault: false,
+        status: "agent",
+        agentName: p.agentName,
+        machineId: p.machineId,
+      })),
+    ];
+
+    res.json({ success: true, default_printer: defaultPrinter, printers: allPrinters });
   });
 
-  /** Envia trabalho de impressão direto para a impressora.
-   *  Responde imediatamente (202) e executa o Chrome em background
-   *  para evitar timeout no cliente quando a fila está longa. */
+  /** Envia trabalho de impressão.
+   *  - Impressoras locais: responde 202 e executa Chrome em background.
+   *  - Impressoras de agente (MACHINE\\Printer): roteia via WebSocket. */
   app.post("/api/print/job", isAuthenticated, async (req: Request, res: Response) => {
     const { html, printer, copies = 1 } = req.body as {
       html: string;
@@ -167,11 +183,41 @@ export function registerPrintRoutes(app: Express) {
       return;
     }
 
-    // Responde imediatamente — o cliente não fica esperando o Chrome gerar o PDF
+    const username = await resolveUsername(req);
+
+    // ── Agente remoto ──────────────────────────────────────────────────────
+    if (isAgentPrinter(printer)) {
+      const parsed = parseAgentPrinter(printer);
+      if (!parsed) {
+        res.status(400).json({ success: false, error: "Nome de impressora de agente inválido." });
+        return;
+      }
+
+      const companyId = (req as any).companyId as number;
+      if (!companyId) {
+        res.status(400).json({ success: false, error: "Empresa não identificada." });
+        return;
+      }
+
+      // Responde imediatamente e processa em background
+      res.status(202).json({ success: true, queued: true, agent: parsed.machineId });
+
+      printViaAgent(
+        companyId,
+        parsed.machineId,
+        parsed.printer,
+        html,
+        Math.max(1, Math.min(copies, 99)),
+        username
+      ).catch((err: Error) => {
+        log(`[agent] Erro em background: ${err.message}`, "print");
+      });
+      return;
+    }
+
+    // ── Impressora local do servidor ───────────────────────────────────────
     res.status(202).json({ success: true, queued: true });
 
-    const username = await resolveUsername(req);
-    // Executa em background sem bloquear a resposta HTTP
     printHtmlToPrinter(
       html,
       printer,
