@@ -1169,12 +1169,12 @@ export class DatabaseStorage implements IStorage {
     const factoryCodeMap = new Map<string, string>();
     if (erpCodes.length > 0) {
       const nfRows = await db.select({
-        idProduto: nfItems.idProduto,
-        fabricante: nfItems.fabricante,
-      }).from(nfItems)
+        idProduto: cacheOrcamentos.idProduto,
+        fabricante: cacheOrcamentos.fabricante,
+      }).from(cacheOrcamentos)
         .where(and(
-          inArray(nfItems.idProduto, erpCodes),
-          sql`${nfItems.fabricante} IS NOT NULL AND ${nfItems.fabricante} != ''`
+          inArray(cacheOrcamentos.idProduto, erpCodes),
+          sql`${cacheOrcamentos.fabricante} IS NOT NULL AND ${cacheOrcamentos.fabricante} != ''`
         ));
       for (const row of nfRows) {
         if (row.idProduto && row.fabricante && !factoryCodeMap.has(row.idProduto)) {
