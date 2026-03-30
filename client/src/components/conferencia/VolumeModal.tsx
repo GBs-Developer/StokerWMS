@@ -266,6 +266,12 @@ export function VolumeModal({ open, onClose, defaultErpOrderId }: VolumeModalPro
     ${order.neighborhood ? `<div class="address-line">${esc(order.neighborhood)}</div>` : ""}
     ${cityLine ? `<div class="address-line city-line">${esc(cityLine)}</div>` : ""}
   </div>
+  <div class="pkg-row">
+    <div class="pkg-cell"><div class="pkg-label">SACOLA</div><div class="pkg-val">${counts.sacola}</div></div>
+    <div class="pkg-cell"><div class="pkg-label">CAIXA</div><div class="pkg-val">${counts.caixa}</div></div>
+    <div class="pkg-cell"><div class="pkg-label">SACO</div><div class="pkg-val">${counts.saco}</div></div>
+    <div class="pkg-cell"><div class="pkg-label">AVULSO</div><div class="pkg-val">${counts.avulso}</div></div>
+  </div>
   <div class="volume-center">
     <div class="vol-label">VOLUME</div>
     <div class="vol-num">${volNum}<span class="vol-total"> / ${total}</span></div>
@@ -300,6 +306,9 @@ export function VolumeModal({ open, onClose, defaultErpOrderId }: VolumeModalPro
 .footer-row{display:flex;justify-content:space-between;align-items:flex-start}
 .footer-item{display:flex;flex-direction:column}.footer-right{align-items:flex-end}
 .footer-label{font-size:7.5px;color:#888;text-transform:uppercase}.footer-val{font-size:10px;font-weight:bold;color:#111}
+.pkg-row{display:flex;border-bottom:1px solid #ccc;background:#fafafa}
+.pkg-cell{flex:1;padding:3px 4px;text-align:center;border-right:1px solid #ccc}.pkg-cell:last-child{border-right:0}
+.pkg-label{font-size:7px;color:#888;text-transform:uppercase;letter-spacing:.5px}.pkg-val{font-size:15px;font-weight:900;color:#111}
 .barcode-area{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4px 8px 3px}
 .barcode{font-family:'Libre Barcode 128 Text',monospace;font-size:48px;line-height:1;white-space:nowrap;max-width:100%;overflow:hidden}
 </style>
