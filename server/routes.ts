@@ -1236,13 +1236,16 @@ export async function registerRoutes(
       // Filter: only return work units belonging to launched orders
       let launched = allWorkUnits.filter(wu => wu.order?.isLaunched === true);
 
-      // Apply separation mode filtering for separacao role (handheld picking)
       if (requestingUser?.role === "separacao") {
-        const systemSettingsData = await storage.getSystemSettings();
-        if (systemSettingsData.separationMode === "by_section") {
-          const userSections: string[] = (requestingUser.sections as string[]) || [];
-          // Always filter when in by_section mode; user with no sections sees nothing
+        const userSections: string[] = (requestingUser.sections as string[]) || [];
+        if (userSections.length === 0) {
+          launched = [];
+        } else {
           launched = launched.filter(wu => wu.section != null && userSections.includes(wu.section));
+          launched = launched.map(wu => ({
+            ...wu,
+            items: wu.items.filter(item => userSections.includes(item.section))
+          }));
         }
       }
 

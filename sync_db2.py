@@ -445,8 +445,24 @@ def transform_data(conn_pg):
         else:
             fin_status = "pendente"
 
-        pickup_point_val  = data.get("pickup_point")
-        pickup_points_json = json.dumps([pickup_point_val]) if pickup_point_val else "[]"
+        all_item_pickup_points = set()
+        for item in data["items"]:
+            pp = item.get("IDLOCALRETIRADA")
+            try:
+                pp_int = int(pp) if pp else 0
+                if pp_int > 0:
+                    all_item_pickup_points.add(pp_int)
+            except (ValueError, TypeError):
+                pass
+        if not all_item_pickup_points:
+            pickup_point_val = data.get("pickup_point")
+            try:
+                pp_int = int(pickup_point_val) if pickup_point_val else 0
+                if pp_int > 0:
+                    all_item_pickup_points.add(pp_int)
+            except (ValueError, TypeError):
+                pass
+        pickup_points_json = json.dumps(sorted(all_item_pickup_points)) if all_item_pickup_points else "[]"
 
         first_item = data["items"][0] if data["items"] else {}
         upsert_orders.append((

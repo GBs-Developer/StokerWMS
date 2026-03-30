@@ -703,7 +703,11 @@ export class DatabaseStorage implements IStorage {
         const allItems = itemsByOrder.get(wu.orderId) || [];
         let filteredItems = allItems;
 
-        if (wu.type === "conferencia" || wu.type === "separacao") {
+        if (wu.type === "separacao") {
+          filteredItems = wu.section
+            ? allItems.filter(i => i.section === wu.section)
+            : allItems;
+        } else if (wu.type === "conferencia") {
           filteredItems = allItems;
         } else {
           filteredItems = wu.section
@@ -737,7 +741,11 @@ export class DatabaseStorage implements IStorage {
     const items = await this.getOrderItemsByOrderId(wu.orderId);
     let filteredItems = items;
 
-    if (wu.type === "conferencia" || wu.type === "separacao") {
+    if (wu.type === "separacao") {
+      filteredItems = wu.section
+        ? items.filter(i => i.section === wu.section)
+        : items;
+    } else if (wu.type === "conferencia") {
       filteredItems = items;
     } else {
       filteredItems = wu.section
