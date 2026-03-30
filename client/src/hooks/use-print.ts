@@ -27,23 +27,36 @@ async function loadPrintConfig(): Promise<Record<string, PrintConfig>> {
 }
 
 /**
- * Hook de impressão sem modal.
- * - Busca a impressora configurada para o usuário logado no banco de dados
- * - Botão mostra spinner enquanto a requisição é enviada
- * - Toast de erro se falhar ou se impressora não estiver configurada
+ * Proteção anti-spam: guarda o timestamp da última impressão enviada por tipo.
+ * Intervalo mínimo de 4s por tipo — ignora cliques repetidos silenciosamente.
+ */
+const lastPrintTime: Record<string, number> = {};
+const PRINT_COOLDOWN_MS = 4000;
+
+/**
+ * Hook de impressão sem modal — fire-and-forget verdadeiro.
+ * - O servidor responde imediatamente (202) e processa a impressão em background.
+ * - Cliques repetidos dentro do cooldown são ignorados silenciosamente.
+ * - Erros de rede/timeout não geram toast (o trabalho já chegou ao servidor).
+ * - Somente erros de validação (impressora não configurada) geram toast.
  */
 export function usePrint() {
   const [printing, setPrinting] = useState(false);
   const { toast } = useToast();
 
   async function print(html: string, printType: PrintType) {
+    // Anti-spam: ignora se já foi enviado recentemente para este tipo
+    const now = Date.now();
+    const last = lastPrintTime[printType] ?? 0;
+    if (now - last < PRINT_COOLDOWN_MS) return;
+
     // Busca a config do usuário no banco de dados (cacheada em memória)
     let config: PrintConfig | undefined;
     try {
       const allConfigs = await loadPrintConfig();
       config = allConfigs[printType];
     } catch {
-      // falha ao carregar config
+      // Falha silenciosa ao carregar config — não bloqueia o usuário
     }
 
     if (!config?.printer) {
@@ -55,35 +68,21 @@ export function usePrint() {
       return;
     }
 
+    // Registra o envio ANTES de chamar a API para bloquear spam imediato
+    lastPrintTime[printType] = now;
     setPrinting(true);
 
-    // Fire-and-forget: não bloqueia o botão esperando o Chrome gerar o PDF.
-    // A requisição é enviada; o botão volta ao normal em ~400ms.
-    // Se houver erro, um toast aparece quando o servidor responder.
+    // Fire-and-forget: o servidor responde 202 imediatamente.
+    // Não esperamos o Chrome gerar o PDF — erros de rede são silenciosos.
     apiRequest("POST", "/api/print/job", {
       html,
       printer: config.printer,
       copies: config.copies ?? 1,
-    })
-      .then((res) => res.json())
-      .then((data: { success: boolean; error?: string }) => {
-        if (!data.success) {
-          toast({
-            title: "Erro na impressão",
-            description: data.error ?? "Erro desconhecido.",
-            variant: "destructive",
-          });
-        }
-      })
-      .catch((e: Error) => {
-        toast({
-          title: "Erro na impressão",
-          description: e.message ?? "Erro de conexão com o servidor.",
-          variant: "destructive",
-        });
-      });
+    }).catch(() => {
+      // Ignora erros de rede/timeout — o trabalho já entrou na fila do servidor
+    });
 
-    // Pequeno delay visual para o usuário perceber que clicou
+    // Spinner visual mínimo para feedback do clique
     setTimeout(() => setPrinting(false), 400);
   }
 

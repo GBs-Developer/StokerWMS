@@ -152,7 +152,9 @@ export function registerPrintRoutes(app: Express) {
     res.json({ success: true, default_printer: defaultPrinter, printers });
   });
 
-  /** Envia trabalho de impressão direto para a impressora */
+  /** Envia trabalho de impressão direto para a impressora.
+   *  Responde imediatamente (202) e executa o Chrome em background
+   *  para evitar timeout no cliente quando a fila está longa. */
   app.post("/api/print/job", isAuthenticated, async (req: Request, res: Response) => {
     const { html, printer, copies = 1 } = req.body as {
       html: string;
@@ -165,14 +167,19 @@ export function registerPrintRoutes(app: Express) {
       return;
     }
 
+    // Responde imediatamente — o cliente não fica esperando o Chrome gerar o PDF
+    res.status(202).json({ success: true, queued: true });
+
     const username = await resolveUsername(req);
-    const result = await printHtmlToPrinter(
+    // Executa em background sem bloquear a resposta HTTP
+    printHtmlToPrinter(
       html,
       printer,
       Math.max(1, Math.min(copies, 99)),
       username
-    );
-    res.json(result);
+    ).catch((err: Error) => {
+      console.error("[print] Erro em background:", err.message);
+    });
   });
 
   /** Retorna a config de impressoras do usuário logado */
