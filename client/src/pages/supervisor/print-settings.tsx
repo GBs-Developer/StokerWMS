@@ -13,11 +13,12 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, Printer, RotateCcw, Save, CheckCircle2, User } from "lucide-react";
-import { useLocation } from "wouter";
+import { ArrowLeft, Printer, RotateCcw, Save, CheckCircle2, User, Cpu } from "lucide-react";
+import { Link, useLocation } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { invalidatePrintConfigCache } from "@/hooks/use-print";
 import { PRINT_TYPE_LABELS, PRINT_TYPES, type PrintType } from "@/lib/print-config";
+import { useAuth } from "@/lib/auth";
 
 interface PrinterInfo {
   name: string;
@@ -52,6 +53,8 @@ export default function PrintSettingsPage() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "administrador";
 
   const [selectedUserId, setSelectedUserId] = useState<string>("__none__");
   const [configs, setConfigs] = useState<Record<string, string>>({});
@@ -184,6 +187,24 @@ export default function PrintSettingsPage() {
       </GradientHeader>
 
       <main className="max-w-lg mx-auto px-4 py-5 space-y-4">
+
+        {/* Agentes de impressão — apenas admin */}
+        {isAdmin && (
+          <Link href="/admin/print-agents">
+            <Card className="cursor-pointer hover:border-primary/50 transition-colors group">
+              <CardContent className="p-4 flex items-center gap-4">
+                <div className="rounded-lg bg-primary/10 p-2.5 shrink-0 group-hover:bg-primary/20 transition-colors">
+                  <Cpu className="h-5 w-5 text-primary" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-sm">Agentes de Impressão</p>
+                  <p className="text-xs text-muted-foreground">Mini-servidores nas máquinas com impressoras</p>
+                </div>
+                <ArrowLeft className="h-4 w-4 text-muted-foreground rotate-180 shrink-0" />
+              </CardContent>
+            </Card>
+          </Link>
+        )}
 
         {/* Seletor de usuário */}
         <Card>

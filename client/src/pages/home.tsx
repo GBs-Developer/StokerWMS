@@ -116,7 +116,6 @@ export default function HomePage() {
         { icon: Printer, title: "Impressoras", description: "Configurar impressoras padrão", href: "/supervisor/print-settings" },
         { icon: Trash2, title: "Limpeza de Dados", description: "Resetar dados de teste", href: "/admin/limpeza" },
         { icon: TrendingUp, title: "KPIs de Operadores", description: "Desempenho e produtividade", href: "/admin/kpi-operadores" },
-        { icon: Printer, title: "Agentes de Impressão", description: "Mini-servidores nas máquinas", href: "/admin/print-agents" },
       ],
     },
   ];
@@ -127,7 +126,7 @@ export default function HomePage() {
       "/fila-pedidos", "/supervisor/orders", "/supervisor/routes", "/supervisor/route-orders", "/supervisor/exceptions",
       "/supervisor/users", "/supervisor/manual-qty-rules", "/supervisor/product-addresses", "/supervisor/mapping-studio",
       "/supervisor/reports", "/supervisor/audit", "/admin/permissoes", "/supervisor/separation-settings", "/admin/limpeza",
-      "/supervisor/print-settings", "/admin/kpi-operadores", "/admin/print-agents",
+      "/supervisor/print-settings", "/admin/kpi-operadores",
     ],
     supervisor: [
       "/wms/recebimento", "/wms/checkin", "/wms/transferencia", "/wms/contagem", "/wms/enderecos", "/wms/produtos",
@@ -151,7 +150,7 @@ export default function HomePage() {
     : (roleModuleAccess[userRole] || []);
   // Administradores sempre enxergam módulos administrativos exclusivos,
   // mesmo quando possuem lista de módulos customizada.
-  const adminExclusive = ["/admin/permissoes", "/admin/limpeza", "/supervisor/print-settings", "/admin/kpi-operadores", "/admin/print-agents"];
+  const adminExclusive = ["/admin/permissoes", "/admin/limpeza", "/supervisor/print-settings", "/admin/kpi-operadores"];
   // Supervisores sempre enxergam módulos de supervisão essenciais.
   const supervisorExclusive = ["/admin/kpi-operadores"];
   const allowedHrefs = userRole === "administrador"
