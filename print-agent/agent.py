@@ -25,7 +25,7 @@ import socket
 # ── Logging ────────────────────────────────────────────────────────────────────
 from logging.handlers import RotatingFileHandler
 
-_fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+_fmt = logging.Formatter("%(asctime)s %(message)s")
 _file_handler = RotatingFileHandler(
     "agent.log", maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
 )
@@ -69,8 +69,6 @@ except Exception:
 # Converte http(s):// → ws(s)://
 WS_URL = SERVER_BASE.replace("https://", "wss://").replace("http://", "ws://") + "/ws/print-agent"
 
-log.info(f"Máquina: {MACHINE_ID}")
-log.info(f"Servidor: {WS_URL}")
 
 # ── Printer detection (Windows) ────────────────────────────────────────────────
 
@@ -85,7 +83,6 @@ def get_printers():
             name = p.get("pPrinterName", "")
             if name:
                 printers.append({"name": name, "isDefault": name == default})
-        log.info(f"{len(printers)} impressora(s) encontrada(s)")
     except ImportError:
         log.warning("win32print não disponível — listando sem módulo Windows")
         # Fallback: PowerShell
@@ -144,8 +141,6 @@ def generate_pdf(html_content: str, pdf_path: str, job_id: str) -> bool:
     html_content = _strip_external_fonts(html_content)
 
     with _pdf_lock:
-        log.info(f"[{job_id}] Gerando PDF via xhtml2pdf...")
-
         with open(pdf_path, "wb") as pdf_file:
             pisa_status = pisa.CreatePDF(html_content, dest=pdf_file)
 
@@ -153,7 +148,6 @@ def generate_pdf(html_content: str, pdf_path: str, job_id: str) -> bool:
             raise RuntimeError(f"xhtml2pdf retornou {pisa_status.err} erro(s)")
 
         if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0:
-            log.info(f"[{job_id}] PDF gerado com sucesso ({os.path.getsize(pdf_path)} bytes)")
             return True
 
         raise RuntimeError("xhtml2pdf não gerou o arquivo PDF")
@@ -193,18 +187,12 @@ def print_html(html: str, printer: str, copies: int) -> dict:
     pdf_path = os.path.join(tmp, f"stoker_{job_id}.pdf")
 
     try:
-        log.info(f"[{job_id}] Gerando PDF via xhtml2pdf para impressora '{printer}' x{copies}")
-
         t_start = time.time()
         try:
             generate_pdf(html, pdf_path, job_id)
         except Exception as e:
-            log.error(f"[{job_id}] Falha ao gerar PDF: {e}")
+            log.error(f"[{job_id}] ✗ Falha ao gerar PDF: {e}")
             return {"success": False, "error": f"Falha ao gerar PDF: {e}"}
-
-        pdf_size = os.path.getsize(pdf_path)
-        t_pdf = time.time() - t_start
-        log.info(f"[{job_id}] PDF gerado ({pdf_size} bytes, {t_pdf:.1f}s)")
 
         sumatra = find_sumatra()
         if not sumatra:
@@ -213,7 +201,8 @@ def print_html(html: str, printer: str, copies: int) -> dict:
                 for _ in range(max(1, min(copies, 99))):
                     win32api.ShellExecute(0, "print", pdf_path, f'"{printer}"', ".", 0)
                     time.sleep(0.3)
-                log.info(f"[{job_id}] ✓ Impresso via ShellExecute em '{printer}'")
+                t_total = time.time() - t_start
+                log.info(f"[{job_id}] ✓ '{printer}' x{copies} ({t_total:.1f}s)")
                 return {"success": True}
             except ImportError:
                 return {"success": False, "error": "SumatraPDF não encontrado. Baixe em https://www.sumatrapdfreader.org/"}
@@ -230,19 +219,20 @@ def print_html(html: str, printer: str, copies: int) -> dict:
             if r.returncode != 0:
                 stderr_msg = (r.stderr or b"").decode("utf-8", errors="replace").strip()
                 detail = f" ({stderr_msg[:200]})" if stderr_msg else ""
-                log.error(f"[{job_id}] SumatraPDF falhou na cópia {i+1} (rc={r.returncode}){detail}")
+                log.error(f"[{job_id}] ✗ Falha na impressão cópia {i+1}{detail}")
                 return {"success": False, "error": f"SumatraPDF retornou erro na cópia {i+1}.{detail}"}
             if copies > 1:
                 time.sleep(0.2)
 
         t_total = time.time() - t_start
-        log.info(f"[{job_id}] ✓ Impresso em '{printer}' x{copies} ({t_total:.1f}s total)")
+        log.info(f"[{job_id}] ✓ '{printer}' x{copies} ({t_total:.1f}s)")
         return {"success": True}
 
     except subprocess.TimeoutExpired:
+        log.error(f"[{job_id}] ✗ Timeout (>45s)")
         return {"success": False, "error": "Timeout ao gerar/enviar impressão (>45s)."}
     except Exception as e:
-        log.error(f"[{job_id}] Erro ao imprimir: {e}\n{traceback.format_exc()}")
+        log.error(f"[{job_id}] ✗ {e}")
         return {"success": False, "error": str(e)}
     finally:
         try:
@@ -275,7 +265,6 @@ class PrintAgent:
             log.warning(f"Erro ao enviar mensagem: {e}")
 
     def on_open(self, ws):
-        log.info("Conectado ao servidor. Registrando agente...")
         self._registered = False
         printers = get_printers()
         self.send({
@@ -297,9 +286,8 @@ class PrintAgent:
         if msg_type == "registered":
             self._registered = True
             name = msg.get("name", "?")
-            machine = msg.get("machineId", "?")
-            log.info(f"✓ Registrado como '{name}' (MACHINE_ID={machine})")
-            # Start ping thread
+            log.info(f"✓ Conectado como '{name}'")
+
             if self._ping_thread is None or not self._ping_thread.is_alive():
                 self._ping_thread = threading.Thread(target=self._ping_loop, daemon=True)
                 self._ping_thread.start()
@@ -334,7 +322,8 @@ class PrintAgent:
         except (TypeError, ValueError):
             copies = 1
 
-        log.info(f"Job #{job_id} recebido: impressora='{printer}' copies={copies} user='{user}'")
+        short_printer = printer.split(" ")[0] if len(printer) > 20 else printer
+        log.info(f"[{job_id}] → {short_printer} x{copies} (user={user})")
 
         if not printer or not html:
             self.send({"type": "print_result", "jobId": job_id, "success": False, "error": "Dados incompletos no job."})
@@ -354,16 +343,15 @@ class PrintAgent:
                 self.send({"type": "ping"})
 
     def on_error(self, ws, error):
-        log.warning(f"Erro WebSocket: {error}")
+        log.warning(f"WS erro: {error}")
 
     def on_close(self, ws, code, reason):
         self._registered = False
-        log.info(f"Desconectado do servidor (código={code}, motivo={reason or '—'})")
+        log.info("Desconectado do servidor")
 
     def run_forever(self):
         while self._running:
             try:
-                log.info(f"Conectando a {WS_URL} ...")
                 self._ws = websocket.WebSocketApp(
                     WS_URL,
                     on_open=self.on_open,
@@ -376,27 +364,28 @@ class PrintAgent:
                     import ssl as _ssl
                     ssl_opt = {"cert_reqs": _ssl.CERT_NONE, "check_hostname": False}
                 self._ws.run_forever(
-                    ping_interval=0,  # manual ping
-                    reconnect=0,      # manual reconnect
+                    ping_interval=0,
+                    reconnect=0,
                     sslopt=ssl_opt,
                 )
             except KeyboardInterrupt:
-                log.info("Encerrando agente (Ctrl+C)")
+                log.info("Encerrando...")
                 self._running = False
                 break
             except Exception as e:
-                log.error(f"Erro inesperado: {e}\n{traceback.format_exc()}")
+                log.error(f"Erro: {e}")
 
             if self._running:
                 log.info(f"Reconectando em {RECONNECT_S}s...")
                 time.sleep(RECONNECT_S)
 
 if __name__ == "__main__":
-    log.info("=" * 60)
-    log.info("  Stoker WMS — Print Agent")
-    log.info(f"  Máquina: {MACHINE_ID}")
+    printers = get_printers()
+    printer_names = [p["name"] for p in printers]
+    log.info(f"Stoker WMS Print Agent | {MACHINE_ID} | {len(printers)} impressora(s)")
+    if printer_names:
+        log.info(f"  Impressoras: {', '.join(printer_names)}")
     log.info(f"  Servidor: {WS_URL}")
-    log.info("=" * 60)
     agent = PrintAgent()
     try:
         agent.run_forever()
