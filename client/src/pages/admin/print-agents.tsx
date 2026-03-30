@@ -88,7 +88,7 @@ export default function PrintAgentsPage() {
                         <h1 className="text-3xl font-bold text-white">Agentes de Impressão</h1>
                         <p className="text-white/80">Mini-servidores nas máquinas com impressoras</p>
                     </div>
-                    <Link href="/admin">
+                    <Link href="/">
                         <Button variant="ghost" className="text-white hover:bg-white/10">
                             <ArrowLeft className="h-4 w-4 mr-2" />
                             Voltar

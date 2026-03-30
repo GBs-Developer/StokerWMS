@@ -47,6 +47,7 @@ TOKEN       = cfg.get("agent", "token").strip()
 MACHINE_ID  = cfg.get("agent", "machine_id", fallback="").strip().upper() or socket.gethostname().upper()
 RECONNECT_S = cfg.getint("agent", "reconnect_seconds", fallback=5)
 PING_INTERVAL = cfg.getint("agent", "ping_interval", fallback=20)
+VERIFY_SSL = cfg.getboolean("agent", "verify_ssl", fallback=True)
 
 # Converte http(s):// → ws(s)://
 WS_URL = SERVER_URL.replace("https://", "wss://").replace("http://", "ws://") + "/ws/print-agent"
@@ -300,10 +301,14 @@ class PrintAgent:
                     on_error=self.on_error,
                     on_close=self.on_close,
                 )
+                ssl_opt = {}
+                if WS_URL.startswith("wss://") and not VERIFY_SSL:
+                    import ssl as _ssl
+                    ssl_opt = {"cert_reqs": _ssl.CERT_NONE, "check_hostname": False}
                 self._ws.run_forever(
                     ping_interval=0,  # manual ping
                     reconnect=0,      # manual reconnect
-                    sslopt={"check_hostname": False} if WS_URL.startswith("wss://") else {},
+                    sslopt=ssl_opt,
                 )
             except KeyboardInterrupt:
                 log.info("Encerrando agente (Ctrl+C)")
