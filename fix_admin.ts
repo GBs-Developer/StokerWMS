@@ -9,8 +9,6 @@ async function fixAdmin() {
     const password = '1234';
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    console.log(`Senha '1234' hasheada: ${hashedPassword}`);
-
     const user = db.prepare("SELECT id FROM users WHERE username = 'admin'").get();
 
     if (user) {
