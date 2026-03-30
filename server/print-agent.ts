@@ -272,9 +272,13 @@ export function setupPrintAgentWS(httpServer: HttpServer): void {
               lastPing: new Date(),
             });
 
-            // Atualiza last_seen_at no banco de forma não-bloqueante
+            // Persiste last_seen_at, machineId e lista de impressoras no banco
             db.update(printAgents)
-              .set({ lastSeenAt: new Date().toISOString(), machineId })
+              .set({
+                lastSeenAt: new Date().toISOString(),
+                machineId,
+                printers: JSON.stringify(printers),
+              })
               .where(eq(printAgents.id, agentRecord.id))
               .catch(() => {});
 
@@ -321,6 +325,11 @@ export function setupPrintAgentWS(httpServer: HttpServer): void {
               })).filter(p => p.name)
             : [];
           agent.printers = printers;
+          // Persiste lista de impressoras no banco
+          db.update(printAgents)
+            .set({ printers: JSON.stringify(printers) })
+            .where(eq(printAgents.id, registeredAgentId!))
+            .catch(() => {});
           log(`[agent] "${agent.name}" atualizou impressoras: ${printers.map(p => p.name).join(", ")}`, "print");
           return;
         }

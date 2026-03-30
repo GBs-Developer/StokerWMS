@@ -6,7 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -23,6 +25,10 @@ import { useAuth } from "@/lib/auth";
 interface PrinterInfo {
   name: string;
   isDefault: boolean;
+  status?: string;
+  agentName?: string;
+  machineId?: string;
+  online?: boolean;
 }
 
 interface UserInfo {
@@ -114,6 +120,9 @@ export default function PrintSettingsPage() {
   });
 
   const printers: PrinterInfo[] = printersData?.printers ?? [];
+  const localPrinters = printers.filter(p => !p.status || p.status === "ready");
+  const onlineAgentPrinters = printers.filter(p => p.status === "agent-online");
+  const offlineAgentPrinters = printers.filter(p => p.status === "agent-offline");
   const users: UserInfo[] = Array.isArray(usersData) ? usersData : [];
   const selectedUser = users.find((u) => u.id === selectedUserId);
   const hasPrinters = printers.length > 0;
@@ -299,11 +308,39 @@ export default function PrintSettingsPage() {
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="__none__">Sem padrão</SelectItem>
-                          {printers.map((p) => (
-                            <SelectItem key={p.name} value={p.name}>
-                              {`${p.name}${p.isDefault ? " (padrão do sistema)" : ""}`}
-                            </SelectItem>
-                          ))}
+
+                          {localPrinters.length > 0 && (
+                            <SelectGroup>
+                              <SelectLabel className="text-xs text-muted-foreground">Impressoras do servidor</SelectLabel>
+                              {localPrinters.map((p) => (
+                                <SelectItem key={p.name} value={p.name}>
+                                  {p.name}{p.isDefault ? " (padrão)" : ""}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          )}
+
+                          {onlineAgentPrinters.length > 0 && (
+                            <SelectGroup>
+                              <SelectLabel className="text-xs text-green-600 dark:text-green-400">● Agentes online</SelectLabel>
+                              {onlineAgentPrinters.map((p) => (
+                                <SelectItem key={p.name} value={p.name}>
+                                  {p.agentName}: {p.name.split("\\").pop()}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          )}
+
+                          {offlineAgentPrinters.length > 0 && (
+                            <SelectGroup>
+                              <SelectLabel className="text-xs text-muted-foreground">○ Agentes offline</SelectLabel>
+                              {offlineAgentPrinters.map((p) => (
+                                <SelectItem key={p.name} value={p.name}>
+                                  {p.agentName}: {p.name.split("\\").pop()} (offline)
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          )}
                         </SelectContent>
                       </Select>
                     ) : (

@@ -150,19 +150,62 @@ export function registerPrintRoutes(app: Express) {
     const localPrinters = printerCache ?? [];
     const defaultPrinter = localPrinters.find((p) => p.isDefault)?.name ?? localPrinters[0]?.name ?? null;
 
-    // Inclui impressoras dos agentes conectados da empresa
     const companyId = (req as any).companyId as number | undefined;
-    const agentPrinters = companyId ? getAgentPrinters(companyId) : [];
+
+    // Impressoras de agentes online (em memória)
+    const onlineAgentPrinters = companyId ? getAgentPrinters(companyId) : [];
+    const onlineNames = new Set(onlineAgentPrinters.map(p => p.name));
+
+    // Impressoras de agentes offline (persistidas no banco)
+    let offlineAgentPrinters: Array<{ name: string; isDefault: boolean; status: string; agentName: string; machineId: string; online: boolean }> = [];
+    if (companyId) {
+      try {
+        const { printAgents: agentsTable } = await import("@shared/schema");
+        const { eq: eqFn } = await import("drizzle-orm");
+        const records = await db.select({
+          id: agentsTable.id,
+          name: agentsTable.name,
+          machineId: agentsTable.machineId,
+          printers: agentsTable.printers,
+          active: agentsTable.active,
+        }).from(agentsTable).where(eqFn(agentsTable.companyId, companyId));
+
+        const onlineAgentIds = new Set(onlineAgentPrinters.map(p => p.name.split("\\")[0]));
+
+        for (const rec of records) {
+          if (!rec.active || !rec.printers || !rec.machineId) continue;
+          if (onlineAgentIds.has(rec.machineId)) continue; // já está online
+          try {
+            const pList = JSON.parse(rec.printers) as Array<{ name: string }>;
+            for (const p of pList) {
+              const fullName = `${rec.machineId}\\${p.name}`;
+              if (!onlineNames.has(fullName)) {
+                offlineAgentPrinters.push({
+                  name: fullName,
+                  isDefault: false,
+                  status: "agent-offline",
+                  agentName: rec.name,
+                  machineId: rec.machineId,
+                  online: false,
+                });
+              }
+            }
+          } catch {}
+        }
+      } catch {}
+    }
 
     const allPrinters = [
       ...localPrinters,
-      ...agentPrinters.map(p => ({
+      ...onlineAgentPrinters.map(p => ({
         name: p.name,
         isDefault: false,
-        status: "agent",
+        status: "agent-online",
         agentName: p.agentName,
         machineId: p.machineId,
+        online: true,
       })),
+      ...offlineAgentPrinters,
     ];
 
     res.json({ success: true, default_printer: defaultPrinter, printers: allPrinters });

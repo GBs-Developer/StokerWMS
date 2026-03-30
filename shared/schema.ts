@@ -547,6 +547,7 @@ export const printAgents = pgTable("print_agents", {
   active: boolean("active").notNull().default(true),
   createdAt: text("created_at").notNull().default(new Date().toISOString()),
   lastSeenAt: text("last_seen_at"),
+  printers: text("printers"),
 });
 
 export const insertPrintAgentSchema = createInsertSchema(printAgents).omit({ id: true, createdAt: true, lastSeenAt: true });
