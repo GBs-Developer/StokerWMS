@@ -198,39 +198,7 @@ export default function ProdutosPage() {
                       </div>
                     </div>
 
-                    <div className="shrink-0 text-right space-y-1.5">
-                      <Badge variant="outline" className="font-mono font-bold text-xs px-1.5 py-0.5 bg-primary/5 border-primary/20 text-primary">
-                        {Number(p.totalStock || 0).toLocaleString("pt-BR")} {p.unit}
-                      </Badge>
-                      <div className="flex flex-col items-end gap-0.5 text-[10px]">
-                        <span className="flex items-center gap-1">
-                          <span className="bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 font-bold px-1 rounded text-[9px] leading-[14px]">PALETT</span>
-                          <span className="font-mono font-bold text-violet-600 dark:text-violet-400">{Number(p.palletizedStock || 0).toLocaleString("pt-BR")}</span>
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <span className="bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 font-bold px-1 rounded text-[9px] leading-[14px]">PICK</span>
-                          <span className="font-mono font-bold text-orange-600 dark:text-orange-400">{Number(p.pickingStock || 0).toLocaleString("pt-BR")}</span>
-                        </span>
-                      </div>
-                      {(() => {
-                        const pal = Number(p.palletizedStock || 0);
-                        const pick = Number(p.pickingStock || 0);
-                        const real = Number(p.totalStock || 0);
-                        const diff = (pal + pick) - real;
-                        if (diff !== 0) {
-                          return (
-                            <Badge variant="outline" className={`text-[9px] font-mono font-bold ${
-                              diff > 0
-                                ? "border-red-300 text-red-600 bg-red-50 dark:border-red-700 dark:text-red-400 dark:bg-red-950/30"
-                                : "border-amber-300 text-amber-600 bg-amber-50 dark:border-amber-700 dark:text-amber-400 dark:bg-amber-950/30"
-                            }`} data-testid={`badge-diff-${p.id}`}>
-                              {diff > 0 ? <TrendingUp className="h-2 w-2 mr-0.5" /> : <TrendingDown className="h-2 w-2 mr-0.5" />}
-                              {diff > 0 ? "+" : ""}{diff}
-                            </Badge>
-                          );
-                        }
-                        return null;
-                      })()}
+                    <div className="shrink-0 text-right space-y-1">
                       {p.hasNoAddress && (
                         <Badge variant="outline" className="text-[9px] border-amber-300 text-amber-600 dark:border-amber-700 dark:text-amber-400">
                           <AlertTriangle className="h-2 w-2 mr-0.5" />Sem end.
@@ -239,27 +207,43 @@ export default function ProdutosPage() {
                     </div>
                   </div>
 
+                  {/* Blocos Real / Pallet / Pick */}
                   {(() => {
                     const pal = Number(p.palletizedStock || 0);
                     const pick = Number(p.pickingStock || 0);
                     const real = Number(p.totalStock || 0);
                     const diff = (pal + pick) - real;
-                    if (diff !== 0) {
-                      return (
-                        <div className={`mt-2 px-2.5 py-1.5 rounded-lg text-[10px] font-semibold flex items-center gap-1.5 ${
-                          diff > 0
-                            ? "bg-red-50 dark:bg-red-950/30 border border-red-200/60 dark:border-red-800/40 text-red-700 dark:text-red-400"
-                            : "bg-amber-50 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40 text-amber-700 dark:text-amber-400"
-                        }`}>
-                          <AlertTriangle className="h-3 w-3 shrink-0" />
-                          {diff > 0
-                            ? `Excesso WMS: Real ${real} | PAL ${pal} + PICK ${pick} = ${pal + pick} (+${diff} ${p.unit})`
-                            : `Falta WMS: Real ${real} | PAL ${pal} + PICK ${pick} = ${pal + pick} (${diff} ${p.unit})`
-                          }
+                    return (
+                      <div className="mt-2 space-y-1.5">
+                        <div className="grid grid-cols-3 gap-1.5">
+                          <div className="flex flex-col items-center rounded-lg bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 px-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 leading-none mb-0.5">Real</span>
+                            <span className="font-mono font-bold text-base leading-none text-slate-800 dark:text-slate-100" data-testid={`text-real-${p.id}`}>{real.toLocaleString("pt-BR")}</span>
+                          </div>
+                          <div className="flex flex-col items-center rounded-lg bg-violet-100 dark:bg-violet-900/40 border border-violet-200 dark:border-violet-800 px-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-violet-600 dark:text-violet-400 leading-none mb-0.5">Pallet</span>
+                            <span className="font-mono font-bold text-base leading-none text-violet-700 dark:text-violet-300" data-testid={`text-pallet-${p.id}`}>{pal.toLocaleString("pt-BR")}</span>
+                          </div>
+                          <div className="flex flex-col items-center rounded-lg bg-orange-100 dark:bg-orange-900/40 border border-orange-200 dark:border-orange-800 px-2 py-1.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-orange-600 dark:text-orange-400 leading-none mb-0.5">Pick</span>
+                            <span className="font-mono font-bold text-base leading-none text-orange-700 dark:text-orange-300" data-testid={`text-pick-${p.id}`}>{pick.toLocaleString("pt-BR")}</span>
+                          </div>
                         </div>
-                      );
-                    }
-                    return null;
+                        {diff !== 0 && (
+                          <div className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 ${
+                            diff > 0
+                              ? "bg-red-50 dark:bg-red-950/30 border border-red-200/60 dark:border-red-800/40 text-red-700 dark:text-red-400"
+                              : "bg-amber-50 dark:bg-amber-950/30 border border-amber-200/60 dark:border-amber-800/40 text-amber-700 dark:text-amber-400"
+                          }`} data-testid={`badge-diff-${p.id}`}>
+                            {diff > 0 ? <TrendingUp className="h-3 w-3 shrink-0" /> : <TrendingDown className="h-3 w-3 shrink-0" />}
+                            {diff > 0
+                              ? `Excesso: Real ${real} | PAL ${pal} + PICK ${pick} = ${pal + pick} (+${diff} ${p.unit})`
+                              : `Falta: Real ${real} | PAL ${pal} + PICK ${pick} = ${pal + pick} (${diff} ${p.unit})`
+                            }
+                          </div>
+                        )}
+                      </div>
+                    );
                   })()}
 
                   {p.addresses && p.addresses.length > 0 && (
