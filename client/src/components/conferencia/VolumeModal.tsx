@@ -278,7 +278,6 @@ export function VolumeModal({ open, onClose, defaultErpOrderId }: VolumeModalPro
   </div>
   <div class="barcode-area">
     <div class="barcode">${esc(barcode)}</div>
-    <div class="barcode-num">${esc(barcode)}</div>
   </div>
 </div>`;
         }).join("");
@@ -303,7 +302,6 @@ export function VolumeModal({ open, onClose, defaultErpOrderId }: VolumeModalPro
 .footer-label{font-size:7.5px;color:#888;text-transform:uppercase}.footer-val{font-size:10px;font-weight:bold;color:#111}
 .barcode-area{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4px 8px 3px}
 .barcode{font-family:'Libre Barcode 128 Text',monospace;font-size:48px;line-height:1;white-space:nowrap;max-width:100%;overflow:hidden}
-.barcode-num{font-size:9px;color:#333;letter-spacing:1px;font-family:monospace}
 </style>
 <script>window.onload=function(){window.print();}</script>
 </head><body>${labels}</body></html>`;

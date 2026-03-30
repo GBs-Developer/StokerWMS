@@ -94,7 +94,6 @@ function buildReimpressaoHtml(vol: OrderVolume): string {
 
   <div class="barcode-area">
     <div class="barcode">${e(barcode)}</div>
-    <div class="barcode-num">${e(barcode)}</div>
   </div>
 </div>`;
     }).join("");
@@ -142,7 +141,6 @@ body { font-family: Arial, sans-serif; background: #fff; font-size: 11px; color:
 
 .barcode-area { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 4px 8px 3px; }
 .barcode { font-family: 'Libre Barcode 128 Text', monospace; font-size: 48px; line-height: 1; white-space: nowrap; max-width: 100%; overflow: hidden; }
-.barcode-num { font-size: 9px; color: #333; letter-spacing: 1px; font-family: monospace; }
 </style>
 <script>window.onload = function() { window.print(); }</script>
 </head><body>${labels}</body></html>`;
