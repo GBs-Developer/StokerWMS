@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Loader2, ArrowLeft, PackageOpen, ShoppingBag, Archive, Box, Tag } from "lucide-react";
 import { GradientHeader } from "@/components/ui/gradient-header";
 import { Link } from "wouter";
@@ -20,6 +20,132 @@ interface OrderVolume {
     totalVolumes: number;
     createdAt: string;
     updatedAt: string;
+    customerName?: string;
+    address?: string;
+    addressNumber?: string;
+    neighborhood?: string;
+    city?: string;
+    state?: string;
+    routeCode?: string;
+}
+
+const e = (s?: string | null) => (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+function buildReimpressaoHtml(vol: OrderVolume): string {
+    const createdAt = vol.createdAt
+        ? format(new Date(vol.createdAt), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })
+        : format(new Date(), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR });
+
+    const addressLine = [vol.address, vol.addressNumber ? `nº ${vol.addressNumber}` : ""].filter(Boolean).join(", ");
+    const cityLine = [vol.city, vol.state].filter(Boolean).join(" - ");
+
+    const labels = Array.from({ length: vol.totalVolumes }, (_, i) => {
+        const volNum = i + 1;
+        const barcode = `${vol.erpOrderId}${String(volNum).padStart(3, "0")}`;
+        return `
+<div class="label">
+  <div class="hdr">
+    <div class="hdr-left">
+      <div class="hdr-tag">PEDIDO</div>
+      <div class="hdr-os">${e(vol.erpOrderId)}</div>
+    </div>
+    <div class="hdr-right">
+      <div class="hdr-tag" style="text-align:right">VOLUME</div>
+      <div class="hdr-vol">${volNum}<span class="hdr-vol-total"> / ${vol.totalVolumes}</span></div>
+    </div>
+  </div>
+
+  <div class="two-col">
+    <div class="col-cell">
+      <div class="field-label">ROTA ID</div>
+      <div class="col-val">${e(vol.routeCode) || "—"}</div>
+    </div>
+    <div class="col-cell col-right">
+      <div class="field-label" style="text-align:right">PACOTE ID</div>
+      <div class="col-val" style="text-align:right">${volNum}</div>
+    </div>
+  </div>
+
+  <div class="section customer-section">
+    <div class="field-label">DESTINATÁRIO</div>
+    <div class="customer-name">${e(vol.customerName) || "—"}</div>
+    ${addressLine ? `<div class="address-line">${e(addressLine)}</div>` : ""}
+    ${vol.neighborhood ? `<div class="address-line">${e(vol.neighborhood)}</div>` : ""}
+    ${cityLine ? `<div class="address-line city-line">${e(cityLine)}</div>` : ""}
+  </div>
+
+  <div class="volume-center">
+    <div class="vol-label">VOLUME</div>
+    <div class="vol-num">${volNum}<span class="vol-total"> / ${vol.totalVolumes}</span></div>
+  </div>
+
+  <div class="footer">
+    <div class="footer-row">
+      <div class="footer-item">
+        <span class="footer-label">CONFERIDO POR</span>
+        <span class="footer-val">—</span>
+      </div>
+      <div class="footer-item footer-right">
+        <span class="footer-label">DATA/HORA</span>
+        <span class="footer-val">${e(createdAt)}</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="barcode-area">
+    <div class="barcode">${e(barcode)}</div>
+    <div class="barcode-num">${e(barcode)}</div>
+  </div>
+</div>`;
+    }).join("");
+
+    return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+<link href="https://fonts.googleapis.com/css2?family=Libre+Barcode+128+Text&display=swap" rel="stylesheet">
+<style>
+@page { size: 10cm 15cm; margin: 0; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: Arial, sans-serif; background: #fff; font-size: 11px; color: #000; }
+.label { width: 10cm; height: 15cm; border: 1.5px solid #000; page-break-after: always; display: flex; flex-direction: column; overflow: hidden; }
+.label:last-child { page-break-after: avoid; }
+
+.hdr { background: #111; color: #fff; display: flex; justify-content: space-between; align-items: flex-end; padding: 5px 8px; border-bottom: 2px solid #000; }
+.hdr-left, .hdr-right { display: flex; flex-direction: column; }
+.hdr-right { align-items: flex-end; }
+.hdr-tag { font-size: 8px; color: #aaa; letter-spacing: .5px; text-transform: uppercase; }
+.hdr-os { font-size: 18px; font-weight: bold; line-height: 1; }
+.hdr-vol { font-size: 32px; font-weight: 900; line-height: 1; }
+.hdr-vol-total { font-size: 16px; font-weight: 400; color: #aaa; }
+
+.two-col { display: flex; border-bottom: 1px solid #ccc; }
+.col-cell { flex: 1; padding: 4px 8px; }
+.col-right { border-left: 1px solid #ccc; }
+.field-label { font-size: 7.5px; color: #777; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 1px; }
+.col-val { font-size: 13px; font-weight: bold; }
+
+.section { padding: 5px 8px; border-bottom: 1px solid #ccc; }
+.customer-section { background: #f7faff; }
+.customer-name { font-size: 13px; font-weight: bold; line-height: 1.2; margin-bottom: 2px; }
+.address-line { font-size: 10px; color: #333; line-height: 1.3; }
+.city-line { font-weight: 600; }
+
+.volume-center { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; border-bottom: 1px solid #ccc; padding: 4px; }
+.vol-label { font-size: 9px; color: #777; text-transform: uppercase; letter-spacing: 1px; }
+.vol-num { font-size: 52px; font-weight: 900; line-height: 1; color: #111; }
+.vol-total { font-size: 26px; font-weight: 400; color: #555; }
+
+.footer { padding: 5px 8px; background: #f0f4f8; border-bottom: 1px solid #ccc; }
+.footer-row { display: flex; justify-content: space-between; align-items: flex-start; }
+.footer-item { display: flex; flex-direction: column; }
+.footer-right { align-items: flex-end; }
+.footer-label { font-size: 7.5px; color: #888; text-transform: uppercase; }
+.footer-val { font-size: 10px; font-weight: bold; color: #111; }
+
+.barcode-area { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 4px 8px 3px; }
+.barcode { font-family: 'Libre Barcode 128 Text', monospace; font-size: 48px; line-height: 1; white-space: nowrap; max-width: 100%; overflow: hidden; }
+.barcode-num { font-size: 9px; color: #333; letter-spacing: 1px; font-family: monospace; }
+</style>
+<script>window.onload = function() { window.print(); }</script>
+</head><body>${labels}</body></html>`;
 }
 
 export default function OrderVolumesReport() {
@@ -32,49 +158,7 @@ export default function OrderVolumesReport() {
 
     const handlePrint = (vol: OrderVolume) => {
         setPrintingId(vol.id);
-        const now = format(new Date(), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR });
-        const createdAt = vol.createdAt
-            ? format(new Date(vol.createdAt), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })
-            : now;
-
-        const labels: string[] = [];
-        for (let i = 1; i <= vol.totalVolumes; i++) {
-            labels.push(`
-        <div class="label">
-          <div class="title">STOKER WMS</div>
-          <div class="row"><span class="label-key">Pedido:</span> <span class="value mono">${vol.erpOrderId}</span></div>
-          <hr/>
-          <div class="row small"><span class="label-key">🛍 Sacola:</span> ${vol.sacola} &nbsp;|&nbsp; <span class="label-key">📦 Caixa:</span> ${vol.caixa}</div>
-          <div class="row small"><span class="label-key">🎒 Saco:</span>  ${vol.saco}  &nbsp;|&nbsp; <span class="label-key">📋 Avulso:</span> ${vol.avulso}</div>
-          <hr/>
-          <div class="volume-number">${i}/${vol.totalVolumes}</div>
-          <hr/>
-          <div class="row small">Gerado em: ${createdAt}</div>
-        </div>
-        ${i < vol.totalVolumes ? '<div class="page-break"></div>' : ""}
-      `);
-        }
-
-        const html = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>Etiquetas Volume - Ped. ${vol.erpOrderId}</title>
-<style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: Arial, sans-serif; font-size: 11px; }
-.label { width: 100mm; height: 150mm; padding: 6mm; display: flex; flex-direction: column; justify-content: space-between; border: 1px dashed #999; page-break-inside: avoid; }
-.title { font-size: 14px; font-weight: bold; text-align: center; letter-spacing: 1px; }
-.row { display: flex; gap: 6px; align-items: center; font-size: 11px; }
-.small { font-size: 10px; color: #333; }
-.label-key { font-weight: bold; }
-.value { font-size: 12px; }
-.mono { font-family: monospace; font-weight: bold; font-size: 13px; }
-.volume-number { text-align: center; font-size: 40px; font-weight: 900; letter-spacing: 2px; color: #111; }
-hr { border: none; border-top: 1px solid #ccc; margin: 2mm 0; }
-.page-break { page-break-after: always; }
-@media print { @page { size: 100mm 150mm; margin: 0; } .page-break { display: block; } }
-</style>
-<script>window.onload = function() { window.print(); }</script>
-</head><body>${labels.join("")}</body></html>`;
-
+        const html = buildReimpressaoHtml(vol);
         const win = window.open("", "_blank");
         if (win) {
             win.document.write(html);
@@ -130,7 +214,15 @@ hr { border: none; border-top: 1px solid #ccc; margin: 2mm 0; }
                                                 <span className="px-2 py-0.5 bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-300 rounded text-xs font-semibold">
                                                     {vol.totalVolumes} vol
                                                 </span>
+                                                {vol.routeCode && (
+                                                    <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded text-xs">
+                                                        Rota {vol.routeCode}
+                                                    </span>
+                                                )}
                                             </div>
+                                            {vol.customerName && (
+                                                <div className="text-sm font-medium text-foreground">{vol.customerName}</div>
+                                            )}
                                             <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
                                                 {vol.sacola > 0 && <span><ShoppingBag className="inline h-3 w-3 mr-0.5" />Sacola: {vol.sacola}</span>}
                                                 {vol.caixa > 0 && <span><Box className="inline h-3 w-3 mr-0.5" />Caixa: {vol.caixa}</span>}
@@ -144,6 +236,7 @@ hr { border: none; border-top: 1px solid #ccc; margin: 2mm 0; }
                                             className="bg-orange-600 hover:bg-orange-700 text-white shrink-0"
                                             onClick={() => handlePrint(vol)}
                                             disabled={printingId === vol.id}
+                                            data-testid={`btn-reprint-${vol.id}`}
                                         >
                                             {printingId === vol.id
                                                 ? <Loader2 className="h-4 w-4 mr-2 animate-spin" />

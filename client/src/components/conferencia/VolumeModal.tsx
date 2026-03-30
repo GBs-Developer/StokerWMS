@@ -31,6 +31,18 @@ interface OrderRow {
     customerName: string;
     status: string;
     createdAt: string;
+    address?: string;
+    addressNumber?: string;
+    neighborhood?: string;
+    city?: string;
+    state?: string;
+    routeId?: string;
+}
+
+interface RouteRow {
+    id: string;
+    code: string;
+    name: string;
 }
 
 interface OrderVolume {
@@ -120,6 +132,14 @@ export function VolumeModal({ open, onClose, defaultErpOrderId }: VolumeModalPro
         queryKey: [`/api/order-volumes/${order?.id}`],
         enabled: !!order?.id && screen === "form",
     });
+
+    const { data: routesList } = useQuery<RouteRow[]>({
+        queryKey: ["/api/routes"],
+    });
+
+    const routeCode = order?.routeId
+        ? (routesList?.find(r => r.id === order.routeId)?.code ?? null)
+        : null;
 
     useEffect(() => {
         if (savedVolume) {
@@ -220,41 +240,72 @@ export function VolumeModal({ open, onClose, defaultErpOrderId }: VolumeModalPro
     const buildVolumesHtml = (): string => {
         if (total === 0 || !order) return "";
         const op  = user?.name || user?.username || "—";
-        const dStr = new Date().toLocaleDateString("pt-BR");
-        const tStr = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-        const pack = [
-            counts.sacola > 0 ? `${counts.sacola} Sacola${counts.sacola > 1 ? "s" : ""}` : "",
-            counts.caixa  > 0 ? `${counts.caixa} Cx`  : "",
-            counts.saco   > 0 ? `${counts.saco} Saco${counts.saco > 1 ? "s" : ""}` : "",
-            counts.avulso > 0 ? `${counts.avulso} Avul.` : "",
-        ].filter(Boolean).join(" | ");
-        const e = (s: string) => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-        const labels = Array.from({ length: total }, (_, i) => `
+        const now = new Date();
+        const dStr = now.toLocaleDateString("pt-BR");
+        const tStr = now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+        const esc = (s?: string | null) => (s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+        const addressLine = [order.address, order.addressNumber ? `nº ${order.addressNumber}` : ""].filter(Boolean).join(", ");
+        const cityLine = [order.city, order.state].filter(Boolean).join(" - ");
+        const labels = Array.from({ length: total }, (_, i) => {
+            const volNum = i + 1;
+            const barcode = `${order.erpOrderId}${String(volNum).padStart(3, "0")}`;
+            return `
 <div class="label">
   <div class="hdr">
-    <div class="hdr-left"><div class="hdr-tag">PEDIDO</div><div class="hdr-os">${e(order.erpOrderId)}</div></div>
-    <div class="hdr-right"><div class="hdr-tag" style="text-align:right">VOLUME</div><div class="hdr-vol">${i+1}<span class="hdr-vol-total"> / ${total}</span></div></div>
+    <div class="hdr-left"><div class="hdr-tag">PEDIDO</div><div class="hdr-os">${esc(order.erpOrderId)}</div></div>
+    <div class="hdr-right"><div class="hdr-tag" style="text-align:right">VOLUME</div><div class="hdr-vol">${volNum}<span class="hdr-vol-total"> / ${total}</span></div></div>
+  </div>
+  <div class="two-col">
+    <div class="col-cell"><div class="field-label">ROTA ID</div><div class="col-val">${esc(routeCode) || "—"}</div></div>
+    <div class="col-cell col-right"><div class="field-label" style="text-align:right">PACOTE ID</div><div class="col-val" style="text-align:right">${volNum}</div></div>
   </div>
   <div class="section customer-section">
     <div class="field-label">DESTINATÁRIO</div>
-    <div class="customer-name">${e(order.customerName || "—")}</div>
+    <div class="customer-name">${esc(order.customerName || "—")}</div>
+    ${addressLine ? `<div class="address-line">${esc(addressLine)}</div>` : ""}
+    ${order.neighborhood ? `<div class="address-line">${esc(order.neighborhood)}</div>` : ""}
+    ${cityLine ? `<div class="address-line city-line">${esc(cityLine)}</div>` : ""}
   </div>
-  ${pack ? `<div class="section pack-section"><div class="field-label">EMBALAGENS</div><div class="pack-detail">${e(pack)}</div></div>` : ""}
-  <div class="barcode-area">
-    <div class="barcode">${e(order.erpOrderId)}</div>
-    <div class="barcode-num">${e(order.erpOrderId)}</div>
+  <div class="volume-center">
+    <div class="vol-label">VOLUME</div>
+    <div class="vol-num">${volNum}<span class="vol-total"> / ${total}</span></div>
   </div>
   <div class="footer">
     <div class="footer-row">
-      <div class="footer-item"><span class="footer-label">Conf.</span><span class="footer-val">${e(op)}</span></div>
-      <div class="footer-item footer-right"><span class="footer-label">Data</span><span class="footer-val">${e(dStr)} ${e(tStr)}</span></div>
+      <div class="footer-item"><span class="footer-label">CONFERIDO POR</span><span class="footer-val">${esc(op)}</span></div>
+      <div class="footer-item footer-right"><span class="footer-label">DATA/HORA</span><span class="footer-val">${esc(dStr)} ${esc(tStr)}</span></div>
     </div>
-    <div class="pedido-row"><span class="pedido-label">PEDIDO&nbsp;</span><span class="pedido-num">${e(order.erpOrderId)}</span></div>
   </div>
-</div>`).join("");
+  <div class="barcode-area">
+    <div class="barcode">${esc(barcode)}</div>
+    <div class="barcode-num">${esc(barcode)}</div>
+  </div>
+</div>`;
+        }).join("");
         return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
 <link href="https://fonts.googleapis.com/css2?family=Libre+Barcode+128+Text&display=swap" rel="stylesheet">
-<style>@page{size:10cm 15cm;margin:0}*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;background:#fff;font-size:11px;color:#000}.label{width:10cm;height:15cm;border:1.5px solid #000;page-break-after:always;display:flex;flex-direction:column;overflow:hidden}.label:last-child{page-break-after:avoid}.hdr{background:#162d4a;color:#fff;display:flex;justify-content:space-between;align-items:flex-end;padding:5px 8px;border-bottom:2px solid #000}.hdr-left,.hdr-right{display:flex;flex-direction:column}.hdr-right{align-items:flex-end}.hdr-tag{font-size:8px;color:#aac6e8;letter-spacing:.5px;text-transform:uppercase}.hdr-os{font-size:18px;font-weight:bold;line-height:1}.hdr-vol{font-size:36px;font-weight:900;line-height:1}.hdr-vol-total{font-size:18px;font-weight:400;color:#aac6e8}.section{padding:5px 8px;border-bottom:1px solid #ccc}.field-label{font-size:7.5px;color:#777;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px}.customer-section{background:#f7faff}.customer-name{font-size:14px;font-weight:bold;line-height:1.2}.pack-section{background:#fffbe6}.pack-detail{font-size:11px;font-weight:600;color:#555}.barcode-area{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:6px 8px 2px;border-bottom:1px solid #ccc}.barcode{font-family:'Libre Barcode 128 Text',monospace;font-size:56px;line-height:1;letter-spacing:0;white-space:nowrap;max-width:100%;overflow:hidden}.barcode-num{font-size:9px;color:#333;margin-top:1px;letter-spacing:1px;font-family:monospace}.footer{padding:5px 8px 4px;background:#f0f4f8}.footer-row{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:1px dashed #bbb;padding-bottom:4px;margin-bottom:4px}.footer-item{display:flex;flex-direction:column}.footer-right{align-items:flex-end}.footer-label{font-size:7.5px;color:#888;text-transform:uppercase}.footer-val{font-size:10px;font-weight:bold;color:#111}.pedido-row{display:flex;align-items:baseline}.pedido-label{font-size:10px;color:#555;font-weight:600}.pedido-num{font-size:20px;font-weight:900;color:#000;letter-spacing:.5px}</style>
+<style>
+@page{size:10cm 15cm;margin:0}*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;background:#fff;font-size:11px;color:#000}
+.label{width:10cm;height:15cm;border:1.5px solid #000;page-break-after:always;display:flex;flex-direction:column;overflow:hidden}.label:last-child{page-break-after:avoid}
+.hdr{background:#111;color:#fff;display:flex;justify-content:space-between;align-items:flex-end;padding:5px 8px;border-bottom:2px solid #000}
+.hdr-left,.hdr-right{display:flex;flex-direction:column}.hdr-right{align-items:flex-end}
+.hdr-tag{font-size:8px;color:#aaa;letter-spacing:.5px;text-transform:uppercase}.hdr-os{font-size:18px;font-weight:bold;line-height:1}
+.hdr-vol{font-size:32px;font-weight:900;line-height:1}.hdr-vol-total{font-size:16px;font-weight:400;color:#aaa}
+.two-col{display:flex;border-bottom:1px solid #ccc}.col-cell{flex:1;padding:4px 8px}.col-right{border-left:1px solid #ccc}
+.field-label{font-size:7.5px;color:#777;text-transform:uppercase;letter-spacing:.5px;margin-bottom:1px}.col-val{font-size:13px;font-weight:bold}
+.section{padding:5px 8px;border-bottom:1px solid #ccc}.customer-section{background:#f7faff}
+.customer-name{font-size:13px;font-weight:bold;line-height:1.2;margin-bottom:2px}.address-line{font-size:10px;color:#333;line-height:1.3}.city-line{font-weight:600}
+.volume-center{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;border-bottom:1px solid #ccc;padding:4px}
+.vol-label{font-size:9px;color:#777;text-transform:uppercase;letter-spacing:1px}.vol-num{font-size:52px;font-weight:900;line-height:1;color:#111}.vol-total{font-size:26px;font-weight:400;color:#555}
+.footer{padding:5px 8px;background:#f0f4f8;border-bottom:1px solid #ccc}
+.footer-row{display:flex;justify-content:space-between;align-items:flex-start}
+.footer-item{display:flex;flex-direction:column}.footer-right{align-items:flex-end}
+.footer-label{font-size:7.5px;color:#888;text-transform:uppercase}.footer-val{font-size:10px;font-weight:bold;color:#111}
+.barcode-area{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4px 8px 3px}
+.barcode{font-family:'Libre Barcode 128 Text',monospace;font-size:48px;line-height:1;white-space:nowrap;max-width:100%;overflow:hidden}
+.barcode-num{font-size:9px;color:#333;letter-spacing:1px;font-family:monospace}
+</style>
+<script>window.onload=function(){window.print();}</script>
 </head><body>${labels}</body></html>`;
     };
 

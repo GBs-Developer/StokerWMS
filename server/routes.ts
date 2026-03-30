@@ -3023,11 +3023,38 @@ export async function registerRoutes(
   });
 
   // ── Order Volumes ─────────────────────────────────────────────────────
-  // GET /api/order-volumes — lista todos (supervisor/admin)
+  // GET /api/order-volumes — lista todos com dados do pedido e rota (supervisor/admin)
   app.get("/api/order-volumes", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
-      const volumes = await storage.getAllOrderVolumes();
-      res.json(volumes);
+      const { db: database } = await import("./db");
+      const { sql: rawSql } = await import("drizzle-orm");
+      const companyId = (req as any).companyId;
+      const rows = await database.execute(rawSql`
+        SELECT
+          ov.id,
+          ov.order_id   AS "orderId",
+          ov.erp_order_id AS "erpOrderId",
+          ov.sacola,
+          ov.caixa,
+          ov.saco,
+          ov.avulso,
+          ov.total_volumes AS "totalVolumes",
+          ov.created_at  AS "createdAt",
+          ov.updated_at  AS "updatedAt",
+          o.customer_name   AS "customerName",
+          o.address,
+          o.address_number  AS "addressNumber",
+          o.neighborhood,
+          o.city,
+          o.state,
+          r.code AS "routeCode"
+        FROM order_volumes ov
+        LEFT JOIN orders o ON o.id = ov.order_id
+        LEFT JOIN routes r ON r.id = o.route_id
+        WHERE o.company_id = ${companyId}
+        ORDER BY ov.created_at DESC
+      `);
+      res.json(rows.rows);
     } catch (error) {
       console.error("Get all volumes error:", error);
       res.status(500).json({ error: "Erro ao buscar volumes" });
