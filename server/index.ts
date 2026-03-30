@@ -198,6 +198,21 @@ async function runSafeMigrations() {
     { table: "wms_addresses", column: "description",  type: "text" },
     // print_agents — coluna adicionada para persistir lista de impressoras entre reinicializações
     { table: "print_agents", column: "printers", type: "text" },
+    // orders — suporte multi-empresa e status financeiro
+    { table: "orders", column: "financial_status", type: "text DEFAULT 'pendente'" },
+    { table: "orders", column: "company_id",       type: "integer" },
+    // work_units — suporte multi-empresa
+    { table: "work_units", column: "company_id", type: "integer" },
+    // exceptions — campos de autorização adicionados como feature
+    { table: "exceptions", column: "authorized_by",      type: "text" },
+    { table: "exceptions", column: "authorized_by_name", type: "text" },
+    { table: "exceptions", column: "authorized_at",      type: "text" },
+    // sessions — suporte multi-empresa
+    { table: "sessions", column: "company_id", type: "integer" },
+    // companies — CNPJ
+    { table: "companies", column: "cnpj", type: "text" },
+    // pickup_points — flag de ativo/inativo
+    { table: "pickup_points", column: "active", type: "boolean DEFAULT true" },
   ];
 
   for (const m of migrations) {
@@ -251,6 +266,35 @@ async function runSafeMigrations() {
       user_name text,
       created_at text NOT NULL DEFAULT '',
       notes text
+    )`,
+    // Tabelas de features adicionadas após o deploy inicial
+    `CREATE TABLE IF NOT EXISTS order_volumes (
+      id text PRIMARY KEY,
+      order_id text NOT NULL,
+      erp_order_id text NOT NULL,
+      sacola integer NOT NULL DEFAULT 0,
+      caixa integer NOT NULL DEFAULT 0,
+      saco integer NOT NULL DEFAULT 0,
+      avulso integer NOT NULL DEFAULT 0,
+      total_volumes integer NOT NULL DEFAULT 0,
+      created_by text,
+      created_at text NOT NULL DEFAULT '',
+      updated_at text NOT NULL DEFAULT ''
+    )`,
+    `CREATE TABLE IF NOT EXISTS system_settings (
+      id text PRIMARY KEY DEFAULT 'global',
+      separation_mode text NOT NULL DEFAULT 'by_order',
+      updated_at text NOT NULL DEFAULT '',
+      updated_by text
+    )`,
+    `CREATE TABLE IF NOT EXISTS manual_qty_rules (
+      id text PRIMARY KEY,
+      rule_type text NOT NULL,
+      value text NOT NULL,
+      description text,
+      active boolean NOT NULL DEFAULT true,
+      created_by text,
+      created_at text NOT NULL DEFAULT ''
     )`,
   ];
 
