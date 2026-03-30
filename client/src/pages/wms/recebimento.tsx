@@ -39,6 +39,38 @@ interface PalletItemDraft {
 
 type ActiveTab = "scan" | "nf";
 
+const DRAFT_KEY = (cid: number) => `pallet_draft_${cid}`;
+
+interface PalletDraft {
+  items: PalletItemDraft[];
+  lotInput: string;
+  expiryInput: string;
+  nfData: any | null;
+  savedAt: string;
+}
+
+function loadDraft(companyId: number): PalletDraft | null {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY(companyId));
+    if (!raw) return null;
+    return JSON.parse(raw) as PalletDraft;
+  } catch {
+    return null;
+  }
+}
+
+function saveDraft(companyId: number, draft: PalletDraft) {
+  try {
+    localStorage.setItem(DRAFT_KEY(companyId), JSON.stringify(draft));
+  } catch {}
+}
+
+function clearDraft(companyId: number) {
+  try {
+    localStorage.removeItem(DRAFT_KEY(companyId));
+  } catch {}
+}
+
 export default function RecebimentoPage() {
   const [, navigate] = useLocation();
   const { user, companyId, companiesData } = useAuth();
@@ -55,6 +87,7 @@ export default function RecebimentoPage() {
   const [scanError, setScanError] = useState("");
   const [showItemList, setShowItemList] = useState(true);
   const [keyboardEnabled, setKeyboardEnabled] = useState(false);
+  const [draftRestoredAt, setDraftRestoredAt] = useState<string | null>(null);
 
   const [nfSearch, setNfSearch] = useState("");
   const [nfData, setNfData] = useState<any>(null);
@@ -77,6 +110,47 @@ export default function RecebimentoPage() {
   const [cancelPalletTarget, setCancelPalletTarget] = useState<any>(null);
 
   const scanInputRef = useRef<HTMLInputElement>(null);
+  const draftLoadedRef = useRef(false);
+
+  // ── Restaurar rascunho ao carregar (uma única vez por sessão) ─────────
+  useEffect(() => {
+    if (!companyId || draftLoadedRef.current) return;
+    draftLoadedRef.current = true;
+    const draft = loadDraft(companyId);
+    if (draft && draft.items.length > 0) {
+      setPalletItems(draft.items);
+      setLotInput(draft.lotInput || "");
+      setExpiryInput(draft.expiryInput || "");
+      if (draft.nfData) setNfData(draft.nfData);
+      setDraftRestoredAt(draft.savedAt);
+      toast({
+        title: `Rascunho recuperado — ${draft.items.length} item(ns)`,
+        description: "Seus itens foram restaurados automaticamente.",
+      });
+    }
+  }, [companyId]);
+
+  // ── Salvar rascunho automaticamente a cada alteração ─────────────────
+  useEffect(() => {
+    if (!companyId) return;
+    saveDraft(companyId, {
+      items: palletItems,
+      lotInput,
+      expiryInput,
+      nfData,
+      savedAt: new Date().toISOString(),
+    });
+  }, [companyId, palletItems, lotInput, expiryInput, nfData]);
+
+  const discardDraft = () => {
+    if (!companyId) return;
+    clearDraft(companyId);
+    setPalletItems([]);
+    setLotInput("");
+    setExpiryInput("");
+    setNfData(null);
+    setDraftRestoredAt(null);
+  };
 
   useEffect(() => {
     if (activeTab === "scan" && keyboardEnabled) {
@@ -297,9 +371,13 @@ export default function RecebimentoPage() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["pallets"] });
+      if (companyId) clearDraft(companyId);
       setPalletItems([]);
       setNfData(null);
+      setLotInput("");
+      setExpiryInput("");
       setLastScanned(null);
+      setDraftRestoredAt(null);
       setShowCreateConfirm(false);
       toast({ title: "Pallet criado!", description: `Codigo: ${data.code}` });
       fetchLabel(data.id);
@@ -675,18 +753,35 @@ export default function RecebimentoPage() {
 
         <div className="rounded-2xl border border-border/50 bg-card overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border/30">
-            <div className="flex items-center gap-2">
-              <Package className="h-4 w-4 text-primary" />
+            <div className="flex items-center gap-2 min-w-0">
+              <Package className="h-4 w-4 text-primary shrink-0" />
               <span className="text-sm font-semibold">Itens do Pallet</span>
               {palletItems.length > 0 && (
-                <Badge variant="secondary" className="text-[10px] font-bold h-5 px-1.5">{palletItems.length}p · {totalItems}un</Badge>
+                <Badge variant="secondary" className="text-[10px] font-bold h-5 px-1.5 shrink-0">{palletItems.length}p · {totalItems}un</Badge>
+              )}
+              {palletItems.length > 0 && (
+                <span className="text-[10px] text-muted-foreground hidden sm:inline truncate">· rascunho salvo</span>
               )}
             </div>
-            {palletItems.length > 0 && (
-              <button onClick={() => setShowItemList(!showItemList)} className="text-muted-foreground/50" data-testid="button-toggle-items">
-                {showItemList ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-              </button>
-            )}
+            <div className="flex items-center gap-1 shrink-0">
+              {palletItems.length > 0 && (
+                <button
+                  onClick={() => {
+                    if (confirm("Limpar todos os itens do rascunho?")) discardDraft();
+                  }}
+                  className="text-red-400 hover:text-red-600 p-1 rounded"
+                  title="Limpar rascunho"
+                  data-testid="button-discard-draft"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+              {palletItems.length > 0 && (
+                <button onClick={() => setShowItemList(!showItemList)} className="text-muted-foreground/50 p-1" data-testid="button-toggle-items">
+                  {showItemList ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                </button>
+              )}
+            </div>
           </div>
 
           {palletItems.length === 0 ? (
