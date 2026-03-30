@@ -827,10 +827,42 @@ export default function ConferenciaPage() {
             setScanStatus("warning");
             setScanMessage("Produto não encontrado neste pedido");
           }
-        } catch {
-          usePendingDeltaStore.getState().dec("conferencia", matchedItem.id, multiplier);
-          setScanStatus("error");
-          setScanMessage("Erro ao processar leitura");
+        } catch (scanErr) {
+          console.warn("[conferencia] Falha ao processar bipe, tentando novamente...", scanErr);
+          await new Promise(r => setTimeout(r, 400));
+          try {
+            const res2 = await apiRequest("POST", `/api/work-units/${finalUnit.id}/check-item`, { barcode });
+            const result2 = await res2.json();
+            if (result2.status === "over_quantity_with_exception" || result2.status === "over_quantity") {
+              usePendingDeltaStore.getState().dec("conferencia", matchedItem.id, multiplier);
+              usePendingDeltaStore.getState().clearItem("conferencia", matchedItem.id);
+              usePendingDeltaStore.getState().resetBaseline("conferencia", matchedItem.id);
+              const targetQty = Number(matchedItem.quantity) - Number(matchedItem.exceptionQty ?? 0);
+              setOverQtyContext({
+                productName: matchedItem.product.name,
+                itemIds: [matchedItem.id],
+                workUnitId: finalUnit.id,
+                barcode: barcode,
+                targetQty,
+                message: result2.message || `A quantidade de "${matchedItem.product.name}" excedeu o máximo permitido (${targetQty}). A coleta foi reiniciada.`,
+                serverAlreadyReset: false,
+              });
+              setOverQtyModalOpen(true);
+              overQtyModalOpenRef.current = true;
+              break;
+            } else if (result2.status === "not_found") {
+              usePendingDeltaStore.getState().dec("conferencia", matchedItem.id, multiplier);
+              setScanStatus("warning");
+              setScanMessage("Produto não encontrado neste pedido");
+            }
+          } catch (retryErr) {
+            console.error("[conferencia] Retry também falhou:", retryErr);
+            usePendingDeltaStore.getState().clearItem("conferencia", matchedItem.id);
+            usePendingDeltaStore.getState().resetBaseline("conferencia", matchedItem.id);
+            queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+            setScanStatus("error");
+            setScanMessage("Erro ao processar leitura");
+          }
         }
       }
     } finally {

@@ -846,10 +846,43 @@ export default function SeparacaoPage() {
             setScanStatus("warning");
             setScanMessage("Produto não encontrado neste pedido");
           }
-        } catch {
-          usePendingDeltaStore.getState().dec("separacao", matchedItem.id, multiplier);
-          setScanStatus("error");
-          setScanMessage("Erro ao processar leitura");
+        } catch (scanErr) {
+          console.warn("[separacao] Falha ao processar bipe, tentando novamente...", scanErr);
+          await new Promise(r => setTimeout(r, 400));
+          try {
+            const res2 = await apiRequest("POST", `/api/work-units/${finalUnit.id}/scan-item`, { barcode });
+            const result2 = await res2.json();
+            if (result2.status === "over_quantity_with_exception" || result2.status === "over_quantity") {
+              usePendingDeltaStore.getState().dec("separacao", matchedItem.id, multiplier);
+              usePendingDeltaStore.getState().clearItem("separacao", matchedItem.id);
+              usePendingDeltaStore.getState().resetBaseline("separacao", matchedItem.id);
+              const targetQty = Number(matchedItem.quantity) - exceptionQty;
+              setOverQtyContext({
+                productName: matchedItem.product.name,
+                itemIds: [matchedItem.id],
+                workUnitId: finalUnit.id,
+                barcode,
+                targetQty,
+                message: result2.message || `A quantidade de "${matchedItem.product.name}" excedeu o máximo permitido (${targetQty}). A coleta foi reiniciada.`,
+                serverAlreadyReset: true,
+              });
+              setOverQtyModalOpen(true);
+              overQtyModalOpenRef.current = true;
+              queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+              break;
+            } else if (result2.status === "not_found") {
+              usePendingDeltaStore.getState().dec("separacao", matchedItem.id, multiplier);
+              setScanStatus("warning");
+              setScanMessage("Produto não encontrado neste pedido");
+            }
+          } catch (retryErr) {
+            console.error("[separacao] Retry também falhou:", retryErr);
+            usePendingDeltaStore.getState().clearItem("separacao", matchedItem.id);
+            usePendingDeltaStore.getState().resetBaseline("separacao", matchedItem.id);
+            queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+            setScanStatus("error");
+            setScanMessage("Erro ao processar leitura");
+          }
         }
       }
     } finally {

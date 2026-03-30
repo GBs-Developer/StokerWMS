@@ -1681,8 +1681,6 @@ export async function registerRoutes(
         status: newQty >= adjustedTarget ? "separado" : "pendente",
       });
 
-      const updated = await storage.getWorkUnitById(req.params.id as string);
-
       broadcastSSE("item_picked", { workUnitId: req.params.id, orderId: workUnit.orderId, productId: product.id, userId: (req as any).user.id }, (req as any).companyId);
 
       const unitComplete = await storage.checkAndCompleteWorkUnit(req.params.id as string, false);
@@ -1794,8 +1792,6 @@ export async function registerRoutes(
         checkedQty: Number(newQty),
         status: newQty >= targetQty ? "conferido" : "separado",
       });
-
-      const updated = await storage.getWorkUnitById(req.params.id as string);
 
       // BUGFIX: Automatic completion removed.
       // The conference unit will only be marked as "concluido" when the user
