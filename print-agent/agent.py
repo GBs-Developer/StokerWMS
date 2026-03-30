@@ -21,7 +21,6 @@ import threading
 import tempfile
 import subprocess
 import configparser
-import traceback
 import socket
 
 # ── Logging ────────────────────────────────────────────────────────────────────
@@ -182,7 +181,6 @@ def _draw_single_volume(c, vol, PAGE_W, PAGE_H, cm, mm, HexColor, black, white, 
     c.setFont("Helvetica-Bold", 26)
     vol_text = str(vol_num)
     total_text = f" / {vol_total}"
-    vol_w = c.stringWidth(vol_text, "Helvetica-Bold", 26)
     c.drawRightString(PAGE_W - 3 * mm, y - 18 * mm, vol_text + total_text)
 
     y -= header_h
@@ -275,13 +273,19 @@ def _draw_single_volume(c, vol, PAGE_W, PAGE_H, cm, mm, HexColor, black, white, 
     c.setFont("Helvetica", 8)
     c.drawCentredString(center_x, y - 6 * mm, "VOLUME")
 
+    big_text = str(vol_num)
+    slash_text = f" / {vol_total}"
+    c.setFont("Helvetica-Bold", 42)
+    big_w = c.stringWidth(big_text, "Helvetica-Bold", 42)
+    c.setFont("Helvetica", 22)
+    slash_w = c.stringWidth(slash_text, "Helvetica", 22)
+    start_x = center_x - (big_w + slash_w) / 2
     c.setFillColor(HexColor("#111111"))
     c.setFont("Helvetica-Bold", 42)
-    big_text = str(vol_num)
-    c.drawCentredString(center_x - 8 * mm, y - 22 * mm, big_text)
+    c.drawString(start_x, y - 22 * mm, big_text)
     c.setFillColor(HexColor("#555555"))
     c.setFont("Helvetica", 22)
-    c.drawString(center_x + 2 * mm, y - 22 * mm, f"/ {vol_total}")
+    c.drawString(start_x + big_w, y - 22 * mm, slash_text)
 
     y -= vol_center_h
 
@@ -362,13 +366,17 @@ def _render_pallet_label(data: dict, pdf_path: str) -> bool:
             from reportlab.graphics.shapes import Drawing
             from reportlab.graphics import renderPDF
 
+            target = 25 * mm
             qr = QrCodeWidget(qr_data)
-            qr.barWidth = 25 * mm
-            qr.barHeight = 25 * mm
-            d = Drawing(25 * mm, 25 * mm)
+            bounds = qr.getBounds()
+            nat_w = bounds[2] - bounds[0]
+            nat_h = bounds[3] - bounds[1]
+            sx = target / nat_w if nat_w else 1
+            sy = target / nat_h if nat_h else 1
+            d = Drawing(target, target, transform=[sx, 0, 0, sy, 0, 0])
             d.add(qr)
-            renderPDF.draw(d, c, (PAGE_W - 25 * mm) / 2, y - 27 * mm)
-            y -= 28 * mm
+            renderPDF.draw(d, c, (PAGE_W - target) / 2, y - target - 2 * mm)
+            y -= target + 4 * mm
         except Exception:
             pass
 
