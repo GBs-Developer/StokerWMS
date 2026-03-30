@@ -18,6 +18,7 @@ import configparser
 import traceback
 import hashlib
 import socket
+import http.server
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 from logging.handlers import RotatingFileHandler
@@ -128,14 +129,44 @@ def find_sumatra():
             return c
     return None
 
+def _find_free_port() -> int:
+    """Finds a free TCP port on localhost."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def _start_http_server(directory: str) -> tuple:
+    """
+    Starts a temporary HTTP server serving files from *directory* on a random
+    localhost port.  Returns (httpd, port).  Runs in a daemon thread so it is
+    killed automatically when the agent exits.
+    """
+    def _make_handler(base_dir):
+        class _H(http.server.SimpleHTTPRequestHandler):
+            def __init__(self, *a, **kw):
+                super().__init__(*a, directory=base_dir, **kw)
+            def log_message(self, *a):   # suppress access logs
+                pass
+        return _H
+
+    port = _find_free_port()
+    httpd = http.server.HTTPServer(("127.0.0.1", port), _make_handler(directory))
+    t = threading.Thread(target=httpd.serve_forever, daemon=True)
+    t.start()
+    return httpd, port
+
+
 def print_html(html: str, printer: str, copies: int) -> dict:
     """Converts HTML to PDF via headless Chrome, then sends to printer via SumatraPDF."""
     import shutil as _shutil
     tmp = tempfile.gettempdir()
     job_id = os.urandom(4).hex()
-    html_path    = os.path.join(tmp, f"stoker_{job_id}.html")
-    pdf_path     = os.path.join(tmp, f"stoker_{job_id}.pdf")
+    html_filename  = f"stoker_{job_id}.html"
+    html_path      = os.path.join(tmp, html_filename)
+    pdf_path       = os.path.join(tmp, f"stoker_{job_id}.pdf")
     chrome_profile = os.path.join(tmp, f"stoker_chrome_{job_id}")
+    httpd          = None
 
     try:
         # Write HTML file
@@ -147,13 +178,17 @@ def print_html(html: str, printer: str, copies: int) -> dict:
         if not browser:
             return {"success": False, "error": "Chrome ou Edge não encontrado nesta máquina."}
 
-        # Chrome no Windows: forward slashes no caminho do PDF evitam falha silenciosa
-        # onde Chrome sai com rc=0 mas não cria o arquivo.
-        file_url       = "file:///" + html_path.replace("\\", "/")
+        # ── Servidor HTTP local ───────────────────────────────────────────────
+        # Chrome 115+ bloqueia file:// URLs em modo headless (sai com rc=0 mas
+        # não gera o PDF).  Servindo o HTML via http://127.0.0.1 isso não ocorre
+        # e funciona em qualquer versão do Chrome/Edge.
+        httpd, port = _start_http_server(tmp)
+        html_url = f"http://127.0.0.1:{port}/{html_filename}"
+
+        # Forward slashes no path do PDF (Windows + Chrome = safer)
         pdf_path_chrome = pdf_path.replace("\\", "/")
 
-        # --user-data-dir aponta para diretório temporário exclusivo para este job,
-        # evitando conflito com o Chrome aberto na máquina (causa rc=0 sem PDF).
+        # --user-data-dir exclusivo por job evita conflito com Chrome aberto
         base_flags = [
             "--disable-gpu", "--no-sandbox",
             "--disable-dev-shm-usage",
@@ -164,17 +199,16 @@ def print_html(html: str, printer: str, copies: int) -> dict:
             "--no-pdf-header-footer",
             "--run-all-compositor-stages-before-draw",
             "--virtual-time-budget=5000",
-            file_url,
+            html_url,
         ]
 
         log.info(f"[{job_id}] Gerando PDF para impressora '{printer}' x{copies}")
 
-        # Chrome 112+ mudou --headless para modo novo (quebra --print-to-pdf).
-        # Tentamos --headless=old primeiro (funciona no 112+), depois --headless (Chrome antigo).
+        # Chrome 112+: --headless=old mantém suporte a --print-to-pdf.
+        # Fallback para --headless (Chrome mais antigo).
         pdf_ok = False
         last_output = ""
         for headless_flag in ["--headless=old", "--headless"]:
-            # Remove PDF anterior se existir (tentativa anterior pode ter criado arquivo vazio)
             if os.path.exists(pdf_path):
                 try:
                     os.remove(pdf_path)
@@ -235,6 +269,12 @@ def print_html(html: str, printer: str, copies: int) -> dict:
         log.error(f"[{job_id}] Erro ao imprimir: {e}\n{traceback.format_exc()}")
         return {"success": False, "error": str(e)}
     finally:
+        # Encerra o servidor HTTP temporário
+        if httpd is not None:
+            try:
+                httpd.shutdown()
+            except Exception:
+                pass
         for p in [html_path, pdf_path]:
             try:
                 if os.path.exists(p):
