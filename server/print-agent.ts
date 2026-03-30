@@ -184,9 +184,14 @@ export function setupPrintAgentWS(httpServer: HttpServer): void {
   // ── Upgrade HTTP → WebSocket (apenas no path correto) ─────────────────────────
   httpServer.on("upgrade", (request, socket, head) => {
     if (request.url !== "/ws/print-agent") return;
-    // Guarda de erro no socket bruto — evita crash por ECONNRESET/EPIPE
-    socket.on("error", (err: Error) => {
-      log(`[agent] Socket upgrade erro: ${err.message}`, "print");
+    // Guarda de erro no socket bruto — evita crash por ECONNRESET/EPIPE.
+    // ECONNRESET e EPIPE são eventos normais de rede (cliente desconectou durante handshake)
+    // e não indicam falha — silenciamos para não poluir o log.
+    socket.on("error", (err: NodeJS.ErrnoException) => {
+      const normal = ["ECONNRESET", "EPIPE", "ECONNABORTED"];
+      if (!normal.includes(err.code ?? "")) {
+        log(`[agent] Socket upgrade erro inesperado: ${err.message}`, "print");
+      }
     });
     wss.handleUpgrade(request, socket as any, head, (ws) => {
       wss.emit("connection", ws, request);
@@ -385,8 +390,12 @@ export function setupPrintAgentWS(httpServer: HttpServer): void {
     // ── Erros de socket do agente ─────────────────────────────────────────────
     // Sem este handler, um ECONNRESET ou EPIPE ao fechar o agente derrubaria
     // o servidor principal (exceção não capturada no EventEmitter).
-    ws.on("error", (err) => {
-      log(`[agent] WebSocket erro (não-fatal): ${err.message}`, "print");
+    // ECONNRESET/EPIPE/ECONNABORTED = cliente desconectou normalmente — não loga.
+    ws.on("error", (err: NodeJS.ErrnoException) => {
+      const normal = ["ECONNRESET", "EPIPE", "ECONNABORTED"];
+      if (!normal.includes(err.code ?? "")) {
+        log(`[agent] WebSocket erro inesperado: ${err.message}`, "print");
+      }
     });
   });
 
