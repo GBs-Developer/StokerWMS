@@ -17,6 +17,7 @@ import subprocess
 import configparser
 import traceback
 import hashlib
+import socket
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 from logging.handlers import RotatingFileHandler
