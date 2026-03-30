@@ -1,6 +1,8 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { User, Company } from "@shared/schema";
+import { UNAUTHORIZED_EVENT } from "@/lib/queryClient";
+import { invalidatePrintConfigCache } from "@/hooks/use-print";
 
 const INACTIVITY_TIMEOUT_MS = 2 * 60 * 60 * 1000;
 const INACTIVITY_CHECK_INTERVAL_MS = 60 * 1000;
@@ -31,6 +33,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const inactivityTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const clearSession = useCallback(() => {
+    invalidatePrintConfigCache();
     queryClient.clear();
     const keysToRemove: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
@@ -105,6 +108,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     checkAuth();
   }, [checkAuth]);
+
+  // Auto-logout quando qualquer query/mutation receber 401
+  useEffect(() => {
+    const handle = () => {
+      if (status === "authenticated") logout();
+    };
+    window.addEventListener(UNAUTHORIZED_EVENT, handle);
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, handle);
+  }, [status, logout]);
 
   useEffect(() => {
     if (status !== "authenticated") {

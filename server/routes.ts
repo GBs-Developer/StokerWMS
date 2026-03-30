@@ -35,7 +35,7 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  console.log("[Routes] Registering routes...");
+  log("[Routes] Registering routes...");
   app.use(cookieParser());
 
   // Setup SSE
@@ -48,7 +48,7 @@ export async function registerRoutes(
       if (callback) callback(null, false);
       return;
     }
-    console.log("[Auto-Sync] Triggering DB sync...");
+    log("[Auto-Sync] Triggering DB sync...");
     const pythonCmd = process.platform === "win32" ? "python" : "python3";
     exec(`${pythonCmd} "${scriptPath}" --quiet`, { windowsHide: true }, (error, stdout, stderr) => {
       if (error) {
@@ -58,7 +58,7 @@ export async function registerRoutes(
       if (stderr) {
         // console.log(`[Sync] Log: ${stderr}`);
       }
-      console.log("[Sync] Synchronization completed.");
+      log("[Sync] Sincronização concluída.");
       if (callback) callback(null, true);
     });
   };
@@ -433,7 +433,8 @@ export async function registerRoutes(
 
       if (password && password.trim() !== "") {
         updateData.password = await hashPassword(password);
-        updateData.badgeCode = generateBadgeCode(user.username, password);
+        // Badge code é independente da senha — não regenerar automaticamente.
+        // Use o endpoint /api/users/:id/reset-badge para rotacionar o badge.
       }
 
       const targetRole = updateData.role || user.role;

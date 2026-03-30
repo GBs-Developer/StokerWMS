@@ -67,6 +67,9 @@ export async function apiRequest(
   }
 }
 
+/** Evento global disparado quando qualquer chamada de API recebe 401. */
+export const UNAUTHORIZED_EVENT = "stoker:unauthorized";
+
 type UnauthorizedBehavior = "returnNull" | "throw";
 export const getQueryFn: <T>(options: {
   on401: UnauthorizedBehavior;
@@ -83,8 +86,9 @@ export const getQueryFn: <T>(options: {
         credentials: "include",
       });
 
-      if (unauthorizedBehavior === "returnNull" && res.status === 401) {
-        return null;
+      if (res.status === 401) {
+        window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
+        if (unauthorizedBehavior === "returnNull") return null;
       }
 
       await throwIfResNotOk(res);

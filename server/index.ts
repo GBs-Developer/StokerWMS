@@ -254,7 +254,7 @@ async function runSafeMigrations() {
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
 
-    console.error("Internal Server Error:", err);
+    log(`Internal Server Error: ${err?.message ?? err}`, "error");
 
     if (res.headersSent) {
       return next(err);

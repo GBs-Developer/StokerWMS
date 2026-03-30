@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { storage } from "./storage";
 import bcrypt from "bcrypt";
-import { randomUUID, createHash } from "crypto";
+import { randomUUID, randomBytes } from "crypto";
 
 const TOKEN_EXPIRY_HOURS = 12;
 
@@ -9,8 +9,13 @@ export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 10);
 }
 
-export function generateBadgeCode(username: string, passwordPlain: string): string {
-  return createHash("md5").update(username + passwordPlain).digest("hex");
+/**
+ * Gera um código de crachá seguro — token aleatório de 128 bits.
+ * Independente de credenciais, não expira automaticamente.
+ * @deprecated Passe zero argumentos — a assinatura antiga (username, password) é ignorada.
+ */
+export function generateBadgeCode(_username?: string, _passwordPlain?: string): string {
+  return randomBytes(16).toString("hex");
 }
 
 export async function verifyPassword(password: string, hash: string): Promise<boolean> {

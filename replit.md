@@ -58,8 +58,12 @@ Routes are registered in `server/routes.ts` (legacy + auth) and `server/wms-rout
 - Middleware functions: `isAuthenticated`, `requireRole`, `requireCompany` protect routes
 - Backend WMS routes enforce both company context and role checks on all endpoints
 - Sessions include a unique session key for cache invalidation on logout
-- 24-hour token expiry with cookie-based storage
+- 12-hour token expiry with cookie-based storage; `getSessionByToken` in storage enforces `expiresAt > now`
 - 2-hour inactivity timeout on frontend
+- **Badge code**: generated as `randomBytes(16).toString("hex")` — random, opaque, independent of password. NOT regenerated on password change; use the badge reset endpoint to rotate.
+- **Auto-logout**: Any 401 from any query/mutation fires a `stoker:unauthorized` CustomEvent; `AuthProvider` listens and calls `logout()` immediately
+- **Print config cache**: cleared (`invalidatePrintConfigCache`) on every logout/session clear to prevent user-A's config leaking to user-B on the same tab
+- **ErrorBoundary**: global class component wraps the entire App, shows a friendly error screen + reload button on any uncaught React render error
 
 ### Multi-Company Architecture
 - Companies: ID 1 ("Empresa 1"), ID 3 ("Empresa 3")
