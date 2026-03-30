@@ -130,10 +130,12 @@ def find_sumatra():
 
 def print_html(html: str, printer: str, copies: int) -> dict:
     """Converts HTML to PDF via headless Chrome, then sends to printer via SumatraPDF."""
+    import shutil as _shutil
     tmp = tempfile.gettempdir()
     job_id = os.urandom(4).hex()
-    html_path = os.path.join(tmp, f"stoker_{job_id}.html")
-    pdf_path  = os.path.join(tmp, f"stoker_{job_id}.pdf")
+    html_path    = os.path.join(tmp, f"stoker_{job_id}.html")
+    pdf_path     = os.path.join(tmp, f"stoker_{job_id}.pdf")
+    chrome_profile = os.path.join(tmp, f"stoker_chrome_{job_id}")
 
     try:
         # Write HTML file
@@ -145,14 +147,19 @@ def print_html(html: str, printer: str, copies: int) -> dict:
         if not browser:
             return {"success": False, "error": "Chrome ou Edge não encontrado nesta máquina."}
 
-        file_url = "file:///" + html_path.replace("\\", "/")
+        # Chrome no Windows: forward slashes no caminho do PDF evitam falha silenciosa
+        # onde Chrome sai com rc=0 mas não cria o arquivo.
+        file_url       = "file:///" + html_path.replace("\\", "/")
+        pdf_path_chrome = pdf_path.replace("\\", "/")
 
-        # Flags base — compatíveis com todas as versões
+        # --user-data-dir aponta para diretório temporário exclusivo para este job,
+        # evitando conflito com o Chrome aberto na máquina (causa rc=0 sem PDF).
         base_flags = [
             "--disable-gpu", "--no-sandbox",
             "--disable-dev-shm-usage",
             "--disable-extensions",
-            f"--print-to-pdf={pdf_path}",
+            f"--user-data-dir={chrome_profile}",
+            f"--print-to-pdf={pdf_path_chrome}",
             "--print-to-pdf-no-header",
             "--no-pdf-header-footer",
             "--run-all-compositor-stages-before-draw",
@@ -165,7 +172,7 @@ def print_html(html: str, printer: str, copies: int) -> dict:
         # Chrome 112+ mudou --headless para modo novo (quebra --print-to-pdf).
         # Tentamos --headless=old primeiro (funciona no 112+), depois --headless (Chrome antigo).
         pdf_ok = False
-        last_stderr = ""
+        last_output = ""
         for headless_flag in ["--headless=old", "--headless"]:
             # Remove PDF anterior se existir (tentativa anterior pode ter criado arquivo vazio)
             if os.path.exists(pdf_path):
@@ -175,14 +182,17 @@ def print_html(html: str, printer: str, copies: int) -> dict:
                     pass
             chrome_cmd = [browser, headless_flag] + base_flags
             result = subprocess.run(chrome_cmd, timeout=45, capture_output=True)
-            last_stderr = (result.stderr or b"").decode("utf-8", errors="replace").strip()
+            stdout_msg = (result.stdout or b"").decode("utf-8", errors="replace").strip()
+            stderr_msg = (result.stderr or b"").decode("utf-8", errors="replace").strip()
+            last_output = (stdout_msg + "\n" + stderr_msg).strip()
+
             if result.returncode == 0 and os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0:
                 pdf_ok = True
                 break
-            log.warning(f"[{job_id}] Chrome {headless_flag} falhou (rc={result.returncode}): {last_stderr[:200]}")
+            log.warning(f"[{job_id}] Chrome {headless_flag} falhou (rc={result.returncode}): {last_output[:300]}")
 
         if not pdf_ok:
-            err_detail = f" Detalhe: {last_stderr[:300]}" if last_stderr else ""
+            err_detail = f" Detalhe: {last_output[:300]}" if last_output else ""
             return {"success": False, "error": f"Falha ao gerar PDF. Verifique se Chrome/Edge está atualizado.{err_detail}"}
 
         # Find SumatraPDF for silent printing
@@ -231,6 +241,12 @@ def print_html(html: str, printer: str, copies: int) -> dict:
                     os.remove(p)
             except Exception:
                 pass
+        # Remove diretório de perfil temporário do Chrome
+        try:
+            if os.path.exists(chrome_profile):
+                _shutil.rmtree(chrome_profile, ignore_errors=True)
+        except Exception:
+            pass
 
 # ── WebSocket Agent ────────────────────────────────────────────────────────────
 
