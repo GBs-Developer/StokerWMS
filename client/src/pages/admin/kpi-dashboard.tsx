@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/lib/auth";
 import {
   ArrowLeft, Users, Clock, Package, AlertTriangle, CheckCircle2,
-  TrendingUp, TrendingDown, Minus, BarChart3, Trophy, ShoppingBag,
+  TrendingUp, Minus, BarChart3, Trophy,
   ChevronDown, ChevronUp, RefreshCw, Boxes,
 } from "lucide-react";
 import { format, subDays } from "date-fns";
@@ -95,7 +95,6 @@ function MiniBar({ values, max }: { values: { dia: string; v: number }[]; max: n
 
 function OperatorCard({ op, rank }: { op: OperatorKPI; rank: number }) {
   const [expanded, setExpanded] = useState(false);
-  const totalActivity = op.pedidosSeparados + op.pedidosConferidos;
   const last7 = op.diario.slice(-7);
   const maxDia = Math.max(...last7.map(d => d.sep + d.conf), 1);
 
@@ -245,15 +244,13 @@ export default function KpiDashboardPage() {
   const [fromInput, setFromInput] = useState(from);
   const [toInput, setToInput]     = useState(to);
 
+  const kpiUrl = companyId
+    ? `/api/kpi/operators?companyId=${companyId}&from=${from}&to=${to}`
+    : null;
+
   const { data, isLoading, isError, refetch, isFetching } = useQuery<KPIResponse>({
-    queryKey: [`/api/kpi/operators`, companyId, from, to],
-    queryFn: async () => {
-      const url = `/api/kpi/operators?companyId=${companyId}&from=${from}&to=${to}`;
-      const res = await fetch(url, { credentials: "include" });
-      if (!res.ok) throw new Error("Falha ao carregar KPIs");
-      return res.json();
-    },
-    enabled: !!companyId,
+    queryKey: [kpiUrl],
+    enabled: !!kpiUrl,
   });
 
   const applyFilter = () => {

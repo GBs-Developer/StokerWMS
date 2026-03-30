@@ -3471,9 +3471,25 @@ export async function registerRoutes(
   // ==================== KPI Dashboard ====================
   app.get("/api/kpi/operators", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
     try {
-      const companyId = parseInt(req.query.companyId as string) || (req as any).companyId || 1;
-      const from = (req.query.from as string) || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-      const to = (req.query.to as string) || new Date().toISOString().slice(0, 10);
+      // companyId: prefere o da sessão autenticada; aceita override via query param para admins multi-empresa
+      const sessionCompanyId = (req as any).companyId as number | undefined;
+      const queryCompanyId   = req.query.companyId ? parseInt(req.query.companyId as string, 10) : NaN;
+      const companyId        = (!isNaN(queryCompanyId) && queryCompanyId > 0) ? queryCompanyId : (sessionCompanyId ?? 1);
+
+      // Validação de formato de data (YYYY-MM-DD)
+      const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+      const defaultFrom = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const defaultTo   = new Date().toISOString().slice(0, 10);
+
+      const rawFrom = (req.query.from as string) || defaultFrom;
+      const rawTo   = (req.query.to   as string) || defaultTo;
+
+      if (!ISO_DATE_RE.test(rawFrom) || !ISO_DATE_RE.test(rawTo)) {
+        return res.status(400).json({ error: "Parâmetros de data inválidos. Use o formato YYYY-MM-DD." });
+      }
+
+      const from    = rawFrom <= rawTo ? rawFrom : rawTo;
+      const to      = rawFrom <= rawTo ? rawTo   : rawFrom;
       const fromStr = from + "T00:00:00.000Z";
       const toStr   = to   + "T23:59:59.999Z";
 
@@ -3527,6 +3543,7 @@ export async function registerRoutes(
       `);
 
       // 3) Itens separados (qty_picked) via work_units concluídos de separação
+      // Filtra por section E pickup_point para evitar dupla contagem de pedidos multi-seção
       const itemRows = await db.execute(drizzleSql`
         SELECT
           wu.locked_by                                               AS user_id,
@@ -3536,7 +3553,10 @@ export async function registerRoutes(
           COALESCE(SUM(oi.quantity), 0)                             AS total_qty_esperada,
           COUNT(*) FILTER (WHERE oi.qty_picked > oi.quantity)       AS itens_excedidos
         FROM work_units wu
-        JOIN order_items oi ON oi.order_id = wu.order_id
+        JOIN order_items oi
+          ON oi.order_id = wu.order_id
+         AND oi.pickup_point = wu.pickup_point
+         AND (wu.section IS NULL OR oi.section = wu.section)
         WHERE wu.type = 'separacao'
           AND wu.status = 'concluido'
           AND wu.company_id = ${companyId}
