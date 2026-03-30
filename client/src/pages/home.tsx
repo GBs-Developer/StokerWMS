@@ -150,9 +150,13 @@ export default function HomePage() {
     : (roleModuleAccess[userRole] || []);
   // Administradores sempre enxergam módulos administrativos exclusivos,
   // mesmo quando possuem lista de módulos customizada.
-  const adminExclusive = ["/admin/permissoes", "/admin/limpeza", "/supervisor/print-settings"];
+  const adminExclusive = ["/admin/permissoes", "/admin/limpeza", "/supervisor/print-settings", "/admin/kpi-operadores"];
+  // Supervisores sempre enxergam módulos de supervisão essenciais.
+  const supervisorExclusive = ["/admin/kpi-operadores"];
   const allowedHrefs = userRole === "administrador"
     ? [...new Set([...baseHrefs, ...adminExclusive])]
+    : userRole === "supervisor"
+    ? [...new Set([...baseHrefs, ...supervisorExclusive])]
     : baseHrefs;
 
   const legacyStandaloneModules: ModuleItem[] = [];
