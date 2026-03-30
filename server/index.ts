@@ -196,6 +196,8 @@ async function runSafeMigrations() {
     // wms_addresses
     { table: "wms_addresses", column: "capacity",     type: "integer" },
     { table: "wms_addresses", column: "description",  type: "text" },
+    // print_agents — coluna adicionada para persistir lista de impressoras entre reinicializações
+    { table: "print_agents", column: "printers", type: "text" },
   ];
 
   for (const m of migrations) {
@@ -218,7 +220,8 @@ async function runSafeMigrations() {
       token_hash text NOT NULL,
       active boolean NOT NULL DEFAULT true,
       created_at text NOT NULL DEFAULT '',
-      last_seen_at text
+      last_seen_at text,
+      printers text
     )`,
     `CREATE TABLE IF NOT EXISTS product_addresses (
       id text PRIMARY KEY,
