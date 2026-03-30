@@ -115,9 +115,9 @@ export function OrderDetailsDialog({ orderId, open, onOpenChange }: OrderDetails
                                             </div>
                                             <div className="flex flex-col items-end gap-1 shrink-0">
                                                 <span className="font-mono font-medium text-sm">
-                                                    {item.qtyPicked}/{item.quantity}
+                                                    {item.separatedQty ?? item.qtyPicked ?? 0}/{item.quantity}
                                                 </span>
-                                                {item.qtyPicked >= item.quantity && (
+                                                {(item.separatedQty ?? item.qtyPicked ?? 0) >= item.quantity && (
                                                     <CheckCircle2 className="h-4 w-4 text-green-500" />
                                                 )}
                                                 {item.exceptionQty > 0 && (
