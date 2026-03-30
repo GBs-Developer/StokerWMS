@@ -1,5 +1,5 @@
 import type { Express, Request, Response } from "express";
-import { isAuthenticated, requireRole, getTokenFromRequest, getUserFromToken } from "./auth";
+import { isAuthenticated, requireRole } from "./auth";
 import { storage } from "./storage";
 import { exec } from "child_process";
 import os from "os";
@@ -135,15 +135,9 @@ async function printHtmlToPrinter(
   });
 }
 
-async function resolveUsername(req: Request): Promise<string> {
-  try {
-    const token = getTokenFromRequest(req);
-    if (!token) return "desconhecido";
-    const result = await getUserFromToken(token);
-    return result?.username ?? "desconhecido";
-  } catch {
-    return "desconhecido";
-  }
+function resolveUsername(req: Request): string {
+  const user = (req as any).user;
+  return user?.username ?? user?.name ?? "desconhecido";
 }
 
 export function registerPrintRoutes(app: Express) {
@@ -235,7 +229,7 @@ export function registerPrintRoutes(app: Express) {
       return;
     }
 
-    const username = await resolveUsername(req);
+    const username = resolveUsername(req);
 
     // ── Agente remoto ──────────────────────────────────────────────────────
     if (isAgentPrinter(printer)) {

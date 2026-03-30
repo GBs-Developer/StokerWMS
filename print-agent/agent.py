@@ -143,19 +143,44 @@ def print_html(html: str, printer: str, copies: int) -> dict:
             return {"success": False, "error": "Chrome ou Edge não encontrado nesta máquina."}
 
         file_url = "file:///" + html_path.replace("\\", "/")
-        chrome_cmd = [
-            browser,
-            "--headless", "--disable-gpu", "--no-sandbox",
+
+        # Flags base — compatíveis com todas as versões
+        base_flags = [
+            "--disable-gpu", "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-extensions",
             f"--print-to-pdf={pdf_path}",
             "--print-to-pdf-no-header",
             "--no-pdf-header-footer",
+            "--run-all-compositor-stages-before-draw",
+            "--virtual-time-budget=5000",
             file_url,
         ]
 
         log.info(f"[{job_id}] Gerando PDF para impressora '{printer}' x{copies}")
-        result = subprocess.run(chrome_cmd, timeout=45, capture_output=True)
-        if result.returncode != 0 or not os.path.exists(pdf_path):
-            return {"success": False, "error": "Falha ao gerar PDF. Verifique se Chrome/Edge está atualizado."}
+
+        # Chrome 112+ mudou --headless para modo novo (quebra --print-to-pdf).
+        # Tentamos --headless=old primeiro (funciona no 112+), depois --headless (Chrome antigo).
+        pdf_ok = False
+        last_stderr = ""
+        for headless_flag in ["--headless=old", "--headless"]:
+            # Remove PDF anterior se existir (tentativa anterior pode ter criado arquivo vazio)
+            if os.path.exists(pdf_path):
+                try:
+                    os.remove(pdf_path)
+                except Exception:
+                    pass
+            chrome_cmd = [browser, headless_flag] + base_flags
+            result = subprocess.run(chrome_cmd, timeout=45, capture_output=True)
+            last_stderr = (result.stderr or b"").decode("utf-8", errors="replace").strip()
+            if result.returncode == 0 and os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0:
+                pdf_ok = True
+                break
+            log.warning(f"[{job_id}] Chrome {headless_flag} falhou (rc={result.returncode}): {last_stderr[:200]}")
+
+        if not pdf_ok:
+            err_detail = f" Detalhe: {last_stderr[:300]}" if last_stderr else ""
+            return {"success": False, "error": f"Falha ao gerar PDF. Verifique se Chrome/Edge está atualizado.{err_detail}"}
 
         # Find SumatraPDF for silent printing
         sumatra = find_sumatra()
