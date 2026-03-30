@@ -36,7 +36,8 @@ function buildReimpressaoHtml(vol: OrderVolume): string {
         ? format(new Date(vol.createdAt), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })
         : format(new Date(), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR });
 
-    const addressLine = [vol.address, vol.addressNumber ? `nº ${vol.addressNumber}` : ""].filter(Boolean).join(", ");
+    const route = e(vol.routeCode) || "—";
+    const addressParts = [vol.address, vol.addressNumber ? `nº ${vol.addressNumber}` : ""].filter(Boolean).join(", ");
     const cityLine = [vol.city, vol.state].filter(Boolean).join(" - ");
 
     const labels = Array.from({ length: vol.totalVolumes }, (_, i) => {
@@ -44,64 +45,56 @@ function buildReimpressaoHtml(vol: OrderVolume): string {
         const barcode = `${vol.erpOrderId}${String(volNum).padStart(3, "0")}`;
         return `
 <div class="label">
-  <div class="hdr">
-    <div class="hdr-left">
-      <div class="hdr-tag">PEDIDO</div>
-      <div class="hdr-os">${e(vol.erpOrderId)}</div>
+
+  <!-- HERO: PEDIDO (esq.) + VOLUME (dir.) -->
+  <div class="hero">
+    <div class="hero-left">
+      <div class="hero-tag">PEDIDO</div>
+      <div class="hero-order">${e(vol.erpOrderId)}</div>
+      <div class="hero-rota">ROTA&nbsp;&nbsp;${route}</div>
     </div>
-    <div class="hdr-right">
-      <div class="hdr-tag" style="text-align:right">VOLUME</div>
-      <div class="hdr-vol">${volNum}<span class="hdr-vol-total"> / ${vol.totalVolumes}</span></div>
+    <div class="hero-divider"></div>
+    <div class="hero-right">
+      <div class="hero-tag" style="text-align:right">VOLUME</div>
+      <div class="hero-vol">${volNum}<span class="hero-vol-total">/${vol.totalVolumes}</span></div>
     </div>
   </div>
 
-  <div class="two-col">
-    <div class="col-cell">
-      <div class="field-label">ROTA ID</div>
-      <div class="col-val">${e(vol.routeCode) || "—"}</div>
-    </div>
-    <div class="col-cell col-right">
-      <div class="field-label" style="text-align:right">PACOTE ID</div>
-      <div class="col-val" style="text-align:right">${volNum}</div>
-    </div>
-  </div>
-
-  <div class="section customer-section">
+  <!-- DESTINATÁRIO -->
+  <div class="customer-section">
     <div class="field-label">DESTINATÁRIO</div>
     <div class="customer-name">${e(vol.customerName) || "—"}</div>
-    ${addressLine ? `<div class="address-line">${e(addressLine)}</div>` : ""}
+    ${addressParts ? `<div class="address-line">${e(addressParts)}</div>` : ""}
     ${vol.neighborhood ? `<div class="address-line">${e(vol.neighborhood)}</div>` : ""}
     ${cityLine ? `<div class="address-line city-line">${e(cityLine)}</div>` : ""}
   </div>
 
-  <div class="pkg-row">
-    <div class="pkg-cell"><div class="pkg-label">SACOLA</div><div class="pkg-val">${vol.sacola}</div></div>
-    <div class="pkg-cell"><div class="pkg-label">CAIXA</div><div class="pkg-val">${vol.caixa}</div></div>
-    <div class="pkg-cell"><div class="pkg-label">SACO</div><div class="pkg-val">${vol.saco}</div></div>
-    <div class="pkg-cell"><div class="pkg-label">AVULSO</div><div class="pkg-val">${vol.avulso}</div></div>
+  <!-- INFO STRIP: ROTA | SACOLA | CAIXA | SACO | AVULSO -->
+  <div class="info-strip">
+    <div class="info-cell"><div class="info-lbl">ROTA</div><div class="info-val">${route}</div></div>
+    <div class="info-cell"><div class="info-lbl">SACOLA</div><div class="info-val">${vol.sacola}</div></div>
+    <div class="info-cell"><div class="info-lbl">CAIXA</div><div class="info-val">${vol.caixa}</div></div>
+    <div class="info-cell"><div class="info-lbl">SACO</div><div class="info-val">${vol.saco}</div></div>
+    <div class="info-cell"><div class="info-lbl">AVULSO</div><div class="info-val">${vol.avulso}</div></div>
   </div>
 
-  <div class="volume-center">
-    <div class="vol-label">VOLUME</div>
-    <div class="vol-num">${volNum}<span class="vol-total"> / ${vol.totalVolumes}</span></div>
-  </div>
-
-  <div class="footer">
-    <div class="footer-row">
-      <div class="footer-item">
-        <span class="footer-label">CONFERIDO POR</span>
-        <span class="footer-val">—</span>
-      </div>
-      <div class="footer-item footer-right">
-        <span class="footer-label">DATA/HORA</span>
-        <span class="footer-val">${e(createdAt)}</span>
-      </div>
-    </div>
-  </div>
-
+  <!-- CÓDIGO DE BARRAS -->
   <div class="barcode-area">
     <div class="barcode">${e(barcode)}</div>
   </div>
+
+  <!-- RODAPÉ -->
+  <div class="footer">
+    <div class="footer-col">
+      <span class="footer-lbl">CONFERIDO POR</span>
+      <span class="footer-val">—</span>
+    </div>
+    <div class="footer-col footer-right">
+      <span class="footer-lbl">DATA/HORA</span>
+      <span class="footer-val">${e(createdAt)}</span>
+    </div>
+  </div>
+
 </div>`;
     }).join("");
 
@@ -110,49 +103,45 @@ function buildReimpressaoHtml(vol: OrderVolume): string {
 <style>
 @page { size: 10cm 15cm; margin: 0; }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: Arial, sans-serif; background: #fff; font-size: 11px; color: #000; }
+body { font-family: Arial, sans-serif; background: #fff; color: #000; }
 .label { width: 10cm; height: 15cm; border: 1.5px solid #000; page-break-after: always; display: flex; flex-direction: column; overflow: hidden; }
 .label:last-child { page-break-after: avoid; }
 
-.hdr { background: #111; color: #fff; display: flex; justify-content: space-between; align-items: flex-end; padding: 5px 8px; border-bottom: 2px solid #000; }
-.hdr-left, .hdr-right { display: flex; flex-direction: column; }
-.hdr-right { align-items: flex-end; }
-.hdr-tag { font-size: 8px; color: #aaa; letter-spacing: .5px; text-transform: uppercase; }
-.hdr-os { font-size: 18px; font-weight: bold; line-height: 1; }
-.hdr-vol { font-size: 32px; font-weight: 900; line-height: 1; }
-.hdr-vol-total { font-size: 16px; font-weight: 400; color: #aaa; }
+/* ── HERO (55mm) ─────────────────────────────────────────── */
+.hero { background: #111; color: #fff; display: flex; height: 55mm; flex-shrink: 0; }
+.hero-left  { flex: 1; padding: 7px 8px 7px 8px; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; }
+.hero-right { flex: 1; padding: 7px 8px 7px 0;   display: flex; flex-direction: column; align-items: flex-end; justify-content: space-between; overflow: hidden; }
+.hero-divider { width: 1px; background: #2a2a2a; margin: 7px 0; flex-shrink: 0; }
+.hero-tag  { font-size: 7.5px; color: #888; text-transform: uppercase; letter-spacing: .5px; }
+.hero-order { font-size: 36px; font-weight: 900; line-height: 1; word-break: break-all; }
+.hero-rota  { font-size: 9px; color: #666; }
+.hero-vol   { font-size: 62px; font-weight: 900; line-height: 1; word-break: break-all; text-align: right; }
+.hero-vol-total { font-size: 30px; font-weight: 400; color: #999; }
 
-.two-col { display: flex; border-bottom: 1px solid #ccc; }
-.col-cell { flex: 1; padding: 4px 8px; }
-.col-right { border-left: 1px solid #ccc; }
-.field-label { font-size: 7.5px; color: #777; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 1px; }
-.col-val { font-size: 13px; font-weight: bold; }
+/* ── DESTINATÁRIO (30mm) ──────────────────────────────────── */
+.customer-section { background: #f5f8ff; padding: 6px 8px; border-top: 1px solid #ccc; border-bottom: 1px solid #ccc; height: 30mm; flex-shrink: 0; display: flex; flex-direction: column; gap: 2px; overflow: hidden; }
+.field-label  { font-size: 6.5px; color: #888; text-transform: uppercase; letter-spacing: .5px; }
+.customer-name { font-size: 13px; font-weight: bold; line-height: 1.15; }
+.address-line  { font-size: 9.5px; color: #333; line-height: 1.25; }
+.city-line     { font-weight: 600; }
 
-.section { padding: 5px 8px; border-bottom: 1px solid #ccc; }
-.customer-section { background: #f7faff; }
-.customer-name { font-size: 13px; font-weight: bold; line-height: 1.2; margin-bottom: 2px; }
-.address-line { font-size: 10px; color: #333; line-height: 1.3; }
-.city-line { font-weight: 600; }
+/* ── INFO STRIP (16mm) ────────────────────────────────────── */
+.info-strip { display: flex; height: 16mm; flex-shrink: 0; background: #eee; border-bottom: 1px solid #ccc; }
+.info-cell  { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; border-right: 1px solid #ccc; }
+.info-cell:last-child { border-right: 0; }
+.info-lbl { font-size: 6px; color: #888; text-transform: uppercase; letter-spacing: .3px; }
+.info-val { font-size: 12px; font-weight: 900; color: #111; }
 
-.volume-center { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; border-bottom: 1px solid #ccc; padding: 4px; }
-.vol-label { font-size: 9px; color: #777; text-transform: uppercase; letter-spacing: 1px; }
-.vol-num { font-size: 52px; font-weight: 900; line-height: 1; color: #111; }
-.vol-total { font-size: 26px; font-weight: 400; color: #555; }
+/* ── BARCODE (flex: 1 → ~35mm) ───────────────────────────── */
+.barcode-area { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 4px 6px; min-height: 30mm; }
+.barcode { font-family: 'Libre Barcode 128 Text', monospace; font-size: 58px; line-height: 1; white-space: nowrap; max-width: 100%; overflow: hidden; }
 
-.footer { padding: 5px 8px; background: #f0f4f8; border-bottom: 1px solid #ccc; }
-.footer-row { display: flex; justify-content: space-between; align-items: flex-start; }
-.footer-item { display: flex; flex-direction: column; }
+/* ── RODAPÉ (14mm) ────────────────────────────────────────── */
+.footer { background: #f0f4f8; padding: 5px 8px; border-top: 1px solid #ccc; display: flex; justify-content: space-between; height: 14mm; align-items: center; flex-shrink: 0; }
+.footer-col { display: flex; flex-direction: column; gap: 2px; }
 .footer-right { align-items: flex-end; }
-.footer-label { font-size: 7.5px; color: #888; text-transform: uppercase; }
-.footer-val { font-size: 10px; font-weight: bold; color: #111; }
-
-.pkg-row { display: flex; border-bottom: 1px solid #ccc; background: #fafafa; }
-.pkg-cell { flex: 1; padding: 3px 4px; text-align: center; border-right: 1px solid #ccc; }
-.pkg-cell:last-child { border-right: 0; }
-.pkg-label { font-size: 7px; color: #888; text-transform: uppercase; letter-spacing: .5px; }
-.pkg-val { font-size: 15px; font-weight: 900; color: #111; }
-.barcode-area { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 4px 8px 3px; }
-.barcode { font-family: 'Libre Barcode 128 Text', monospace; font-size: 48px; line-height: 1; white-space: nowrap; max-width: 100%; overflow: hidden; }
+.footer-lbl { font-size: 6px; color: #888; text-transform: uppercase; letter-spacing: .3px; }
+.footer-val { font-size: 9.5px; font-weight: bold; color: #111; }
 </style>
 <script>window.onload = function() { window.print(); }</script>
 </head><body>${labels}</body></html>`;
