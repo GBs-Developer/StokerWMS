@@ -179,6 +179,7 @@ def _generate_pdf_via_cdp(browser: str, html_url: str, chrome_profile: str, job_
             "--no-sandbox",
             "--disable-dev-shm-usage",
             "--disable-extensions",
+            "--remote-allow-origins=*",
             f"--remote-debugging-port={debug_port}",
             f"--user-data-dir={chrome_profile}",
             html_url,
