@@ -119,7 +119,7 @@ export function StockLegend() {
   return (
     <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
       <span className="flex items-center gap-1">
-        <span className="bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 font-bold px-1.5 py-0.5 rounded text-[9px]">PAL</span>
+        <span className="bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 font-bold px-1.5 py-0.5 rounded text-[9px]">PALLET</span>
         Pallets
       </span>
       <span className="flex items-center gap-1">
