@@ -170,265 +170,73 @@ class _PersistentHTTPServer:
 _http_server = _PersistentHTTPServer()
 
 
-# ── Pool persistente do Chrome (inicia uma vez, reutiliza entre jobs) ─────────
+# ── Geração de PDF via Chrome CLI (um processo por job — simples e confiável) ──
 
-class _ChromePool:
+_pdf_lock = threading.Lock()
+_profile_counter = 0
+
+def generate_pdf_via_chrome(html_url: str, pdf_path: str, job_id: str) -> bool:
     """
-    Mantém uma instância headless do Chrome rodando entre jobs.
-    O primeiro job leva ~2-3s (startup do Chrome).
-    Jobs seguintes levam <1s (só navegação + printToPDF via CDP).
-    Se o Chrome morrer ou travar, é reiniciado automaticamente.
+    Gera PDF usando Chrome headless via linha de comando (--print-to-pdf).
+    Cada chamada abre e fecha o Chrome — sem estado persistente, sem CDP,
+    sem pool. Totalmente isolado e à prova de travamentos.
     """
+    global _profile_counter
 
-    MAX_JOBS_BEFORE_RESTART = 20
-    HEALTH_CHECK_TIMEOUT = 3
+    browser = find_browser()
+    if not browser:
+        raise RuntimeError("Chrome ou Edge não encontrado nesta máquina.")
 
-    def __init__(self):
-        self._proc = None
-        self._debug_port = None
-        self._profile_dir = os.path.join(tempfile.gettempdir(), "stoker_chrome_pool")
-        self._lock = threading.Lock()
-        self._msg_id = 0
-        self._jobs_count = 0
+    with _pdf_lock:
+        _profile_counter += 1
+        counter = _profile_counter
 
-    def _next_id(self) -> int:
-        self._msg_id += 1
-        return self._msg_id
+    profile_dir = os.path.join(tempfile.gettempdir(), f"stoker_chrome_{counter}")
 
-    def _is_alive(self) -> bool:
-        return self._proc is not None and self._proc.poll() is None
+    try:
+        cmd = [
+            browser,
+            "--headless",
+            "--disable-gpu",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-extensions",
+            "--disable-background-networking",
+            "--disable-default-apps",
+            "--disable-sync",
+            "--disable-translate",
+            "--no-first-run",
+            "--run-all-compositor-stages-before-draw",
+            "--print-to-pdf-no-header",
+            f"--print-to-pdf={pdf_path}",
+            f"--user-data-dir={profile_dir}",
+            html_url,
+        ]
 
-    def _is_responsive(self) -> bool:
-        if not self._is_alive():
-            return False
-        import urllib.request
-        try:
-            with urllib.request.urlopen(
-                f"http://127.0.0.1:{self._debug_port}/json/version",
-                timeout=self.HEALTH_CHECK_TIMEOUT
-            ) as r:
-                return r.status == 200
-        except Exception:
-            return False
-
-    def _start_chrome(self):
-        import urllib.request
-
-        browser = find_browser()
-        if not browser:
-            raise RuntimeError("Chrome ou Edge não encontrado nesta máquina.")
-
-        self._debug_port = _find_free_port()
-        self._jobs_count = 0
-        self._msg_id = 0
-
-        import shutil
-        try:
-            if os.path.exists(self._profile_dir):
-                shutil.rmtree(self._profile_dir, ignore_errors=True)
-        except Exception:
-            pass
-
-        self._proc = subprocess.Popen(
-            [
-                browser,
-                "--headless",
-                "--disable-gpu",
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-extensions",
-                "--disable-background-networking",
-                "--disable-default-apps",
-                "--disable-sync",
-                "--disable-translate",
-                "--no-first-run",
-                "--remote-allow-origins=*",
-                f"--remote-debugging-port={self._debug_port}",
-                f"--user-data-dir={self._profile_dir}",
-                "about:blank",
-            ],
+        result = subprocess.run(
+            cmd,
+            timeout=30,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
         )
 
-        for _ in range(40):
-            try:
-                with urllib.request.urlopen(
-                    f"http://127.0.0.1:{self._debug_port}/json/version", timeout=1
-                ) as r:
-                    if r.status == 200:
-                        log.info(f"Chrome pool iniciado (pid={self._proc.pid}, porta={self._debug_port})")
-                        return
-            except Exception:
-                pass
-            time.sleep(0.25)
+        if result.returncode != 0:
+            stderr_msg = (result.stderr or b"").decode("utf-8", errors="replace").strip()
+            if stderr_msg:
+                log.warning(f"[{job_id}] Chrome stderr: {stderr_msg[:300]}")
 
-        self._kill()
-        raise RuntimeError("Chrome não respondeu na porta de debug em 10s")
+        if not os.path.exists(pdf_path) or os.path.getsize(pdf_path) == 0:
+            raise RuntimeError("Chrome não gerou o arquivo PDF")
 
-    def _ensure_running(self):
-        needs_restart = False
-        if not self._is_alive():
-            log.info("Chrome pool: processo morreu, reiniciando...")
-            needs_restart = True
-        elif self._jobs_count >= self.MAX_JOBS_BEFORE_RESTART:
-            log.info(f"Chrome pool: {self._jobs_count} jobs atingido, reciclando...")
-            needs_restart = True
-        elif not self._is_responsive():
-            log.warning("Chrome pool: processo vivo mas não responsivo, reiniciando...")
-            needs_restart = True
+        return True
 
-        if needs_restart:
-            self._kill()
-            self._start_chrome()
-
-    def _kill(self):
-        if self._proc is not None:
-            try:
-                self._proc.terminate()
-                self._proc.wait(timeout=5)
-            except Exception:
-                try:
-                    self._proc.kill()
-                    self._proc.wait(timeout=3)
-                except Exception:
-                    pass
-            self._proc = None
-            self._debug_port = None
-
-    def _get_page_ws_url(self) -> str:
-        import urllib.request
-        try:
-            with urllib.request.urlopen(
-                f"http://127.0.0.1:{self._debug_port}/json/list", timeout=5
-            ) as r:
-                targets = json.loads(r.read())
-        except Exception as e:
-            raise RuntimeError(f"Falha ao listar abas do Chrome: {e}")
-
-        for t in targets:
-            if t.get("type") == "page":
-                return t["webSocketDebuggerUrl"]
-
-        try:
-            with urllib.request.urlopen(
-                f"http://127.0.0.1:{self._debug_port}/json/new?about:blank", timeout=5
-            ) as r:
-                new_tab = json.loads(r.read())
-                return new_tab["webSocketDebuggerUrl"]
-        except Exception as e:
-            raise RuntimeError(f"Falha ao criar nova aba: {e}")
-
-    def generate_pdf(self, html_url: str, job_id: str) -> bytes:
-        import base64
-        import websocket as _ws
-
-        with self._lock:
-            self._ensure_running()
-
-            ws_url = self._get_page_ws_url()
-
-            conn = _ws.create_connection(ws_url, timeout=30)
-            try:
-                enable_id = self._next_id()
-                conn.send(json.dumps({"id": enable_id, "method": "Page.enable"}))
-
-                _resp_deadline = time.time() + 3
-                while time.time() < _resp_deadline:
-                    try:
-                        conn.settimeout(max(0.1, _resp_deadline - time.time()))
-                        msg = json.loads(conn.recv())
-                        if msg.get("id") == enable_id:
-                            break
-                    except Exception:
-                        break
-
-                nav_id = self._next_id()
-                conn.send(json.dumps({
-                    "id": nav_id,
-                    "method": "Page.navigate",
-                    "params": {"url": html_url},
-                }))
-
-                deadline = time.time() + 10
-                nav_confirmed = False
-                while time.time() < deadline:
-                    try:
-                        conn.settimeout(max(0.1, deadline - time.time()))
-                        msg = json.loads(conn.recv())
-                        if msg.get("method") == "Page.loadEventFired":
-                            nav_confirmed = True
-                            break
-                        if msg.get("id") == nav_id:
-                            err = msg.get("error")
-                            if err:
-                                raise RuntimeError(f"Navegação falhou: {err.get('message', err)}")
-                    except RuntimeError:
-                        raise
-                    except Exception:
-                        break
-
-                if not nav_confirmed:
-                    raise RuntimeError("Página não carregou dentro do timeout de navegação")
-
-                time.sleep(0.15)
-
-                pdf_id = self._next_id()
-                conn.send(json.dumps({
-                    "id": pdf_id,
-                    "method": "Page.printToPDF",
-                    "params": {
-                        "printBackground": True,
-                        "preferCSSPageSize": True,
-                    },
-                }))
-
-                deadline2 = time.time() + 20
-                while time.time() < deadline2:
-                    try:
-                        conn.settimeout(max(0.1, deadline2 - time.time()))
-                        msg = json.loads(conn.recv())
-                        if msg.get("id") == pdf_id:
-                            err = msg.get("error")
-                            if err:
-                                raise RuntimeError(f"printToPDF erro: {err.get('message', err)}")
-                            data_b64 = msg.get("result", {}).get("data", "")
-                            if not data_b64:
-                                raise RuntimeError("printToPDF retornou vazio")
-                            self._jobs_count += 1
-                            return base64.b64decode(data_b64)
-                    except RuntimeError:
-                        raise
-                    except Exception:
-                        break
-
-                raise RuntimeError("Timeout aguardando printToPDF")
-
-            except Exception:
-                log.warning(f"[{job_id}] Erro no CDP, forçando reinício do Chrome pool")
-                self._kill()
-                raise
-
-            finally:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
-
-    def shutdown(self):
-        self._kill()
+    finally:
         import shutil
         try:
-            if os.path.exists(self._profile_dir):
-                shutil.rmtree(self._profile_dir, ignore_errors=True)
+            if os.path.exists(profile_dir):
+                shutil.rmtree(profile_dir, ignore_errors=True)
         except Exception:
             pass
-
-
-_chrome_pool = _ChromePool()
-
-import atexit
-atexit.register(_chrome_pool.shutdown)
 
 
 # ── Limpeza de arquivos temporários antigos na inicialização ──────────────────
@@ -459,7 +267,7 @@ _cleanup_stale_temp_files()
 # ── Impressão ─────────────────────────────────────────────────────────────────
 
 def print_html(html: str, printer: str, copies: int) -> dict:
-    """Converts HTML to PDF via persistent Chrome (CDP), then sends to printer via SumatraPDF."""
+    """Converts HTML to PDF via Chrome CLI (--print-to-pdf), then sends to printer via SumatraPDF."""
     tmp = tempfile.gettempdir()
     job_id = os.urandom(4).hex()
     html_filename = f"stoker_{job_id}.html"
@@ -470,34 +278,21 @@ def print_html(html: str, printer: str, copies: int) -> dict:
         with open(html_path, "w", encoding="utf-8") as f:
             f.write(html)
 
-        # Servidor HTTP persistente — inicia uma vez, reutiliza entre jobs
         port = _http_server.ensure_running(tmp)
         html_url = f"http://127.0.0.1:{port}/{html_filename}"
 
-        log.info(f"[{job_id}] Gerando PDF via CDP para impressora '{printer}' x{copies}")
+        log.info(f"[{job_id}] Gerando PDF via Chrome CLI para impressora '{printer}' x{copies}")
 
         t_start = time.time()
-        pdf_bytes = None
-        last_err = None
-        for attempt in range(1, 4):
-            try:
-                pdf_bytes = _chrome_pool.generate_pdf(html_url, job_id)
-                break
-            except Exception as e:
-                last_err = e
-                if attempt < 3:
-                    log.warning(f"[{job_id}] CDP tentativa {attempt} falhou: {e} — retentando em 1s...")
-                    time.sleep(1)
-                else:
-                    log.error(f"[{job_id}] CDP falhou após {attempt} tentativas: {e}")
+        try:
+            generate_pdf_via_chrome(html_url, pdf_path, job_id)
+        except Exception as e:
+            log.error(f"[{job_id}] Falha ao gerar PDF: {e}")
+            return {"success": False, "error": f"Falha ao gerar PDF: {e}"}
 
-        if pdf_bytes is None:
-            return {"success": False, "error": f"Falha ao gerar PDF após 3 tentativas: {last_err}"}
-
-        with open(pdf_path, "wb") as f:
-            f.write(pdf_bytes)
+        pdf_size = os.path.getsize(pdf_path)
         t_pdf = time.time() - t_start
-        log.info(f"[{job_id}] PDF gerado ({len(pdf_bytes)} bytes, {t_pdf:.1f}s)")
+        log.info(f"[{job_id}] PDF gerado ({pdf_size} bytes, {t_pdf:.1f}s)")
 
         sumatra = find_sumatra()
         if not sumatra:
