@@ -9,7 +9,7 @@ import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import {
-    ArrowLeft, Plus, Trash2, Wifi, WifiOff, Printer, Copy, RefreshCw, Power, AlertCircle
+    ArrowLeft, Plus, Trash2, Wifi, WifiOff, Printer, Copy, RefreshCw, Power, AlertCircle, KeyRound
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -29,6 +29,29 @@ interface PrintAgent {
     online: boolean;
     printers: AgentPrinter[];
     lastPing: string | null;
+}
+
+function copyToClipboard(text: string): Promise<void> {
+    if (navigator.clipboard && window.isSecureContext) {
+        return navigator.clipboard.writeText(text);
+    }
+    return new Promise((resolve, reject) => {
+        try {
+            const ta = document.createElement("textarea");
+            ta.value = text;
+            ta.style.position = "fixed";
+            ta.style.left = "-9999px";
+            ta.style.top = "-9999px";
+            document.body.appendChild(ta);
+            ta.focus();
+            ta.select();
+            const ok = document.execCommand("copy");
+            document.body.removeChild(ta);
+            ok ? resolve() : reject(new Error("execCommand failed"));
+        } catch (e) {
+            reject(e);
+        }
+    });
 }
 
 export default function PrintAgentsPage() {
@@ -69,10 +92,20 @@ export default function PrintAgentsPage() {
         onError: () => toast({ title: "Erro ao atualizar agente", variant: "destructive" }),
     });
 
+    const regenerateMutation = useMutation({
+        mutationFn: (id: string) => apiRequest("POST", `/api/print-agents/${id}/regenerate-token`),
+        onSuccess: async (res) => {
+            const data = await res.json();
+            setNewToken({ id: data.id, name: data.name, token: data.token });
+            toast({ title: "Novo token gerado!", description: `Atualize o config.ini do agente "${data.name}".` });
+        },
+        onError: () => toast({ title: "Erro ao regenerar token", variant: "destructive" }),
+    });
+
     const copyToken = (token: string) => {
-        navigator.clipboard.writeText(token).then(() =>
-            toast({ title: "Token copiado!" })
-        );
+        copyToClipboard(token)
+            .then(() => toast({ title: "Token copiado!" }))
+            .catch(() => toast({ title: "Não foi possível copiar automaticamente", description: "Selecione o token e use Ctrl+C.", variant: "destructive" }));
     };
 
     const formatDate = (d: string | null) => {
@@ -146,21 +179,24 @@ export default function PrintAgentsPage() {
                     </CardContent>
                 </Card>
 
-                {/* Token gerado — mostrado uma única vez */}
+                {/* Token gerado — mostrado após criar ou regenerar */}
                 {newToken && (
                     <Card className="border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-950/30">
                         <CardContent className="p-4 space-y-3">
                             <div className="flex items-center gap-2">
                                 <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
                                 <span className="font-semibold text-green-800 dark:text-green-200">
-                                    Token gerado para "{newToken.name}" — copie agora!
+                                    Token para "{newToken.name}" — copie agora!
                                 </span>
                             </div>
                             <p className="text-xs text-green-700 dark:text-green-300">
                                 Este token só é exibido uma vez. Cole no <code>config.ini</code> do agente.
                             </p>
                             <div className="flex gap-2 items-center">
-                                <code className="flex-1 bg-white dark:bg-black border border-green-300 dark:border-green-700 rounded px-3 py-2 text-sm font-mono break-all select-all">
+                                <code
+                                    className="flex-1 bg-white dark:bg-black border border-green-300 dark:border-green-700 rounded px-3 py-2 text-sm font-mono break-all select-all cursor-text"
+                                    data-testid="text-agent-token"
+                                >
                                     {newToken.token}
                                 </code>
                                 <Button
@@ -169,6 +205,7 @@ export default function PrintAgentsPage() {
                                     onClick={() => copyToken(newToken.token)}
                                     className="shrink-0"
                                     data-testid="btn-copy-token"
+                                    title="Copiar token"
                                 >
                                     <Copy className="h-4 w-4" />
                                 </Button>
@@ -264,7 +301,21 @@ export default function PrintAgentsPage() {
                                             </div>
                                         </div>
 
-                                        <div className="flex gap-2 shrink-0">
+                                        <div className="flex gap-2 shrink-0 flex-wrap justify-end">
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={() => {
+                                                    if (confirm(`Regenerar token do agente "${agent.name}"?\nO token atual deixará de funcionar imediatamente.`)) {
+                                                        regenerateMutation.mutate(agent.id);
+                                                    }
+                                                }}
+                                                disabled={regenerateMutation.isPending}
+                                                title="Regenerar token"
+                                                data-testid={`btn-regen-token-${agent.id}`}
+                                            >
+                                                <KeyRound className="h-4 w-4" />
+                                            </Button>
                                             <Button
                                                 size="sm"
                                                 variant="outline"

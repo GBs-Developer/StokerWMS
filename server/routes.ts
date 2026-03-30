@@ -3835,6 +3835,22 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/print-agents/:id/regenerate-token", isAuthenticated, requireCompany, requireRole("administrador"), async (req: Request, res: Response) => {
+    try {
+      const { printAgents: agentsTable } = await import("@shared/schema");
+      const { eq: eqFn, and: andFn } = await import("drizzle-orm");
+      const companyId = (req as any).companyId as number;
+      const [current] = await db.select().from(agentsTable).where(andFn(eqFn(agentsTable.id, req.params.id), eqFn(agentsTable.companyId, companyId))).limit(1);
+      if (!current) return res.status(404).json({ error: "Agente não encontrado" });
+      const token = crypto.randomBytes(32).toString("hex");
+      const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+      await db.update(agentsTable).set({ tokenHash }).where(eqFn(agentsTable.id, req.params.id));
+      res.json({ token, id: current.id, name: current.name });
+    } catch (err: any) {
+      res.status(500).json({ error: "Erro ao regenerar token" });
+    }
+  });
+
   app.patch("/api/print-agents/:id/toggle", isAuthenticated, requireCompany, requireRole("administrador"), async (req: Request, res: Response) => {
     try {
       const { printAgents: agentsTable } = await import("@shared/schema");
