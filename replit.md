@@ -65,6 +65,16 @@ Routes are registered in `server/routes.ts` (legacy + auth) and `server/wms-rout
 - **Print config cache**: cleared (`invalidatePrintConfigCache`) on every logout/session clear to prevent user-A's config leaking to user-B on the same tab
 - **ErrorBoundary**: global class component wraps the entire App, shows a friendly error screen + reload button on any uncaught React render error
 
+### Print Agent Architecture
+- **Agent** (`print-agent/agent.py`): Python process running on Windows machines with printers. Connects outbound to the server via WebSocket.
+- **PDF generation**: ReportLab (native, no browser) for structured templates (`volume_label`, `pallet_label`). xhtml2pdf as fallback for legacy HTML jobs.
+- **Protocol**: Frontend sends `template` + `data` (JSON) to `/api/print/job` → server routes to agent via WS → agent renders PDF with ReportLab → prints via SumatraPDF.
+- **Dependencies**: `pip install websocket-client reportlab xhtml2pdf` (see `print-agent/requirements.txt`)
+- **Two print paths in the app**:
+  1. `window.open()` + `window.print()` — supervisor reports (orders, exceptions, routes). Browser-native, no agent needed.
+  2. `usePrint` hook → `/api/print/job` → agent — labels (volume, pallet). Uses ReportLab templates.
+- **usePrint hook** (`client/src/hooks/use-print.ts`): Fire-and-forget with 5s cooldown. Accepts `print(null, printType, { template, data })` for ReportLab or `print(html, printType)` for legacy HTML.
+
 ### Multi-Company Architecture
 - Companies: ID 1 ("Empresa 1"), ID 3 ("Empresa 3")
 - `companyId` flows from login → session → all requests via `requireCompany` middleware

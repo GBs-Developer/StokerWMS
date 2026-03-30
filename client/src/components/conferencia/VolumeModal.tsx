@@ -237,83 +237,32 @@ export function VolumeModal({ open, onClose, defaultErpOrderId }: VolumeModalPro
     const adjust = (key: keyof typeof counts, delta: number) =>
         setCounts(prev => ({ ...prev, [key]: Math.max(0, prev[key] + delta) }));
 
-    const buildVolumesHtml = (): string => {
-        if (total === 0 || !order) return "";
-        const op  = user?.name || user?.username || "—";
+    const buildVolumeData = (): { template: string; data: Record<string, unknown> } | null => {
+        if (total === 0 || !order) return null;
+        const op = user?.name || user?.username || "—";
         const now = new Date();
         const dStr = now.toLocaleDateString("pt-BR");
         const tStr = now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-        const esc = (s?: string | null) => (s || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
         const addressLine = [order.address, order.addressNumber ? `nº ${order.addressNumber}` : ""].filter(Boolean).join(", ");
         const cityLine = [order.city, order.state].filter(Boolean).join(" - ");
-        const labels = Array.from({ length: total }, (_, i) => {
-            const volNum = i + 1;
-            const barcode = `${order.erpOrderId}${String(volNum).padStart(3, "0")}`;
-            return `
-<div class="label">
-  <div class="hdr">
-    <div class="hdr-left"><div class="hdr-tag">PEDIDO</div><div class="hdr-os">${esc(order.erpOrderId)}</div></div>
-    <div class="hdr-right"><div class="hdr-tag" style="text-align:right">VOLUME</div><div class="hdr-vol">${volNum}<span class="hdr-vol-total"> / ${total}</span></div></div>
-  </div>
-  <div class="two-col">
-    <div class="col-cell"><div class="field-label">ROTA ID</div><div class="col-val">${esc(routeCode) || "—"}</div></div>
-    <div class="col-cell col-right"><div class="field-label" style="text-align:right">PACOTE ID</div><div class="col-val" style="text-align:right">${volNum}</div></div>
-  </div>
-  <div class="section customer-section">
-    <div class="field-label">DESTINATÁRIO</div>
-    <div class="customer-name">${esc(order.customerName || "—")}</div>
-    ${addressLine ? `<div class="address-line">${esc(addressLine)}</div>` : ""}
-    ${order.neighborhood ? `<div class="address-line">${esc(order.neighborhood)}</div>` : ""}
-    ${cityLine ? `<div class="address-line city-line">${esc(cityLine)}</div>` : ""}
-  </div>
-  <div class="pkg-row">
-    <div class="pkg-cell"><div class="pkg-label">SACOLA</div><div class="pkg-val">${counts.sacola}</div></div>
-    <div class="pkg-cell"><div class="pkg-label">CAIXA</div><div class="pkg-val">${counts.caixa}</div></div>
-    <div class="pkg-cell"><div class="pkg-label">SACO</div><div class="pkg-val">${counts.saco}</div></div>
-    <div class="pkg-cell"><div class="pkg-label">AVULSO</div><div class="pkg-val">${counts.avulso}</div></div>
-  </div>
-  <div class="volume-center">
-    <div class="vol-label">VOLUME</div>
-    <div class="vol-num">${volNum}<span class="vol-total"> / ${total}</span></div>
-  </div>
-  <div class="footer">
-    <div class="footer-row">
-      <div class="footer-item"><span class="footer-label">CONFERIDO POR</span><span class="footer-val">${esc(op)}</span></div>
-      <div class="footer-item footer-right"><span class="footer-label">DATA/HORA</span><span class="footer-val">${esc(dStr)} ${esc(tStr)}</span></div>
-    </div>
-  </div>
-  <div class="barcode-area">
-    <div class="barcode">${esc(barcode)}</div>
-  </div>
-</div>`;
-        }).join("");
-        return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
-<link href="https://fonts.googleapis.com/css2?family=Libre+Barcode+128+Text&display=swap" rel="stylesheet">
-<style>
-@page{size:10cm 15cm;margin:0}*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;background:#fff;font-size:11px;color:#000}
-.label{width:10cm;height:15cm;border:1.5px solid #000;page-break-after:always;display:flex;flex-direction:column;overflow:hidden}.label:last-child{page-break-after:avoid}
-.hdr{background:#111;color:#fff;display:flex;justify-content:space-between;align-items:flex-end;padding:5px 8px;border-bottom:2px solid #000}
-.hdr-left,.hdr-right{display:flex;flex-direction:column}.hdr-right{align-items:flex-end}
-.hdr-tag{font-size:8px;color:#aaa;letter-spacing:.5px;text-transform:uppercase}.hdr-os{font-size:18px;font-weight:bold;line-height:1}
-.hdr-vol{font-size:32px;font-weight:900;line-height:1}.hdr-vol-total{font-size:16px;font-weight:400;color:#aaa}
-.two-col{display:flex;border-bottom:1px solid #ccc}.col-cell{flex:1;padding:4px 8px}.col-right{border-left:1px solid #ccc}
-.field-label{font-size:7.5px;color:#777;text-transform:uppercase;letter-spacing:.5px;margin-bottom:1px}.col-val{font-size:13px;font-weight:bold}
-.section{padding:5px 8px;border-bottom:1px solid #ccc}.customer-section{background:#f7faff}
-.customer-name{font-size:13px;font-weight:bold;line-height:1.2;margin-bottom:2px}.address-line{font-size:10px;color:#333;line-height:1.3}.city-line{font-weight:600}
-.volume-center{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;border-bottom:1px solid #ccc;padding:4px}
-.vol-label{font-size:9px;color:#777;text-transform:uppercase;letter-spacing:1px}.vol-num{font-size:52px;font-weight:900;line-height:1;color:#111}.vol-total{font-size:26px;font-weight:400;color:#555}
-.footer{padding:5px 8px;background:#f0f4f8;border-bottom:1px solid #ccc}
-.footer-row{display:flex;justify-content:space-between;align-items:flex-start}
-.footer-item{display:flex;flex-direction:column}.footer-right{align-items:flex-end}
-.footer-label{font-size:7.5px;color:#888;text-transform:uppercase}.footer-val{font-size:10px;font-weight:bold;color:#111}
-.pkg-row{display:flex;border-bottom:1px solid #ccc;background:#fafafa}
-.pkg-cell{flex:1;padding:3px 4px;text-align:center;border-right:1px solid #ccc}.pkg-cell:last-child{border-right:0}
-.pkg-label{font-size:7px;color:#888;text-transform:uppercase;letter-spacing:.5px}.pkg-val{font-size:15px;font-weight:900;color:#111}
-.barcode-area{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:4px 8px 3px}
-.barcode{font-family:'Libre Barcode 128 Text',monospace;font-size:48px;line-height:1;white-space:nowrap;max-width:100%;overflow:hidden}
-</style>
-<script>window.onload=function(){window.print();}</script>
-</head><body>${labels}</body></html>`;
+
+        const volumes = Array.from({ length: total }, (_, i) => ({
+            erpOrderId: order.erpOrderId,
+            volumeNumber: i + 1,
+            totalVolumes: total,
+            routeCode: routeCode || "—",
+            customerName: order.customerName || "—",
+            address: addressLine,
+            neighborhood: order.neighborhood || "",
+            cityState: cityLine,
+            operator: op,
+            date: dStr,
+            time: tStr,
+            counts: { ...counts },
+            barcode: `${order.erpOrderId}${String(i + 1).padStart(3, "0")}`,
+        }));
+
+        return { template: "volume_label", data: { volumes } };
     };
 
     const headerGradient = "bg-gradient-to-br from-[hsl(222,47%,14%)] via-[hsl(217,60%,28%)] to-[hsl(199,89%,30%)]";
@@ -565,7 +514,7 @@ export function VolumeModal({ open, onClose, defaultErpOrderId }: VolumeModalPro
                                     variant="outline"
                                     size="sm"
                                     className="h-12 px-4 shrink-0 gap-2 rounded-xl"
-                                    onClick={() => printVolume(buildVolumesHtml(), "volume_label")}
+                                    onClick={() => { const vd = buildVolumeData(); if (vd) printVolume(null, "volume_label", vd); }}
                                     disabled={saveMutation.isPending || printing || cooldownSeconds > 0}
                                     title={cooldownSeconds > 0 ? `Aguarde ${cooldownSeconds}s` : "Imprimir etiquetas"}
                                     data-testid="btn-volume-print"

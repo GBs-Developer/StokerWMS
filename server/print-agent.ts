@@ -86,17 +86,16 @@ export function parseAgentPrinter(printerName: string): { machineId: string; pri
   };
 }
 
-/** Send an HTML print job to an agent. Returns result or error — never throws. */
+/** Send a print job to an agent. Supports template+data (ReportLab) or html (legacy). */
 export async function printViaAgent(
   companyId: number,
   machineId: string,
   printer: string,
-  html: string,
   copies: number,
-  user: string
+  user: string,
+  payload: { html?: string; template?: string; data?: Record<string, unknown> }
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    // Find connected agent
     const agent = [...agents.values()].find(
       a => a.companyId === companyId && a.machineId.toLowerCase() === machineId.toLowerCase()
     );
@@ -110,26 +109,26 @@ export async function printViaAgent(
     }
 
     const jobId = crypto.randomUUID().slice(0, 8);
-    log(`[agent] Job #${jobId} → ${machineId}\\${printer} x${copies} (${user})`, "print");
+    const label = payload.template || "html";
+    log(`[agent] Job #${jobId} → ${machineId}\\${printer} x${copies} [${label}] (${user})`, "print");
 
     return await new Promise<{ success: boolean; error?: string }>((resolve) => {
-      // Timeout: 60s for the agent to respond
       const timeoutId = setTimeout(() => {
         pendingJobs.delete(jobId);
         log(`[agent] Job #${jobId} TIMEOUT (${machineId}\\${printer})`, "print");
         resolve({ success: false, error: "Timeout: agente não respondeu em 60s." });
       }, 60_000);
 
-      pendingJobs.set(jobId, { resolve, timeoutId, agentId: registeredAgentId ?? "" });
+      pendingJobs.set(jobId, { resolve, timeoutId, agentId: agent.agentId });
 
       try {
         agent.ws.send(JSON.stringify({
           type: "print",
           jobId,
           printer,
-          html,
           copies: Math.max(1, Math.min(copies, 99)),
           user,
+          ...payload,
         }));
       } catch (sendErr: any) {
         clearTimeout(timeoutId);
@@ -138,7 +137,6 @@ export async function printViaAgent(
       }
     });
   } catch (err: any) {
-    // Never propagate to main server
     log(`[agent] printViaAgent erro inesperado: ${err.message}`, "print");
     return { success: false, error: `Erro interno no agente: ${err.message}` };
   }

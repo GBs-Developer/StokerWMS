@@ -237,20 +237,24 @@ export function registerPrintRoutes(app: Express) {
    *  - Impressoras locais: responde 202 e executa Chrome em background.
    *  - Impressoras de agente (MACHINE\\Printer): roteia via WebSocket. */
   app.post("/api/print/job", isAuthenticated, async (req: Request, res: Response) => {
-    const { html, printer, copies = 1 } = req.body as {
-      html: string;
+    const { html, printer, copies = 1, template, data } = req.body as {
+      html?: string;
       printer: string;
       copies?: number;
+      template?: string;
+      data?: Record<string, unknown>;
     };
 
-    if (!html || !printer) {
-      res.status(400).json({ success: false, error: "Campos obrigatórios: html, printer" });
+    const hasTemplate = template && data;
+    const hasHtml = !!html;
+
+    if (!printer || (!hasTemplate && !hasHtml)) {
+      res.status(400).json({ success: false, error: "Campos obrigatórios: printer + (template+data ou html)" });
       return;
     }
 
     const username = resolveUsername(req);
 
-    // ── Agente remoto ──────────────────────────────────────────────────────
     if (isAgentPrinter(printer)) {
       const parsed = parseAgentPrinter(printer);
       if (!parsed) {
@@ -264,16 +268,17 @@ export function registerPrintRoutes(app: Express) {
         return;
       }
 
-      // Responde imediatamente e processa em background
       res.status(202).json({ success: true, queued: true, agent: parsed.machineId });
+
+      const payload = hasTemplate ? { template, data } : { html };
 
       printViaAgent(
         companyId,
         parsed.machineId,
         parsed.printer,
-        html,
         Math.max(1, Math.min(copies, 99)),
-        username
+        username,
+        payload as { html?: string; template?: string; data?: Record<string, unknown> }
       ).catch((err: Error) => {
         log(`[agent] Erro em background: ${err.message}`, "print");
       });
@@ -281,10 +286,15 @@ export function registerPrintRoutes(app: Express) {
     }
 
     // ── Impressora local do servidor ───────────────────────────────────────
+    if (!hasHtml) {
+      res.status(400).json({ success: false, error: "Impressora local só suporta HTML. Templates (ReportLab) requerem agente." });
+      return;
+    }
+
     res.status(202).json({ success: true, queued: true });
 
     printHtmlToPrinter(
-      html,
+      html!,
       printer,
       Math.max(1, Math.min(copies, 99)),
       username

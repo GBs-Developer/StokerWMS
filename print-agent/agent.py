@@ -2,11 +2,14 @@
 Stoker WMS — Print Agent
 Connects to the main server via WebSocket and handles local print jobs.
 
-Requirements: websocket-client, xhtml2pdf
-Optional: pywin32 (for win32print printer listing)
+PDF generation via ReportLab (native, no browser needed).
+Fallback to xhtml2pdf for legacy HTML jobs.
+
+Requirements: websocket-client, reportlab
+Optional: xhtml2pdf (for legacy HTML), pywin32 (for printer listing)
 Python 3.8+
 
-Install: pip install websocket-client xhtml2pdf
+Install: pip install websocket-client reportlab xhtml2pdf
 """
 
 import sys
@@ -69,16 +72,15 @@ WS_URL = SERVER_BASE.replace("https://", "wss://").replace("http://", "ws://") +
 # ── Validação de dependências na inicialização ────────────────────────────────
 
 def _check_dependencies():
-    """Verifica se todas as dependências estão instaladas antes de iniciar."""
     missing = []
     try:
         import websocket  # noqa: F401
     except ImportError:
         missing.append("websocket-client")
     try:
-        from xhtml2pdf import pisa  # noqa: F401
+        from reportlab.lib.pagesizes import A4  # noqa: F401
     except ImportError:
-        missing.append("xhtml2pdf")
+        missing.append("reportlab")
     if missing:
         log.error(f"Dependências faltando: {', '.join(missing)}")
         log.error(f"Execute: pip install {' '.join(missing)}")
@@ -90,7 +92,6 @@ _check_dependencies()
 # ── Printer detection (Windows) ────────────────────────────────────────────────
 
 def get_printers():
-    """Returns list of installed printers on this Windows machine."""
     printers = []
     try:
         import win32print
@@ -116,10 +117,385 @@ def get_printers():
         log.warning(f"Erro ao listar impressoras: {e}")
     return printers
 
-# ── HTML → PDF via xhtml2pdf (sem Chrome, sem navegador) ──────────────────────
+
+# ── ReportLab Templates ───────────────────────────────────────────────────────
+
+def _render_volume_label(data: dict, pdf_path: str) -> bool:
+    """Renderiza etiquetas de volume usando ReportLab (nativo, sem browser)."""
+    from reportlab.lib.pagesizes import landscape
+    from reportlab.lib.units import cm, mm
+    from reportlab.lib.colors import HexColor, black, white
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    from reportlab.graphics.barcode import code128
+
+    PAGE_W = 10 * cm
+    PAGE_H = 15 * cm
+
+    volumes = data.get("volumes", [])
+    if not volumes:
+        raise RuntimeError("Nenhum volume para imprimir")
+
+    c = canvas.Canvas(pdf_path, pagesize=(PAGE_W, PAGE_H))
+
+    for vol in volumes:
+        _draw_single_volume(c, vol, PAGE_W, PAGE_H, cm, mm, HexColor, black, white, code128)
+        c.showPage()
+
+    c.save()
+    return True
+
+
+def _draw_single_volume(c, vol, PAGE_W, PAGE_H, cm, mm, HexColor, black, white, code128):
+    """Desenha uma etiqueta de volume em uma página."""
+    erp_order = vol.get("erpOrderId", "—")
+    vol_num = vol.get("volumeNumber", 1)
+    vol_total = vol.get("totalVolumes", 1)
+    route = vol.get("routeCode", "—")
+    customer = vol.get("customerName", "—")
+    address = vol.get("address", "")
+    neighborhood = vol.get("neighborhood", "")
+    city_state = vol.get("cityState", "")
+    operator = vol.get("operator", "—")
+    date_str = vol.get("date", "")
+    time_str = vol.get("time", "")
+    counts = vol.get("counts", {})
+    barcode_text = vol.get("barcode", f"{erp_order}{str(vol_num).zfill(3)}")
+
+    y = PAGE_H
+
+    # ── Header (fundo escuro) ───────────────────────────────────────────
+    header_h = 22 * mm
+    c.setFillColor(HexColor("#111111"))
+    c.rect(0, y - header_h, PAGE_W, header_h, fill=1, stroke=0)
+
+    c.setFillColor(white)
+    c.setFont("Helvetica", 7)
+    c.drawString(3 * mm, y - 6 * mm, "PEDIDO")
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(3 * mm, y - 14 * mm, str(erp_order))
+
+    c.setFont("Helvetica", 7)
+    c.drawRightString(PAGE_W - 3 * mm, y - 6 * mm, "VOLUME")
+    c.setFont("Helvetica-Bold", 26)
+    vol_text = str(vol_num)
+    total_text = f" / {vol_total}"
+    vol_w = c.stringWidth(vol_text, "Helvetica-Bold", 26)
+    c.drawRightString(PAGE_W - 3 * mm, y - 18 * mm, vol_text + total_text)
+
+    y -= header_h
+
+    # ── Rota / Pacote ───────────────────────────────────────────────────
+    row_h = 12 * mm
+    c.setStrokeColor(HexColor("#cccccc"))
+    c.setLineWidth(0.5)
+    c.line(0, y - row_h, PAGE_W, y - row_h)
+    c.line(PAGE_W / 2, y, PAGE_W / 2, y - row_h)
+
+    c.setFillColor(HexColor("#777777"))
+    c.setFont("Helvetica", 6)
+    c.drawString(3 * mm, y - 4 * mm, "ROTA ID")
+    c.setFillColor(black)
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(3 * mm, y - 10 * mm, str(route) or "—")
+
+    c.setFillColor(HexColor("#777777"))
+    c.setFont("Helvetica", 6)
+    c.drawRightString(PAGE_W - 3 * mm, y - 4 * mm, "PACOTE ID")
+    c.setFillColor(black)
+    c.setFont("Helvetica-Bold", 11)
+    c.drawRightString(PAGE_W - 3 * mm, y - 10 * mm, str(vol_num))
+
+    y -= row_h
+
+    # ── Cliente ─────────────────────────────────────────────────────────
+    c.setStrokeColor(HexColor("#cccccc"))
+    c.setFillColor(HexColor("#f7faff"))
+    client_h = 22 * mm
+    c.rect(0, y - client_h, PAGE_W, client_h, fill=1, stroke=0)
+    c.line(0, y - client_h, PAGE_W, y - client_h)
+
+    c.setFillColor(HexColor("#777777"))
+    c.setFont("Helvetica", 6)
+    c.drawString(3 * mm, y - 4 * mm, "DESTINATÁRIO")
+
+    c.setFillColor(black)
+    c.setFont("Helvetica-Bold", 11)
+    name_text = customer[:40] if len(customer) > 40 else customer
+    c.drawString(3 * mm, y - 10 * mm, name_text)
+
+    c.setFont("Helvetica", 9)
+    line_y = y - 15 * mm
+    if address:
+        c.drawString(3 * mm, line_y, address[:50])
+        line_y -= 4 * mm
+    if neighborhood:
+        c.drawString(3 * mm, line_y, neighborhood[:40])
+        line_y -= 4 * mm
+    if city_state:
+        c.setFont("Helvetica-Bold", 9)
+        c.drawString(3 * mm, line_y, city_state[:40])
+
+    y -= client_h
+
+    # ── Contagem de embalagens ──────────────────────────────────────────
+    pkg_h = 12 * mm
+    pkg_types = [("SACOLA", counts.get("sacola", 0)), ("CAIXA", counts.get("caixa", 0)),
+                 ("SACO", counts.get("saco", 0)), ("AVULSO", counts.get("avulso", 0))]
+    col_w = PAGE_W / 4
+
+    c.setFillColor(HexColor("#fafafa"))
+    c.rect(0, y - pkg_h, PAGE_W, pkg_h, fill=1, stroke=0)
+
+    for i, (label, val) in enumerate(pkg_types):
+        cx = i * col_w + col_w / 2
+        if i > 0:
+            c.setStrokeColor(HexColor("#cccccc"))
+            c.line(i * col_w, y, i * col_w, y - pkg_h)
+        c.setFillColor(HexColor("#888888"))
+        c.setFont("Helvetica", 5.5)
+        c.drawCentredString(cx, y - 4 * mm, label)
+        c.setFillColor(black)
+        c.setFont("Helvetica-Bold", 13)
+        c.drawCentredString(cx, y - 10 * mm, str(val))
+
+    c.setStrokeColor(HexColor("#cccccc"))
+    c.line(0, y - pkg_h, PAGE_W, y - pkg_h)
+    y -= pkg_h
+
+    # ── Volume central grande ───────────────────────────────────────────
+    vol_center_h = 30 * mm
+    c.setStrokeColor(HexColor("#cccccc"))
+    c.line(0, y - vol_center_h, PAGE_W, y - vol_center_h)
+
+    center_x = PAGE_W / 2
+    c.setFillColor(HexColor("#777777"))
+    c.setFont("Helvetica", 8)
+    c.drawCentredString(center_x, y - 6 * mm, "VOLUME")
+
+    c.setFillColor(HexColor("#111111"))
+    c.setFont("Helvetica-Bold", 42)
+    big_text = str(vol_num)
+    c.drawCentredString(center_x - 8 * mm, y - 22 * mm, big_text)
+    c.setFillColor(HexColor("#555555"))
+    c.setFont("Helvetica", 22)
+    c.drawString(center_x + 2 * mm, y - 22 * mm, f"/ {vol_total}")
+
+    y -= vol_center_h
+
+    # ── Footer (operador + data) ────────────────────────────────────────
+    footer_h = 10 * mm
+    c.setFillColor(HexColor("#f0f4f8"))
+    c.rect(0, y - footer_h, PAGE_W, footer_h, fill=1, stroke=0)
+    c.setStrokeColor(HexColor("#cccccc"))
+    c.line(0, y - footer_h, PAGE_W, y - footer_h)
+
+    c.setFillColor(HexColor("#888888"))
+    c.setFont("Helvetica", 5.5)
+    c.drawString(3 * mm, y - 4 * mm, "CONFERIDO POR")
+    c.setFillColor(black)
+    c.setFont("Helvetica-Bold", 8)
+    c.drawString(3 * mm, y - 8.5 * mm, operator[:30])
+
+    c.setFillColor(HexColor("#888888"))
+    c.setFont("Helvetica", 5.5)
+    c.drawRightString(PAGE_W - 3 * mm, y - 4 * mm, "DATA/HORA")
+    c.setFillColor(black)
+    c.setFont("Helvetica-Bold", 8)
+    c.drawRightString(PAGE_W - 3 * mm, y - 8.5 * mm, f"{date_str} {time_str}")
+
+    y -= footer_h
+
+    # ── Código de barras ────────────────────────────────────────────────
+    remaining_h = y
+    barcode_y = remaining_h / 2 - 8 * mm
+
+    try:
+        bc = code128.Code128(barcode_text, barWidth=0.8 * mm, barHeight=14 * mm, humanReadable=True)
+        bc_w = bc.width
+        bc.drawOn(c, (PAGE_W - bc_w) / 2, barcode_y)
+    except Exception:
+        c.setFont("Courier-Bold", 14)
+        c.drawCentredString(PAGE_W / 2, barcode_y + 5 * mm, barcode_text)
+
+
+def _render_pallet_label(data: dict, pdf_path: str) -> bool:
+    """Renderiza etiqueta de pallet usando ReportLab."""
+    from reportlab.lib.units import cm, mm
+    from reportlab.lib.colors import HexColor, black, white
+    from reportlab.pdfgen import canvas
+
+    PAGE_W = 10 * cm
+    PAGE_H = 15 * cm
+
+    c = canvas.Canvas(pdf_path, pagesize=(PAGE_W, PAGE_H))
+    y = PAGE_H
+
+    pallet_code = data.get("palletCode", "—")
+    address = data.get("address", "—")
+    created_at = data.get("createdAt", "")
+    created_by = data.get("createdBy", "—")
+    printed_by = data.get("printedBy", "—")
+    items = data.get("items", [])
+    nf_ids = data.get("nfIds", [])
+    qr_data = data.get("qrData", "")
+
+    # ── Header ──────────────────────────────────────────────────────────
+    header_h = 24 * mm
+    c.setFont("Helvetica-Bold", 22)
+    c.setStrokeColor(black)
+    c.setLineWidth(1.5)
+    c.rect(3 * mm, y - header_h, PAGE_W - 6 * mm, 14 * mm, stroke=1, fill=0)
+    c.drawCentredString(PAGE_W / 2, y - 13 * mm, pallet_code)
+
+    c.setFont("Helvetica-Bold", 13)
+    c.drawCentredString(PAGE_W / 2, y - 21 * mm, address)
+
+    y -= header_h + 2 * mm
+
+    # ── QR Code (se disponível) ─────────────────────────────────────────
+    if qr_data:
+        try:
+            from reportlab.graphics.barcode.qr import QrCodeWidget
+            from reportlab.graphics.shapes import Drawing
+            from reportlab.graphics import renderPDF
+
+            qr = QrCodeWidget(qr_data)
+            qr.barWidth = 25 * mm
+            qr.barHeight = 25 * mm
+            d = Drawing(25 * mm, 25 * mm)
+            d.add(qr)
+            renderPDF.draw(d, c, (PAGE_W - 25 * mm) / 2, y - 27 * mm)
+            y -= 28 * mm
+        except Exception:
+            pass
+
+    # ── Meta ────────────────────────────────────────────────────────────
+    c.setStrokeColor(HexColor("#dddddd"))
+    c.line(3 * mm, y, PAGE_W - 3 * mm, y)
+    y -= 4 * mm
+
+    c.setFillColor(HexColor("#555555"))
+    c.setFont("Helvetica", 8)
+    meta = f"Criado: {created_at} | Por: {created_by} | Impresso: {printed_by}"
+    c.drawString(3 * mm, y, meta[:60])
+    y -= 6 * mm
+
+    # ── Itens ───────────────────────────────────────────────────────────
+    c.setStrokeColor(black)
+    c.line(3 * mm, y, PAGE_W - 3 * mm, y)
+    y -= 4 * mm
+
+    for item in items[:20]:
+        product = item.get("product", "")
+        erp_code = item.get("erpCode", "")
+        quantity = item.get("quantity", "")
+        unit = item.get("unit", "")
+        lot = item.get("lot", "")
+        expiry = item.get("expiryDate", "")
+
+        c.setFillColor(black)
+        c.setFont("Helvetica-Bold", 9)
+        c.drawString(3 * mm, y, product[:45])
+        y -= 4 * mm
+
+        detail = f"{erp_code} | {quantity} {unit}"
+        if lot:
+            detail += f" | Lote: {lot}"
+        if expiry:
+            detail += f" | Val: {expiry}"
+        c.setFont("Helvetica", 8)
+        c.drawString(3 * mm, y, detail[:60])
+        y -= 2 * mm
+
+        c.setStrokeColor(HexColor("#cccccc"))
+        c.setDash(2, 2)
+        c.line(3 * mm, y, PAGE_W - 3 * mm, y)
+        c.setDash()
+        y -= 3 * mm
+
+        if y < 10 * mm:
+            break
+
+    # ── NF ──────────────────────────────────────────────────────────────
+    if nf_ids:
+        y -= 2 * mm
+        c.setFillColor(HexColor("#333333"))
+        c.setFont("Helvetica", 8)
+        c.drawString(3 * mm, y, f"NF: {', '.join(str(n) for n in nf_ids[:10])}")
+
+    c.save()
+    return True
+
+
+# ── Geração de PDF (ReportLab nativo + fallback xhtml2pdf para HTML) ──────────
+
+_pdf_lock = threading.Lock()
+_PDF_TIMEOUT = 30
+
+def generate_pdf_from_template(template: str, data: dict, pdf_path: str, job_id: str) -> bool:
+    """Gera PDF usando ReportLab nativo (ultra-rápido, sem browser)."""
+    renderers = {
+        "volume_label": _render_volume_label,
+        "pallet_label": _render_pallet_label,
+    }
+
+    renderer = renderers.get(template)
+    if not renderer:
+        raise RuntimeError(f"Template desconhecido: {template}")
+
+    with _pdf_lock:
+        renderer(data, pdf_path)
+
+    if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 100:
+        return True
+
+    raise RuntimeError(f"ReportLab não gerou o PDF para template '{template}'")
+
+
+def _strip_external_fonts(html: str) -> str:
+    import re
+    html = re.sub(r'@font-face\s*\{[^}]*\}', '', html, flags=re.DOTALL | re.IGNORECASE)
+    html = re.sub(r'@import\s+url\([^)]*fonts[^)]*\)\s*;?', '', html, flags=re.IGNORECASE)
+    html = re.sub(r'<link[^>]*fonts\.googleapis\.com[^>]*/?\s*>', '', html, flags=re.IGNORECASE)
+    html = re.sub(r'<link[^>]*fonts\.gstatic\.com[^>]*/?\s*>', '', html, flags=re.IGNORECASE)
+    return html
+
+
+def generate_pdf_from_html(html_content: str, pdf_path: str, job_id: str) -> bool:
+    """Fallback: gera PDF via xhtml2pdf para jobs HTML legados."""
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+
+    def _worker():
+        import logging as _logging
+        _logging.getLogger("xhtml2pdf").setLevel(_logging.CRITICAL)
+        _logging.getLogger("reportlab").setLevel(_logging.CRITICAL)
+        _logging.getLogger("html5lib").setLevel(_logging.CRITICAL)
+        from xhtml2pdf import pisa
+        with open(pdf_path, "wb") as f:
+            pisa.CreatePDF(html_content, dest=f)
+        return os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 100
+
+    html_content = _strip_external_fonts(html_content)
+
+    with _pdf_lock:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_worker)
+            try:
+                ok = future.result(timeout=_PDF_TIMEOUT)
+            except FuturesTimeout:
+                raise RuntimeError(f"xhtml2pdf timeout ({_PDF_TIMEOUT}s)")
+
+    if ok:
+        return True
+    raise RuntimeError("xhtml2pdf não gerou o PDF")
+
+
+# ── Impressão (SumatraPDF ou ShellExecute) ─────────────────────────────────
 
 def find_sumatra():
-    """Finds SumatraPDF executable."""
     candidates = [
         r"C:\Program Files\SumatraPDF\SumatraPDF.exe",
         r"C:\Program Files (x86)\SumatraPDF\SumatraPDF.exe",
@@ -130,63 +506,82 @@ def find_sumatra():
             return c
     return None
 
-_pdf_lock = threading.Lock()
 
-def _strip_external_fonts(html: str) -> str:
-    """Remove @font-face rules and Google Fonts imports that xhtml2pdf can't handle."""
-    import re
-    html = re.sub(r'@font-face\s*\{[^}]*\}', '', html, flags=re.DOTALL | re.IGNORECASE)
-    html = re.sub(r'@import\s+url\([^)]*fonts[^)]*\)\s*;?', '', html, flags=re.IGNORECASE)
-    html = re.sub(r'<link[^>]*fonts\.googleapis\.com[^>]*/?\s*>', '', html, flags=re.IGNORECASE)
-    html = re.sub(r'<link[^>]*fonts\.gstatic\.com[^>]*/?\s*>', '', html, flags=re.IGNORECASE)
-    return html
+def _send_to_printer(pdf_path: str, printer: str, copies: int, job_id: str) -> dict:
+    """Envia PDF para a impressora via SumatraPDF ou ShellExecute."""
+    sumatra = find_sumatra()
+    if not sumatra:
+        try:
+            import win32api
+            for _ in range(max(1, min(copies, 99))):
+                win32api.ShellExecute(0, "print", pdf_path, f'"{printer}"', ".", 0)
+                time.sleep(0.3)
+            return {"success": True}
+        except ImportError:
+            return {"success": False, "error": "SumatraPDF não encontrado."}
 
-_PDF_TIMEOUT = 30
+    for i in range(max(1, min(copies, 99))):
+        r = subprocess.run(
+            [sumatra, "-print-to", printer, "-print-settings", "noscale", "-silent", pdf_path],
+            timeout=30, capture_output=True
+        )
+        if r.returncode != 0:
+            stderr_msg = (r.stderr or b"").decode("utf-8", errors="replace").strip()
+            return {"success": False, "error": f"SumatraPDF erro cópia {i+1}: {stderr_msg[:200]}"}
+        if copies > 1:
+            time.sleep(0.2)
 
-def _generate_pdf_worker(html_content: str, pdf_path: str) -> str:
-    """Worker que roda em thread separada para poder ter timeout."""
-    import logging as _logging
-    _logging.getLogger("xhtml2pdf").setLevel(_logging.CRITICAL)
-    _logging.getLogger("reportlab").setLevel(_logging.CRITICAL)
-    _logging.getLogger("html5lib").setLevel(_logging.CRITICAL)
-
-    from xhtml2pdf import pisa
-
-    with open(pdf_path, "wb") as pdf_file:
-        status = pisa.CreatePDF(html_content, dest=pdf_file)
-
-    if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 100:
-        return "ok"
-
-    return f"xhtml2pdf falhou (err={getattr(status, 'err', '?')})"
-
-def generate_pdf(html_content: str, pdf_path: str, job_id: str) -> bool:
-    """
-    Gera PDF a partir de HTML usando xhtml2pdf com timeout.
-    Sem Chrome, sem navegador, sem porta de debug, sem WebSocket.
-    """
-    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
-
-    html_content = _strip_external_fonts(html_content)
-
-    with _pdf_lock:
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(_generate_pdf_worker, html_content, pdf_path)
-            try:
-                result = future.result(timeout=_PDF_TIMEOUT)
-            except FuturesTimeout:
-                raise RuntimeError(f"xhtml2pdf timeout ({_PDF_TIMEOUT}s)")
-
-        if result == "ok":
-            return True
-
-        raise RuntimeError(result)
+    return {"success": True}
 
 
-# ── Limpeza de arquivos temporários antigos na inicialização ──────────────────
+def print_job(msg: dict) -> dict:
+    """Processa um job de impressão — template nativo (ReportLab) ou HTML legado (xhtml2pdf)."""
+    tmp = tempfile.gettempdir()
+    job_id = os.urandom(4).hex()
+    pdf_path = os.path.join(tmp, f"stoker_{job_id}.pdf")
+    printer = msg.get("printer", "")
+    copies = max(1, min(int(float(msg.get("copies", 1))), 99))
+
+    try:
+        t_start = time.time()
+
+        template = msg.get("template")
+        data = msg.get("data")
+        html = msg.get("html")
+
+        if template and data:
+            generate_pdf_from_template(template, data, pdf_path, job_id)
+            method = "ReportLab"
+        elif html:
+            generate_pdf_from_html(html, pdf_path, job_id)
+            method = "xhtml2pdf"
+        else:
+            return {"success": False, "error": "Job sem 'template'+'data' nem 'html'."}
+
+        result = _send_to_printer(pdf_path, printer, copies, job_id)
+        t_total = time.time() - t_start
+
+        if result["success"]:
+            log.info(f"[{job_id}] ✓ '{printer}' x{copies} ({method}, {t_total:.1f}s)")
+        else:
+            log.error(f"[{job_id}] ✗ {result.get('error', '?')}")
+
+        return result
+
+    except Exception as e:
+        log.error(f"[{job_id}] ✗ {e}")
+        return {"success": False, "error": str(e)}
+    finally:
+        try:
+            if os.path.exists(pdf_path):
+                os.remove(pdf_path)
+        except Exception:
+            pass
+
+
+# ── Limpeza de temporários ─────────────────────────────────────────────────────
 
 def _cleanup_stale_temp_files():
-    """Remove arquivos stoker_* com mais de 1 hora no temp."""
     tmp = tempfile.gettempdir()
     cutoff = time.time() - 3600
     try:
@@ -208,83 +603,6 @@ def _cleanup_stale_temp_files():
 _cleanup_stale_temp_files()
 
 
-# ── Impressão ─────────────────────────────────────────────────────────────────
-
-MAX_RETRIES = 2
-
-def print_html(html: str, printer: str, copies: int) -> dict:
-    """Converts HTML to PDF via xhtml2pdf (pure Python), then sends to printer."""
-    tmp = tempfile.gettempdir()
-    job_id = os.urandom(4).hex()
-    pdf_path = os.path.join(tmp, f"stoker_{job_id}.pdf")
-
-    try:
-        t_start = time.time()
-
-        last_error = None
-        for attempt in range(1, MAX_RETRIES + 1):
-            try:
-                if os.path.exists(pdf_path):
-                    os.remove(pdf_path)
-                generate_pdf(html, pdf_path, job_id)
-                last_error = None
-                break
-            except Exception as e:
-                last_error = e
-                if attempt < MAX_RETRIES:
-                    time.sleep(0.5)
-
-        if last_error:
-            log.error(f"[{job_id}] ✗ PDF falhou após {MAX_RETRIES} tentativas: {last_error}")
-            return {"success": False, "error": f"Falha ao gerar PDF: {last_error}"}
-
-        sumatra = find_sumatra()
-        if not sumatra:
-            try:
-                import win32api
-                for _ in range(max(1, min(copies, 99))):
-                    win32api.ShellExecute(0, "print", pdf_path, f'"{printer}"', ".", 0)
-                    time.sleep(0.3)
-                t_total = time.time() - t_start
-                log.info(f"[{job_id}] ✓ '{printer}' x{copies} ({t_total:.1f}s)")
-                return {"success": True}
-            except ImportError:
-                return {"success": False, "error": "SumatraPDF não encontrado. Baixe em https://www.sumatrapdfreader.org/"}
-
-        for i in range(max(1, min(copies, 99))):
-            sumatra_cmd = [
-                sumatra,
-                "-print-to", printer,
-                "-print-settings", "noscale",
-                "-silent",
-                pdf_path,
-            ]
-            r = subprocess.run(sumatra_cmd, timeout=30, capture_output=True)
-            if r.returncode != 0:
-                stderr_msg = (r.stderr or b"").decode("utf-8", errors="replace").strip()
-                detail = f" ({stderr_msg[:200]})" if stderr_msg else ""
-                log.error(f"[{job_id}] ✗ Falha na impressão cópia {i+1}{detail}")
-                return {"success": False, "error": f"SumatraPDF retornou erro na cópia {i+1}.{detail}"}
-            if copies > 1:
-                time.sleep(0.2)
-
-        t_total = time.time() - t_start
-        log.info(f"[{job_id}] ✓ '{printer}' x{copies} ({t_total:.1f}s)")
-        return {"success": True}
-
-    except subprocess.TimeoutExpired:
-        log.error(f"[{job_id}] ✗ Timeout (>30s)")
-        return {"success": False, "error": "Timeout ao imprimir (>30s)."}
-    except Exception as e:
-        log.error(f"[{job_id}] ✗ {e}")
-        return {"success": False, "error": str(e)}
-    finally:
-        try:
-            if os.path.exists(pdf_path):
-                os.remove(pdf_path)
-        except Exception:
-            pass
-
 # ── WebSocket Agent ────────────────────────────────────────────────────────────
 
 import websocket
@@ -301,7 +619,6 @@ class PrintAgent:
         self._send_lock = threading.Lock()
 
     def send(self, msg: dict):
-        """Thread-safe JSON send. Silently ignores if not connected."""
         with self._send_lock:
             try:
                 ws = self._ws
@@ -332,7 +649,6 @@ class PrintAgent:
             self._registered = True
             name = msg.get("name", "?")
             log.info(f"✓ Conectado como '{name}'")
-
             if self._ping_thread is None or not self._ping_thread.is_alive():
                 self._ping_thread = threading.Thread(target=self._ping_loop, daemon=True)
                 self._ping_thread.start()
@@ -351,29 +667,26 @@ class PrintAgent:
             log.warning(f"Servidor: {msg.get('message', '?')}")
 
     def _handle_print(self, msg: dict):
-        job_id  = msg.get("jobId", "?")
+        job_id = msg.get("jobId", "?")
         printer = msg.get("printer", "")
-        html    = msg.get("html", "")
-        user    = msg.get("user", "?")
+        user = msg.get("user", "?")
+        template = msg.get("template", "")
 
         try:
             copies = max(1, min(int(float(msg.get("copies", 1))), 99))
         except (TypeError, ValueError):
             copies = 1
 
+        label = template or "html"
         short_printer = printer.split(" ")[0] if len(printer) > 20 else printer
-        log.info(f"[{job_id}] → {short_printer} x{copies} (user={user})")
+        log.info(f"[{job_id}] → {short_printer} x{copies} [{label}] (user={user})")
 
         try:
-            if not printer or not html:
-                self.send({"type": "print_result", "jobId": job_id, "success": False, "error": "Dados incompletos no job."})
+            if not printer:
+                self.send({"type": "print_result", "jobId": job_id, "success": False, "error": "Impressora não especificada."})
                 return
 
-            if len(html) > 5 * 1024 * 1024:
-                self.send({"type": "print_result", "jobId": job_id, "success": False, "error": "HTML do job excede 5 MB."})
-                return
-
-            result = print_html(html, printer, copies)
+            result = print_job(msg)
             self.send({"type": "print_result", "jobId": job_id, **result})
 
         except Exception as e:
@@ -391,9 +704,7 @@ class PrintAgent:
 
     def on_error(self, ws, error):
         err_msg = str(error)
-        if "Connection refused" in err_msg or "timed out" in err_msg:
-            pass
-        else:
+        if "Connection refused" not in err_msg and "timed out" not in err_msg:
             log.warning(f"WS: {err_msg[:100]}")
 
     def on_close(self, ws, code, reason):

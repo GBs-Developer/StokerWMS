@@ -6,7 +6,6 @@ REQUISITOS:
   - Windows 7/8/10/11
   - Python 3.8 ou superior (https://www.python.org/downloads/)
     → Marque "Add Python to PATH" na instalação
-  - Google Chrome ou Microsoft Edge instalado
   - SumatraPDF (opcional, melhora a impressão)
     → Baixe em: https://www.sumatrapdfreader.org/
 
@@ -19,6 +18,13 @@ INSTALAÇÃO:
        server_url = https://seu-servidor.replit.app
        token      = TOKEN_COPIADO_DO_SISTEMA
   6. Execute instalar.bat (primeira vez) ou iniciar.bat (depois)
+
+DEPENDÊNCIAS:
+  O instalar.bat instala automaticamente:
+    - websocket-client  (comunicação com servidor)
+    - reportlab         (geração de PDFs nativos — etiquetas)
+    - xhtml2pdf         (fallback para PDFs via HTML)
+    - pywin32           (detecção de impressoras Windows)
 
 NOMES DAS IMPRESSORAS NO SISTEMA:
   Após o agente conectar, as impressoras aparecerão no WMS

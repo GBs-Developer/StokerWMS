@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import QRCode from "qrcode";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import { GradientHeader } from "@/components/ui/gradient-header";
@@ -393,63 +392,28 @@ export default function RecebimentoPage() {
     }
   };
 
-  const esc = (str: string) => {
-    const d = document.createElement("div");
-    d.textContent = str;
-    return d.innerHTML;
-  };
-
   const printLabel = async () => {
     if (!labelDialog) return;
 
-    let qrDataUrl = "";
-    try {
-      qrDataUrl = await QRCode.toDataURL(labelDialog.qrData || labelDialog.palletCode, {
-        width: 180,
-        margin: 1,
-        errorCorrectionLevel: "M",
-      });
-    } catch {
-      // QR code sem dados, continua sem ele
-    }
+    const palletData = {
+      palletCode: labelDialog.palletCode,
+      address: labelDialog.address,
+      createdAt: new Date(labelDialog.createdAt).toLocaleString("pt-BR"),
+      createdBy: labelDialog.createdBy || "—",
+      printedBy: user?.name || user?.username || "—",
+      qrData: labelDialog.qrData || labelDialog.palletCode,
+      items: labelDialog.items.map((i: any) => ({
+        product: i.product,
+        erpCode: i.erpCode,
+        quantity: String(i.quantity),
+        unit: i.unit,
+        lot: i.lot || "",
+        expiryDate: i.expiryDate || "",
+      })),
+      nfIds: labelDialog.nfIds || [],
+    };
 
-    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
-      <title>Etiqueta Pallet ${esc(labelDialog.palletCode)}</title>
-      <style>
-        @page { size: 10cm 15cm; margin: 0; }
-        body { font-family: monospace; padding: 8mm; margin: 0; font-size: 12px; box-sizing: border-box; }
-        .header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
-        .header-left { flex: 1; }
-        .code { font-size: 26px; font-weight: bold; border: 2px solid #000; padding: 6px 10px; margin-bottom: 6px; text-align: center; }
-        .addr { font-size: 15px; font-weight: bold; text-align: center; }
-        .qr { width: 100px; height: 100px; flex-shrink: 0; }
-        .qr img { width: 100px; height: 100px; display: block; }
-        .meta { font-size: 10px; color: #555; margin-bottom: 8px; border-top: 1px solid #ddd; padding-top: 6px; }
-        .items { border-top: 1px solid #000; padding-top: 6px; }
-        .item { border-bottom: 1px dashed #ccc; padding: 4px 0; }
-        .item-name { font-weight: bold; }
-        .nf { font-size: 10px; margin-top: 6px; color: #333; }
-      </style></head><body>
-        <div class="header">
-          <div class="header-left">
-            <div class="code">${esc(labelDialog.palletCode)}</div>
-            <div class="addr">${esc(labelDialog.address)}</div>
-          </div>
-          ${qrDataUrl ? `<div class="qr"><img src="${qrDataUrl}" alt="QR" /></div>` : ""}
-        </div>
-        <div class="meta">Criado: ${esc(new Date(labelDialog.createdAt).toLocaleString("pt-BR"))} | Por: ${esc(labelDialog.createdBy || "—")} | Impresso por: ${esc(user?.name || user?.username || "—")}</div>
-        <div class="items">
-          ${labelDialog.items.map((i: any) => `
-            <div class="item">
-              <div class="item-name">${esc(i.product)}</div>
-              <div>${esc(i.erpCode)} | ${esc(String(i.quantity))} ${esc(i.unit)}${i.lot ? ` | Lote: ${esc(i.lot)}` : ""}${i.expiryDate ? ` | Val: ${esc(i.expiryDate)}` : ""}</div>
-            </div>
-          `).join("")}
-        </div>
-        ${labelDialog.nfIds?.length ? `<div class="nf">NF: ${esc(labelDialog.nfIds.join(", "))}</div>` : ""}
-      </body></html>`;
-
-    printPallet(html, "pallet_label");
+    printPallet(null, "pallet_label", { template: "pallet_label", data: palletData });
   };
 
   const totalItems = palletItems.reduce((sum, i) => sum + i.quantity, 0);
