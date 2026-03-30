@@ -12,7 +12,7 @@ import {
   type SystemSettings, type SeparationMode
 } from "@shared/schema";
 import { randomUUID } from "crypto";
-import { getCompanyOperationPickupPoints, getCompanyReportPickupPoints } from "./company-config";
+import { getCompanyOperationPickupPoints, getCompanyReportPickupPoints, getCompanyBalcaoPickupPoints } from "./company-config";
 
 export interface IStorage {
   // Users
@@ -598,7 +598,9 @@ export class DatabaseStorage implements IStorage {
     if (companyId) conditions.push(eq(workUnits.companyId, companyId));
     
     if (companyId && type !== "separacao" && type !== "conferencia") {
-      const allowedPP = getCompanyOperationPickupPoints(companyId);
+      const allowedPP = type === "balcao"
+        ? getCompanyBalcaoPickupPoints(companyId)
+        : getCompanyOperationPickupPoints(companyId);
       if (allowedPP) {
         conditions.push(inArray(workUnits.pickupPoint, allowedPP));
       }
