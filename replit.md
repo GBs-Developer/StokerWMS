@@ -69,15 +69,20 @@ Routes are registered in `server/routes.ts` (legacy + auth) and `server/wms-rout
 - Companies: ID 1 ("Empresa 1"), ID 3 ("Empresa 3")
 - `companyId` flows from login → session → all requests via `requireCompany` middleware
 - **All routes** (WMS and legacy) enforce company context via `requireCompany`
-- Company-specific pickup point rules centralized in `server/company-config.ts`
+- Company-specific pickup point rules centralized in `server/company-config.ts`:
+  - **Operations**: Company 1 → [4, 58], Company 3 → [60, 61]
+  - **Reports**: Company 1 → [1, 2, 4, 58], Company 3 → [52, 54, 60, 61]
+  - **Balcão**: Company 1 → [1, 2], Company 3 → [52, 54]
 - SSE connections require authentication and store `companyId`; all SSE broadcasts are company-scoped
 - Company selection page shown after login when user has access to multiple companies
 - `getCompanyLabel()` utility maps company IDs to display names
+- `authorizeWorkUnit()` and `authorizeOrder()` helper functions enforce company and section access on all work-unit and order endpoints
 
 ### Work Unit and Locking System
-- **Separation**: ONE work unit per order with `pickupPoint: 0`, containing ALL order items (not filtered by section)
+- **Separation**: Work units are created per section+pickup_point; items are filtered by the work unit's section
 - **Conference**: ONE work unit per order, created automatically when separation completes
-- Separator sees all items across all sections for the order; route-based filtering is the primary filter
+- Separação users only see work units matching their assigned sections (regardless of separation mode); users with no sections see nothing
+- Orders' `pickup_points` field aggregates ALL unique pickup points from order items (not just the first one)
 - Lock mechanism with TTL (15 minutes default) prevents concurrent operations at the order level
 - Heartbeat system extends locks for active sessions
 - Force unlock capability for supervisors

@@ -33,6 +33,32 @@ function getUserAgent(req: Request): string | undefined {
   return ua;
 }
 
+function authorizeWorkUnit(wu: { companyId: number; section: string | null }, req: Request): { allowed: boolean; reason?: string } {
+  const companyId = (req as any).companyId;
+  const user = (req as any).user;
+  if (companyId && wu.companyId !== companyId) {
+    return { allowed: false, reason: "Acesso negado: empresa diferente" };
+  }
+  if (user?.role === "separacao") {
+    const userSections: string[] = (user.sections as string[]) || [];
+    if (userSections.length === 0) {
+      return { allowed: false, reason: "Acesso negado: sem seções atribuídas" };
+    }
+    if (wu.section && !userSections.includes(wu.section)) {
+      return { allowed: false, reason: "Acesso negado: seção não permitida" };
+    }
+  }
+  return { allowed: true };
+}
+
+function authorizeOrder(order: { companyId: number | null }, req: Request): { allowed: boolean; reason?: string } {
+  const companyId = (req as any).companyId;
+  if (companyId && order.companyId !== companyId) {
+    return { allowed: false, reason: "Acesso negado: empresa diferente" };
+  }
+  return { allowed: true };
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -782,6 +808,8 @@ export async function registerRoutes(
       const [order] = await database.select().from(ordersTable)
         .where(eqFn(ordersTable.erpOrderId, (req.params.erpOrderId as string).trim()));
       if (!order) return res.status(404).json({ error: "Pedido não encontrado" });
+      const authO = authorizeOrder(order, req);
+      if (!authO.allowed) return res.status(403).json({ error: authO.reason });
       res.json(order);
     } catch (error) {
       console.error("Order by ERP ID error:", error);
@@ -795,6 +823,8 @@ export async function registerRoutes(
       if (!order) {
         return res.status(404).json({ error: "Pedido não encontrado" });
       }
+      const authO = authorizeOrder(order, req);
+      if (!authO.allowed) return res.status(403).json({ error: authO.reason });
       res.json(order);
     } catch (error) {
       console.error("Get order error:", error);
@@ -1269,12 +1299,13 @@ export async function registerRoutes(
       
       for (const wuId of workUnitIds) {
         const wu = await storage.getWorkUnitById(wuId);
-        // BUGFIX SAFEGUARD: Do not allow resetting a concluded unit!
-        if (reset && wu?.status === "concluido") continue;
-        if (wu?.orderId) affectedOrderIds.add(wu.orderId);
+        if (!wu) continue;
+        const authWU = authorizeWorkUnit(wu, req);
+        if (!authWU.allowed) return res.status(403).json({ error: authWU.reason });
+        if (reset && wu.status === "concluido") continue;
+        if (wu.orderId) affectedOrderIds.add(wu.orderId);
       }
 
-      // Desbloquear (seguro para todas, mesmo concluídas se caírem no array)
       await storage.unlockWorkUnits(workUnitIds);
 
       if (reset) {
@@ -1329,6 +1360,13 @@ export async function registerRoutes(
       const userId = (req as any).user.id;
       const expiresAt = new Date(Date.now() + LOCK_TTL_MINUTES * 60 * 1000);
 
+      for (const wuId of workUnitIds) {
+        const wu = await storage.getWorkUnitById(wuId);
+        if (!wu) return res.status(404).json({ error: "Unidade não encontrada" });
+        const authWU = authorizeWorkUnit(wu, req);
+        if (!authWU.allowed) return res.status(403).json({ error: authWU.reason });
+      }
+
       await storage.lockWorkUnits(workUnitIds, userId, expiresAt);
 
       await storage.createAuditLog({
@@ -1358,10 +1396,11 @@ export async function registerRoutes(
       const results = [];
       const orderIdsToUpdate = new Set<string>();
 
-      // Processar atualizações em paralelo (limitado pelo banco, mas OK para SQLite neste volume)
       for (const id of workUnitIds) {
         const workUnit = await storage.getWorkUnitById(id);
         if (!workUnit) continue;
+        const authWU = authorizeWorkUnit(workUnit, req);
+        if (!authWU.allowed) return res.status(403).json({ error: authWU.reason });
 
         await storage.updateWorkUnit(id, {
           cartQrCode: qrCode,
@@ -1413,6 +1452,8 @@ export async function registerRoutes(
       for (const id of workUnitIds) {
         const workUnit = await storage.getWorkUnitById(id);
         if (!workUnit) continue;
+        const authWU = authorizeWorkUnit(workUnit, req);
+        if (!authWU.allowed) return res.status(403).json({ error: authWU.reason });
 
         await storage.updateWorkUnit(id, {
           status: "em_andamento",
@@ -1426,11 +1467,8 @@ export async function registerRoutes(
         results.push(id);
       }
 
-      // Atualizar status dos pedidos
       for (const orderId of orderIdsToUpdate) {
         const order = await storage.getOrderById(orderId);
-        // Only update if previously separated or pending? allowedStatuses for conference start:
-        // Usually from 'separado'. 
         if (order && (order.status === "separado" || order.status === "pendente")) {
           await storage.updateOrder(orderId, {
             status: "em_conferencia",
@@ -1456,6 +1494,8 @@ export async function registerRoutes(
       if (!workUnit) {
         return res.status(404).json({ error: "Unidade não encontrada" });
       }
+      const authWU = authorizeWorkUnit(workUnit, req);
+      if (!authWU.allowed) return res.status(403).json({ error: authWU.reason });
 
       await storage.updateWorkUnit(req.params.id as string, {
         cartQrCode: qrCode,
@@ -1493,6 +1533,8 @@ export async function registerRoutes(
       if (!workUnit) {
         return res.status(404).json({ error: "Unidade não encontrada" });
       }
+      const authWU = authorizeWorkUnit(workUnit, req);
+      if (!authWU.allowed) return res.status(403).json({ error: authWU.reason });
 
       await storage.updateWorkUnit(req.params.id as string, { palletQrCode: qrCode, status: "em_andamento", startedAt: new Date().toISOString() });
 
@@ -1522,6 +1564,8 @@ export async function registerRoutes(
       if (!workUnit) {
         return res.status(404).json({ error: "Unidade não encontrada" });
       }
+      const authWU = authorizeWorkUnit(workUnit, req);
+      if (!authWU.allowed) return res.status(403).json({ error: authWU.reason });
 
       const product = await storage.getProductByBarcode(barcode);
       if (!product) {
@@ -1677,6 +1721,8 @@ export async function registerRoutes(
       if (!workUnit) {
         return res.status(404).json({ error: "Unidade não encontrada" });
       }
+      const authWU = authorizeWorkUnit(workUnit, req);
+      if (!authWU.allowed) return res.status(403).json({ error: authWU.reason });
 
       const product = await storage.getProductByBarcode(barcode);
       if (!product) {
@@ -1777,6 +1823,8 @@ export async function registerRoutes(
       if (!workUnit) {
         return res.status(404).json({ error: "Unidade não encontrada" });
       }
+      const authWU = authorizeWorkUnit(workUnit, req);
+      if (!authWU.allowed) return res.status(403).json({ error: authWU.reason });
 
       if (workUnit.lockedBy !== (req as any).user?.id) {
         return res.status(403).json({ error: "Você não tem permissão para resetar itens desta unidade." });
@@ -1819,6 +1867,8 @@ export async function registerRoutes(
       if (!workUnit) {
         return res.status(404).json({ error: "Unidade não encontrada" });
       }
+      const authWU = authorizeWorkUnit(workUnit, req);
+      if (!authWU.allowed) return res.status(403).json({ error: authWU.reason });
 
       if (workUnit.lockedBy !== (req as any).user?.id) {
         return res.status(403).json({ error: "Você não tem permissão para resetar itens desta unidade." });
@@ -1856,6 +1906,8 @@ export async function registerRoutes(
       if (!workUnit) {
         return res.status(404).json({ error: "Unidade não encontrada" });
       }
+      const authWU = authorizeWorkUnit(workUnit, req);
+      if (!authWU.allowed) return res.status(403).json({ error: authWU.reason });
 
       const product = await storage.getProductByBarcode(barcode);
       if (!product) {
@@ -1954,6 +2006,10 @@ export async function registerRoutes(
   app.post("/api/work-units/:id/complete-balcao", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const { elapsedTime } = req.body;
+      const wuCheck = await storage.getWorkUnitById(req.params.id as string);
+      if (!wuCheck) return res.status(404).json({ error: "Unidade não encontrada" });
+      const authWU = authorizeWorkUnit(wuCheck, req);
+      if (!authWU.allowed) return res.status(403).json({ error: authWU.reason });
 
       const isComplete = await storage.checkAndCompleteWorkUnit(req.params.id as string);
 
@@ -1986,6 +2042,10 @@ export async function registerRoutes(
   app.post("/api/work-units/:id/batch-sync", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const id = req.params.id as string;
+      const wuCheck = await storage.getWorkUnitById(id);
+      if (!wuCheck) return res.status(404).json({ error: "Unidade não encontrada" });
+      const authWU = authorizeWorkUnit(wuCheck, req);
+      if (!authWU.allowed) return res.status(403).json({ error: authWU.reason });
       const { items, exceptions } = req.body;
       const userId = (req as any).user.id;
 
@@ -2010,10 +2070,12 @@ export async function registerRoutes(
   app.post("/api/work-units/:id/heartbeat", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const id = req.params.id as string;
+      const wuCheck = await storage.getWorkUnitById(id);
+      if (!wuCheck) return res.status(404).json({ error: "Unidade não encontrada" });
+      const authWU = authorizeWorkUnit(wuCheck, req);
+      if (!authWU.allowed) return res.status(403).json({ error: authWU.reason });
       const { items } = req.body;
 
-      // We don't save to database here! This is just to broadcast SSE to the web dashboard
-      // so the manager sees the progress bar moving while the operator works offline.
       if (items && Array.isArray(items)) {
         broadcastSSE("work_unit_heartbeat", { workUnitId: id, items }, (req as any).companyId);
       }
@@ -2028,6 +2090,10 @@ export async function registerRoutes(
   app.post("/api/work-units/:id/complete", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const id = req.params.id as string;
+      const wuCheck = await storage.getWorkUnitById(id);
+      if (!wuCheck) return res.status(404).json({ error: "Unidade não encontrada" });
+      const authWU = authorizeWorkUnit(wuCheck, req);
+      if (!authWU.allowed) return res.status(403).json({ error: authWU.reason });
       const isComplete = await storage.checkAndCompleteWorkUnit(id);
 
       if (isComplete) {
@@ -2055,6 +2121,10 @@ export async function registerRoutes(
   app.post("/api/work-units/:id/complete-conference", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const id = req.params.id as string;
+      const wuCheck = await storage.getWorkUnitById(id);
+      if (!wuCheck) return res.status(404).json({ error: "Unidade não encontrada" });
+      const authWU = authorizeWorkUnit(wuCheck, req);
+      if (!authWU.allowed) return res.status(403).json({ error: authWU.reason });
       const isComplete = await storage.checkAndCompleteConference(id);
 
       if (isComplete) {
@@ -2125,6 +2195,14 @@ export async function registerRoutes(
   app.post("/api/exceptions", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const { workUnitId, orderItemId, type, quantity, observation } = req.body;
+
+      if (workUnitId) {
+        const wuCheck = await storage.getWorkUnitById(workUnitId);
+        if (wuCheck) {
+          const authWU = authorizeWorkUnit(wuCheck, req);
+          if (!authWU.allowed) return res.status(403).json({ error: authWU.reason });
+        }
+      }
 
       const canCreate = await storage.canCreateException(orderItemId, quantity);
       if (!canCreate) {
