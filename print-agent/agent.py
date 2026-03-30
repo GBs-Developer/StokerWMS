@@ -146,7 +146,7 @@ def _start_http_server(directory: str) -> tuple:
         class _H(http.server.SimpleHTTPRequestHandler):
             def __init__(self, *a, **kw):
                 super().__init__(*a, directory=base_dir, **kw)
-            def log_message(self, *a):   # suppress access logs
+            def log_message(self, *a):
                 pass
         return _H
 
@@ -157,8 +157,118 @@ def _start_http_server(directory: str) -> tuple:
     return httpd, port
 
 
+def _generate_pdf_via_cdp(browser: str, html_url: str, chrome_profile: str, job_id: str) -> bytes:
+    """
+    Gera PDF usando o Chrome DevTools Protocol (CDP).
+    Não depende de --print-to-pdf nem de gravação de arquivo pelo Chrome.
+    O PDF é devolvido como bytes diretamente.
+    """
+    import base64
+    import urllib.request
+    import urllib.error
+    import websocket as _ws  # websocket-client (já é dependência do agente)
+
+    debug_port = _find_free_port()
+
+    # Inicia Chrome no modo headless com porta de debug
+    proc = subprocess.Popen(
+        [
+            browser,
+            "--headless=old",
+            "--disable-gpu",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-extensions",
+            f"--remote-debugging-port={debug_port}",
+            f"--user-data-dir={chrome_profile}",
+            html_url,
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    try:
+        # Aguarda Chrome expor a porta de debug (até 10s)
+        ws_url = None
+        for _ in range(40):
+            try:
+                with urllib.request.urlopen(
+                    f"http://127.0.0.1:{debug_port}/json/list", timeout=1
+                ) as r:
+                    targets = json.loads(r.read())
+                    for t in targets:
+                        if t.get("type") == "page":
+                            ws_url = t["webSocketDebuggerUrl"]
+                            break
+                if ws_url:
+                    break
+            except Exception:
+                pass
+            time.sleep(0.25)
+
+        if not ws_url:
+            raise RuntimeError(f"Chrome não respondeu na porta de debug {debug_port}")
+
+        conn = _ws.create_connection(ws_url, timeout=30)
+        try:
+            # Habilita o domínio Page para receber eventos de carregamento
+            conn.send(json.dumps({"id": 1, "method": "Page.enable"}))
+
+            # Aguarda Page.loadEventFired ou timeout de 8s
+            deadline = time.time() + 8
+            while time.time() < deadline:
+                try:
+                    conn.settimeout(max(0.1, deadline - time.time()))
+                    msg = json.loads(conn.recv())
+                    if msg.get("method") == "Page.loadEventFired":
+                        break
+                except Exception:
+                    break
+
+            # Solicita o PDF
+            conn.send(json.dumps({
+                "id": 2,
+                "method": "Page.printToPDF",
+                "params": {
+                    "printBackground": True,
+                    "preferCSSPageSize": True,
+                },
+            }))
+
+            # Aguarda resposta com os dados do PDF (até 15s)
+            deadline2 = time.time() + 15
+            while time.time() < deadline2:
+                try:
+                    conn.settimeout(max(0.1, deadline2 - time.time()))
+                    msg = json.loads(conn.recv())
+                    if msg.get("id") == 2:
+                        data_b64 = msg.get("result", {}).get("data", "")
+                        if not data_b64:
+                            raise RuntimeError("Page.printToPDF retornou vazio")
+                        return base64.b64decode(data_b64)
+                except RuntimeError:
+                    raise
+                except Exception:
+                    break
+
+            raise RuntimeError("Timeout aguardando Page.printToPDF")
+
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    finally:
+        try:
+            proc.terminate()
+            proc.wait(timeout=5)
+        except Exception:
+            pass
+
+
 def print_html(html: str, printer: str, copies: int) -> dict:
-    """Converts HTML to PDF via headless Chrome, then sends to printer via SumatraPDF."""
+    """Converts HTML to PDF via headless Chrome (CDP), then sends to printer via SumatraPDF."""
     import shutil as _shutil
     tmp = tempfile.gettempdir()
     job_id = os.urandom(4).hex()
@@ -169,65 +279,28 @@ def print_html(html: str, printer: str, copies: int) -> dict:
     httpd          = None
 
     try:
-        # Write HTML file
         with open(html_path, "w", encoding="utf-8") as f:
             f.write(html)
 
-        # Find browser for headless PDF generation
         browser = find_browser()
         if not browser:
             return {"success": False, "error": "Chrome ou Edge não encontrado nesta máquina."}
 
-        # ── Servidor HTTP local ───────────────────────────────────────────────
-        # Chrome 115+ bloqueia file:// URLs em modo headless (sai com rc=0 mas
-        # não gera o PDF).  Servindo o HTML via http://127.0.0.1 isso não ocorre
-        # e funciona em qualquer versão do Chrome/Edge.
+        # Serve o HTML via HTTP local — sem restrições de file:// do Chrome
         httpd, port = _start_http_server(tmp)
         html_url = f"http://127.0.0.1:{port}/{html_filename}"
 
-        # Forward slashes no path do PDF (Windows + Chrome = safer)
-        pdf_path_chrome = pdf_path.replace("\\", "/")
+        log.info(f"[{job_id}] Gerando PDF via CDP para impressora '{printer}' x{copies}")
 
-        # --user-data-dir exclusivo por job evita conflito com Chrome aberto
-        base_flags = [
-            "--disable-gpu", "--no-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-extensions",
-            f"--user-data-dir={chrome_profile}",
-            f"--print-to-pdf={pdf_path_chrome}",
-            "--print-to-pdf-no-header",
-            "--no-pdf-header-footer",
-            "--run-all-compositor-stages-before-draw",
-            "--virtual-time-budget=5000",
-            html_url,
-        ]
+        try:
+            pdf_bytes = _generate_pdf_via_cdp(browser, html_url, chrome_profile, job_id)
+        except Exception as e:
+            log.error(f"[{job_id}] CDP falhou: {e}")
+            return {"success": False, "error": f"Falha ao gerar PDF via CDP: {e}"}
 
-        log.info(f"[{job_id}] Gerando PDF para impressora '{printer}' x{copies}")
-
-        # Chrome 112+: --headless=old mantém suporte a --print-to-pdf.
-        # Fallback para --headless (Chrome mais antigo).
-        pdf_ok = False
-        last_output = ""
-        for headless_flag in ["--headless=old", "--headless"]:
-            if os.path.exists(pdf_path):
-                try:
-                    os.remove(pdf_path)
-                except Exception:
-                    pass
-            chrome_cmd = [browser, headless_flag] + base_flags
-            result = subprocess.run(chrome_cmd, timeout=45, capture_output=True)
-            stdout_msg = (result.stdout or b"").decode("utf-8", errors="replace").strip()
-            stderr_msg = (result.stderr or b"").decode("utf-8", errors="replace").strip()
-            last_output = (stdout_msg + "\n" + stderr_msg).strip()
-
-            if result.returncode == 0 and os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0:
-                pdf_ok = True
-                break
-            log.warning(f"[{job_id}] Chrome {headless_flag} falhou (rc={result.returncode}): {last_output[:300]}")
-
-        if not pdf_ok:
-            err_detail = f" Detalhe: {last_output[:300]}" if last_output else ""
-            return {"success": False, "error": f"Falha ao gerar PDF. Verifique se Chrome/Edge está atualizado.{err_detail}"}
+        with open(pdf_path, "wb") as f:
+            f.write(pdf_bytes)
+        log.info(f"[{job_id}] PDF gerado ({len(pdf_bytes)} bytes)")
 
         # Find SumatraPDF for silent printing
         sumatra = find_sumatra()
