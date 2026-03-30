@@ -44,7 +44,7 @@ export default function ProdutosPage() {
 
   const minLength = searchType === "code" ? 1 : 2;
 
-  const { data: products = [], isLoading, isFetching } = useQuery({
+  const { data: products = [], isLoading, isFetching, isError } = useQuery({
     queryKey: ["products-search", debouncedQuery, companyId, searchType],
     queryFn: async () => {
       const res = await fetch(`/api/products/search?q=${encodeURIComponent(debouncedQuery)}&type=${searchType}`, { credentials: "include" });
@@ -52,6 +52,7 @@ export default function ProdutosPage() {
       return res.json();
     },
     enabled: !!companyId && debouncedQuery.length >= minLength,
+    retry: 1,
   });
 
   const formatDate = (dateStr: string | null) => {
@@ -152,7 +153,20 @@ export default function ProdutosPage() {
           </p>
         )}
 
-        {!isLoading && debouncedQuery.length >= minLength && products.length === 0 && (
+        {isLoading && debouncedQuery.length >= minLength && (
+          <div className="flex items-center justify-center py-10 animate-fade-in">
+            <Loader2 className="h-6 w-6 animate-spin text-primary/50" />
+          </div>
+        )}
+
+        {isError && debouncedQuery.length >= minLength && (
+          <div className="flex items-center gap-2 p-3 rounded-xl bg-red-50 dark:bg-red-950/30 border border-red-200/60 dark:border-red-800/40 animate-fade-in">
+            <AlertTriangle className="h-4 w-4 text-red-500 shrink-0" />
+            <p className="text-sm text-red-600 dark:text-red-400">Erro ao buscar produtos. Verifique a conexão.</p>
+          </div>
+        )}
+
+        {!isLoading && !isError && debouncedQuery.length >= minLength && products.length === 0 && (
           <div className="text-center py-12 text-muted-foreground animate-fade-in">
             <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-muted flex items-center justify-center">
               <Package className="h-7 w-7 opacity-30" />

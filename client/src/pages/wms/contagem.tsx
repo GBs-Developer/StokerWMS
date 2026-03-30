@@ -104,14 +104,25 @@ export default function ContagemPage() {
     onError: (e: Error) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
   });
 
+  const [cycleLoading, setCycleLoading] = useState(false);
+
   const loadCycle = async (id: string) => {
-    const res = await fetch(`/api/counting-cycles/${id}`, { credentials: "include" });
-    if (res.ok) {
-      const data = await res.json();
-      setSelectedCycle(data);
-      if (data.type === "por_produto") {
-        setTimeout(() => scanRef.current?.focus(), 200);
+    setCycleLoading(true);
+    try {
+      const res = await fetch(`/api/counting-cycles/${id}`, { credentials: "include" });
+      if (res.ok) {
+        const data = await res.json();
+        setSelectedCycle(data);
+        if (data.type === "por_produto") {
+          setTimeout(() => scanRef.current?.focus(), 200);
+        }
+      } else {
+        toast({ title: "Erro ao carregar ciclo", variant: "destructive" });
       }
+    } catch {
+      toast({ title: "Erro de conexão ao carregar ciclo", variant: "destructive" });
+    } finally {
+      setCycleLoading(false);
     }
   };
 

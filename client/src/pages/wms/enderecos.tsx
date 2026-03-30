@@ -320,8 +320,18 @@ export default function EnderecosPage() {
                   >
                     <History className="h-4 w-4" />
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => toggleMutation.mutate({ id: addr.id, active: !addr.active })} data-testid={`button-toggle-${addr.id}`}>
-                    {addr.active ? <ToggleRight className="h-4 w-4 text-green-600" /> : <ToggleLeft className="h-4 w-4 text-gray-400" />}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={toggleMutation.isPending}
+                    onClick={() => toggleMutation.mutate({ id: addr.id, active: !addr.active })}
+                    data-testid={`button-toggle-${addr.id}`}
+                  >
+                    {toggleMutation.isPending
+                      ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      : addr.active
+                        ? <ToggleRight className="h-4 w-4 text-green-600" />
+                        : <ToggleLeft className="h-4 w-4 text-gray-400" />}
                   </Button>
                   <Button
                     variant="ghost"

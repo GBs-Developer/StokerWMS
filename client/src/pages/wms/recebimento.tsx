@@ -81,7 +81,8 @@ export default function RecebimentoPage() {
 
   useEffect(() => {
     if (activeTab === "scan" && keyboardEnabled) {
-      setTimeout(() => scanInputRef.current?.focus(), 100);
+      const t = setTimeout(() => scanInputRef.current?.focus(), 100);
+      return () => clearTimeout(t);
     }
   }, [activeTab, keyboardEnabled]);
 

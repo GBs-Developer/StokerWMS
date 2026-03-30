@@ -4,6 +4,14 @@ import { getTokenFromRequest, getUserFromToken } from './auth';
 let nextClientId = 0;
 const clients = new Map<number, { res: Response; userId?: string; companyId?: number }>();
 
+const MAX_CONNECTIONS_PER_USER = 5;
+
+function countUserConnections(userId: string): number {
+    let count = 0;
+    clients.forEach(c => { if (c.userId === userId) count++; });
+    return count;
+}
+
 export function setupSSE(app: Express) {
     app.get('/api/sse', async (req: Request, res: Response) => {
         const token = getTokenFromRequest(req);
@@ -17,20 +25,37 @@ export function setupSSE(app: Express) {
         (req as any).user = result.user;
         (req as any).companyId = result.companyId;
 
+        const userId = result.user.id;
+
+        // Evita esgotamento de recursos por reconexões em loop
+        if (countUserConnections(userId) >= MAX_CONNECTIONS_PER_USER) {
+            return res.status(429).json({ error: 'Muitas conexões abertas' });
+        }
+
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
         res.flushHeaders();
 
         const clientId = ++nextClientId;
-        const userId = result.user.id;
         const companyId = result.companyId;
 
         clients.set(clientId, { res, userId, companyId });
 
         res.write(`data: ${JSON.stringify({ type: 'connected', clientId })}\n\n`);
 
+        // Heartbeat a cada 30s para manter a conexão viva através de proxies
+        const heartbeat = setInterval(() => {
+            try {
+                res.write(': ping\n\n');
+            } catch {
+                clearInterval(heartbeat);
+                clients.delete(clientId);
+            }
+        }, 30_000);
+
         req.on('close', () => {
+            clearInterval(heartbeat);
             clients.delete(clientId);
         });
     });

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -390,10 +390,10 @@ export function VolumeModal({ open, onClose, defaultErpOrderId }: VolumeModalPro
                         <PackageOpen className="h-5 w-5 text-blue-400 shrink-0" />
                         <div className="min-w-0 flex-1">
                             <DialogTitle className="text-white text-base leading-tight">Gerar Volume</DialogTitle>
-                            <p className="text-xs text-slate-300 truncate">
+                            <DialogDescription className="text-xs text-slate-300 truncate">
                                 {screen === "search" && "Busque um pedido ou liste todos"}
                                 {screen === "form" && order && `Ped. ${order.erpOrderId} · ${order.customerName || ""}`}
-                            </p>
+                            </DialogDescription>
                         </div>
                         {screen === "form" && savedVolume && (
                             <Badge className="ml-auto shrink-0 bg-green-600 text-white text-xs px-2 py-0.5">
