@@ -10,7 +10,6 @@ interface PrintConfig {
 
 /**
  * Cache em memória das configs de impressão do usuário logado.
- * Carregado da API na primeira impressão e invalidado após salvar novas configs.
  */
 let configCache: Record<string, PrintConfig> | null = null;
 
@@ -27,21 +26,22 @@ async function loadPrintConfig(): Promise<Record<string, PrintConfig>> {
 }
 
 /**
- * Proteção anti-spam: guarda o timestamp da última impressão enviada por tipo.
- * Intervalo mínimo de 4s por tipo — ignora cliques repetidos silenciosamente.
+ * Proteção anti-spam: timestamp da última impressão por tipo.
+ * Intervalo mínimo de 5s por tipo.
  */
 const lastPrintTime: Record<string, number> = {};
-const PRINT_COOLDOWN_MS = 4000;
+const PRINT_COOLDOWN_MS = 5000;
 
 /**
  * Hook de impressão sem modal — fire-and-forget verdadeiro.
- * - O servidor responde imediatamente (202) e processa a impressão em background.
- * - Cliques repetidos dentro do cooldown são ignorados silenciosamente.
- * - Erros de rede/timeout não geram toast (o trabalho já chegou ao servidor).
- * - Somente erros de validação (impressora não configurada) geram toast.
+ *
+ * Retorna:
+ *   - printing: true por ~400ms (feedback visual do clique)
+ *   - cooldownSeconds: contagem regressiva visível após imprimir (5→4→3→2→1→0)
  */
 export function usePrint() {
   const [printing, setPrinting] = useState(false);
+  const [cooldownSeconds, setCooldownSeconds] = useState(0);
   const { toast } = useToast();
 
   async function print(html: string, printType: PrintType) {
@@ -56,7 +56,7 @@ export function usePrint() {
       const allConfigs = await loadPrintConfig();
       config = allConfigs[printType];
     } catch {
-      // Falha silenciosa ao carregar config — não bloqueia o usuário
+      // Falha silenciosa ao carregar config
     }
 
     if (!config?.printer) {
@@ -68,23 +68,36 @@ export function usePrint() {
       return;
     }
 
-    // Registra o envio ANTES de chamar a API para bloquear spam imediato
+    // Registra antes de chamar API para bloquear spam imediato
     lastPrintTime[printType] = now;
     setPrinting(true);
 
-    // Fire-and-forget: o servidor responde 202 imediatamente.
-    // Não esperamos o Chrome gerar o PDF — erros de rede são silenciosos.
+    // Fire-and-forget: servidor responde 202 imediatamente
     apiRequest("POST", "/api/print/job", {
       html,
       printer: config.printer,
       copies: config.copies ?? 1,
     }).catch(() => {
-      // Ignora erros de rede/timeout — o trabalho já entrou na fila do servidor
+      // Ignora erros de rede — o trabalho já entrou na fila do servidor
     });
 
-    // Spinner visual mínimo para feedback do clique
+    // Spinner visual por 400ms
     setTimeout(() => setPrinting(false), 400);
+
+    // Contagem regressiva visível no botão
+    const totalSeconds = Math.ceil(PRINT_COOLDOWN_MS / 1000);
+    setCooldownSeconds(totalSeconds);
+    let remaining = totalSeconds;
+    const interval = setInterval(() => {
+      remaining -= 1;
+      if (remaining <= 0) {
+        clearInterval(interval);
+        setCooldownSeconds(0);
+      } else {
+        setCooldownSeconds(remaining);
+      }
+    }, 1000);
   }
 
-  return { printing, print };
+  return { printing, cooldownSeconds, print };
 }

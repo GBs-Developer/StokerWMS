@@ -65,7 +65,7 @@ export default function RecebimentoPage() {
   const [nfListLoading, setNfListLoading] = useState(false);
   const [nfImportProgress, setNfImportProgress] = useState<{ current: number; total: number } | null>(null);
 
-  const { printing: palletPrinting, print: printPallet } = usePrint();
+  const { printing: palletPrinting, cooldownSeconds: palletCooldown, print: printPallet } = usePrint();
   const [labelDialog, setLabelDialog] = useState<any>(null);
   const [labelLoading, setLabelLoading] = useState(false);
   const [showCreateConfirm, setShowCreateConfirm] = useState(false);
@@ -436,7 +436,7 @@ export default function RecebimentoPage() {
           </div>
           ${qrDataUrl ? `<div class="qr"><img src="${qrDataUrl}" alt="QR" /></div>` : ""}
         </div>
-        <div class="meta">Criado: ${esc(new Date(labelDialog.createdAt).toLocaleString("pt-BR"))} | Por: ${esc(labelDialog.createdBy || "—")}</div>
+        <div class="meta">Criado: ${esc(new Date(labelDialog.createdAt).toLocaleString("pt-BR"))} | Por: ${esc(labelDialog.createdBy || "—")} | Impresso por: ${esc(user?.name || user?.username || "—")}</div>
         <div class="items">
           ${labelDialog.items.map((i: any) => `
             <div class="item">
@@ -991,10 +991,18 @@ export default function RecebimentoPage() {
           )}
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setLabelDialog(null)} className="rounded-xl">Fechar</Button>
-            <Button onClick={printLabel} className="rounded-xl" disabled={palletPrinting} data-testid="button-print-label">
+            <Button
+              onClick={printLabel}
+              className="rounded-xl min-w-[110px]"
+              disabled={palletPrinting || palletCooldown > 0}
+              data-testid="button-print-label"
+              title={palletCooldown > 0 ? `Aguarde ${palletCooldown}s` : "Imprimir etiqueta"}
+            >
               {palletPrinting
                 ? <><Loader2 className="h-4 w-4 mr-1.5 animate-spin" />Enviando...</>
-                : <><Printer className="h-4 w-4 mr-1.5" />Imprimir</>
+                : palletCooldown > 0
+                  ? <><Printer className="h-4 w-4 mr-1.5 opacity-50" /><span className="font-mono tabular-nums">{palletCooldown}s</span></>
+                  : <><Printer className="h-4 w-4 mr-1.5" />Imprimir</>
               }
             </Button>
           </DialogFooter>

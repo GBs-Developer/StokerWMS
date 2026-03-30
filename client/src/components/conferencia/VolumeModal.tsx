@@ -11,6 +11,7 @@ import {
     Loader2, CheckCircle2, PackageOpen, Search, X, ArrowLeft, Trash2, Printer,
 } from "lucide-react";
 import { usePrint } from "@/hooks/use-print";
+import { useAuth } from "@/lib/auth";
 import { DatePickerWithRange } from "@/components/ui/date-range-picker";
 import type { DateRange } from "react-day-picker";
 import { format, subDays } from "date-fns";
@@ -68,6 +69,7 @@ type Screen = "search" | "form";
 export function VolumeModal({ open, onClose, defaultErpOrderId }: VolumeModalProps) {
     const { toast } = useToast();
     const queryClient = useQueryClient();
+    const { user } = useAuth();
 
     const [screen, setScreen] = useState<Screen>("search");
     const [search, setSearch] = useState("");
@@ -76,7 +78,7 @@ export function VolumeModal({ open, onClose, defaultErpOrderId }: VolumeModalPro
     const [searching, setSearching] = useState(false);
     const [searchError, setSearchError] = useState("");
     const [counts, setCounts] = useState({ sacola: 0, caixa: 0, saco: 0, avulso: 0 });
-    const { printing, print: printVolume } = usePrint();
+    const { printing, cooldownSeconds, print: printVolume } = usePrint();
 
     const [dateRange, setDateRange] = useState<DateRange | undefined>({
         from: subDays(new Date(), 6),
@@ -202,50 +204,154 @@ export function VolumeModal({ open, onClose, defaultErpOrderId }: VolumeModalPro
     /** Gera o HTML de todas as etiquetas de volume do pedido */
     const buildVolumesHtml = (): string => {
         if (total === 0 || !order) return "";
-        const labels = Array.from({ length: total }, (_, i) => `
-            <div class="label">
-                <div class="label-header">
-                    <span class="label-title">Etiqueta de Volume</span>
-                    <span class="label-num">${i + 1} / ${total}</span>
-                </div>
-                <div class="label-order">Pedido: <strong>${order.erpOrderId}</strong></div>
-                <div class="label-customer">${order.customerName || ""}</div>
-                <div class="label-detail">
-                    ${counts.sacola > 0 ? `<span>Sacola: ${counts.sacola}</span>` : ""}
-                    ${counts.caixa > 0 ? `<span>Caixa: ${counts.caixa}</span>` : ""}
-                    ${counts.saco > 0 ? `<span>Saco: ${counts.saco}</span>` : ""}
-                    ${counts.avulso > 0 ? `<span>Avulso: ${counts.avulso}</span>` : ""}
-                </div>
-            </div>
-        `).join("");
 
-        return `<!DOCTYPE html><html><head>
-            <meta charset="UTF-8">
-            <style>
-                @page { size: 10cm 15cm; margin: 0; }
-                * { box-sizing: border-box; margin: 0; padding: 0; }
-                body { font-family: Arial, sans-serif; background: #fff; }
-                .label {
-                    width: 10cm; height: 15cm; padding: 0.5cm;
-                    border: 1px solid #000; page-break-after: always;
-                    display: flex; flex-direction: column; justify-content: space-between;
-                }
-                .label:last-child { page-break-after: avoid; }
-                .label-header {
-                    display: flex; justify-content: space-between; align-items: center;
-                    border-bottom: 1px dashed #999; padding-bottom: 0.3cm;
-                }
-                .label-title { font-size: 11pt; color: #555; }
-                .label-num   { font-size: 28pt; font-weight: bold; }
-                .label-order   { font-size: 12pt; margin-top: 0.3cm; }
-                .label-customer{ font-size: 10pt; color: #333; margin-top: 0.15cm; }
-                .label-detail  {
-                    font-size: 10pt; color: #444;
-                    border-top: 1px dashed #ccc; padding-top: 0.2cm;
-                    display: flex; flex-wrap: wrap; gap: 0.2cm;
-                }
-            </style>
-        </head><body>${labels}</body></html>`;
+        const operatorName = user?.name || user?.username || "—";
+        const dateStr = new Date().toLocaleDateString("pt-BR");
+        const timeStr = new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+
+        // Resumo de embalagens
+        const packSummary = [
+            counts.sacola > 0 ? `${counts.sacola} Sacola${counts.sacola > 1 ? "s" : ""}` : "",
+            counts.caixa  > 0 ? `${counts.caixa}  Cx`  : "",
+            counts.saco   > 0 ? `${counts.saco}   Saco${counts.saco > 1 ? "s" : ""}`  : "",
+            counts.avulso > 0 ? `${counts.avulso}  Avul.` : "",
+        ].filter(Boolean).join(" | ");
+
+        const esc = (s: string) => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+        const labels = Array.from({ length: total }, (_, i) => `
+<div class="label">
+  <!-- CABEÇALHO: empresa + volume -->
+  <div class="hdr">
+    <div class="hdr-left">
+      <div class="hdr-tag">PEDIDO</div>
+      <div class="hdr-os">${esc(order.erpOrderId)}</div>
+    </div>
+    <div class="hdr-right">
+      <div class="hdr-tag" style="text-align:right">VOLUME</div>
+      <div class="hdr-vol">${i + 1}<span class="hdr-vol-total"> / ${total}</span></div>
+    </div>
+  </div>
+
+  <!-- CLIENTE -->
+  <div class="section customer-section">
+    <div class="field-label">DESTINATÁRIO</div>
+    <div class="customer-name">${esc(order.customerName || "—")}</div>
+  </div>
+
+  <!-- EMBALAGENS -->
+  ${packSummary ? `<div class="section pack-section">
+    <div class="field-label">EMBALAGENS</div>
+    <div class="pack-detail">${esc(packSummary)}</div>
+  </div>` : ""}
+
+  <!-- CÓDIGO DE BARRAS -->
+  <div class="barcode-area">
+    <div class="barcode">${esc(order.erpOrderId)}</div>
+    <div class="barcode-num">${esc(order.erpOrderId)}</div>
+  </div>
+
+  <!-- RODAPÉ -->
+  <div class="footer">
+    <div class="footer-row">
+      <div class="footer-item">
+        <span class="footer-label">Conf.</span>
+        <span class="footer-val">${esc(operatorName)}</span>
+      </div>
+      <div class="footer-item footer-right">
+        <span class="footer-label">Data</span>
+        <span class="footer-val">${esc(dateStr)} ${esc(timeStr)}</span>
+      </div>
+    </div>
+    <div class="pedido-row">
+      <span class="pedido-label">PEDIDO.&nbsp;</span>
+      <span class="pedido-num">${esc(order.erpOrderId)}</span>
+    </div>
+  </div>
+</div>`).join("");
+
+        return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Etiquetas Volume - Pedido ${esc(order.erpOrderId)}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Libre+Barcode+128+Text&display=swap" rel="stylesheet">
+<style>
+  @page { size: 10cm 15cm; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, Helvetica, sans-serif; background: #fff; font-size: 11px; color: #000; }
+
+  .label {
+    width: 10cm; height: 15cm;
+    border: 1.5px solid #000;
+    page-break-after: always;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .label:last-child { page-break-after: avoid; }
+
+  /* CABEÇALHO */
+  .hdr {
+    background: #162d4a;
+    color: #fff;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding: 5px 8px 5px;
+    border-bottom: 2px solid #000;
+  }
+  .hdr-left { display: flex; flex-direction: column; }
+  .hdr-right { display: flex; flex-direction: column; align-items: flex-end; }
+  .hdr-tag { font-size: 8px; color: #aac6e8; letter-spacing: 0.5px; text-transform: uppercase; }
+  .hdr-os { font-size: 18px; font-weight: bold; letter-spacing: 0.5px; line-height: 1; }
+  .hdr-vol { font-size: 36px; font-weight: 900; line-height: 1; }
+  .hdr-vol-total { font-size: 18px; font-weight: 400; color: #aac6e8; }
+
+  /* SEÇÕES */
+  .section { padding: 5px 8px; border-bottom: 1px solid #ccc; }
+  .field-label { font-size: 7.5px; color: #777; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
+  .customer-section { background: #f7faff; }
+  .customer-name { font-size: 14px; font-weight: bold; line-height: 1.2; }
+  .pack-section { background: #fffbe6; }
+  .pack-detail { font-size: 11px; font-weight: 600; color: #555; }
+
+  /* CÓDIGO DE BARRAS */
+  .barcode-area {
+    flex: 1;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 6px 8px 2px;
+    border-bottom: 1px solid #ccc;
+  }
+  .barcode {
+    font-family: 'Libre Barcode 128 Text', monospace;
+    font-size: 56px;
+    line-height: 1;
+    letter-spacing: 0;
+    white-space: nowrap;
+    max-width: 100%;
+    overflow: hidden;
+  }
+  .barcode-num { font-size: 9px; color: #333; margin-top: 1px; letter-spacing: 1px; font-family: monospace; }
+
+  /* RODAPÉ */
+  .footer { padding: 5px 8px 4px; background: #f0f4f8; }
+  .footer-row {
+    display: flex; justify-content: space-between; align-items: flex-end;
+    border-bottom: 1px dashed #bbb; padding-bottom: 4px; margin-bottom: 4px;
+  }
+  .footer-item { display: flex; flex-direction: column; }
+  .footer-right { align-items: flex-end; }
+  .footer-label { font-size: 7.5px; color: #888; text-transform: uppercase; }
+  .footer-val { font-size: 10px; font-weight: bold; color: #111; }
+  .pedido-row { display: flex; align-items: baseline; }
+  .pedido-label { font-size: 10px; color: #555; font-weight: 600; }
+  .pedido-num { font-size: 20px; font-weight: 900; color: #000; letter-spacing: 0.5px; }
+</style>
+</head>
+<body>${labels}</body>
+</html>`;
     };
 
 
@@ -470,15 +576,17 @@ export function VolumeModal({ open, onClose, defaultErpOrderId }: VolumeModalPro
                             {total > 0 && (
                                 <Button
                                     variant="outline"
-                                    className="shrink-0"
+                                    className="shrink-0 min-w-[64px] gap-1.5"
                                     onClick={() => printVolume(buildVolumesHtml(), "volume_label")}
-                                    disabled={saveMutation.isPending || printing}
-                                    title="Imprimir etiquetas de volume"
+                                    disabled={saveMutation.isPending || printing || cooldownSeconds > 0}
+                                    title={cooldownSeconds > 0 ? `Aguarde ${cooldownSeconds}s` : "Imprimir etiquetas de volume"}
                                     data-testid="btn-volume-print"
                                 >
                                     {printing
                                         ? <Loader2 className="h-4 w-4 animate-spin" />
-                                        : <Printer className="h-4 w-4" />
+                                        : cooldownSeconds > 0
+                                            ? <><Printer className="h-4 w-4 opacity-50" /><span className="text-xs font-mono tabular-nums">{cooldownSeconds}s</span></>
+                                            : <Printer className="h-4 w-4" />
                                     }
                                 </Button>
                             )}
