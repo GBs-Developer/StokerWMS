@@ -30,6 +30,7 @@ import {
   ScrollText,
   Search,
   Trash2,
+  TrendingUp,
 } from "lucide-react";
 
 interface ModuleItem {
@@ -114,6 +115,7 @@ export default function HomePage() {
         { icon: Cog, title: "Modo Separação", description: "Configurar separação", href: "/supervisor/separation-settings" },
         { icon: Printer, title: "Impressoras", description: "Configurar impressoras padrão", href: "/supervisor/print-settings" },
         { icon: Trash2, title: "Limpeza de Dados", description: "Resetar dados de teste", href: "/admin/limpeza" },
+        { icon: TrendingUp, title: "KPIs de Operadores", description: "Desempenho e produtividade", href: "/admin/kpi-operadores" },
       ],
     },
   ];
@@ -124,13 +126,13 @@ export default function HomePage() {
       "/fila-pedidos", "/supervisor/orders", "/supervisor/routes", "/supervisor/route-orders", "/supervisor/exceptions",
       "/supervisor/users", "/supervisor/manual-qty-rules", "/supervisor/product-addresses", "/supervisor/mapping-studio",
       "/supervisor/reports", "/supervisor/audit", "/admin/permissoes", "/supervisor/separation-settings", "/admin/limpeza",
-      "/supervisor/print-settings",
+      "/supervisor/print-settings", "/admin/kpi-operadores",
     ],
     supervisor: [
       "/wms/recebimento", "/wms/checkin", "/wms/transferencia", "/wms/contagem", "/wms/enderecos", "/wms/produtos",
       "/fila-pedidos", "/supervisor/orders", "/supervisor/routes", "/supervisor/route-orders", "/supervisor/exceptions",
       "/supervisor/users", "/supervisor/product-addresses", "/supervisor/reports", "/supervisor/audit",
-      "/supervisor/separation-settings",
+      "/supervisor/separation-settings", "/admin/kpi-operadores",
     ],
     separacao: ["/separacao"],
     conferencia: ["/conferencia"],

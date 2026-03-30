@@ -30,7 +30,7 @@ The frontend is organized with pages under `client/src/pages/` grouped by functi
 - **Auth pages**: `login.tsx`, `company-select.tsx`, `home.tsx`
 - **WMS / Operação modules**: `wms/recebimento.tsx`, `wms/checkin.tsx` (Endereçamento), `wms/transferencia.tsx`, `wms/contagem.tsx`, `wms/enderecos.tsx`, `wms/produtos.tsx`
 - **Logística modules**: `fila-pedidos/`, `supervisor/orders.tsx`, `supervisor/routes.tsx`, `supervisor/route-orders.tsx` (Expedição), `supervisor/exceptions.tsx`
-- **Administração modules**: `supervisor/users.tsx`, `supervisor/manual-qty-rules.tsx`, `supervisor/mapping-studio.tsx`, `supervisor/reports.tsx`, `supervisor/audit.tsx`, `admin/permissoes.tsx`
+- **Administração modules**: `supervisor/users.tsx`, `supervisor/manual-qty-rules.tsx`, `supervisor/mapping-studio.tsx`, `supervisor/reports.tsx`, `supervisor/audit.tsx`, `admin/permissoes.tsx`, `admin/kpi-dashboard.tsx` (KPIs de Operadores — desempenho por operador com ranking, tempo médio, exceções, volumes)
 - **WMS Report pages** (under `supervisor/reports/`): `counting-cycles.tsx` (contagem), `wms-addresses.tsx` (endereços), `pallet-movements.tsx` (movimentações), `stock-discrepancy.tsx` (divergências de estoque) — accessible from the Reports hub with filters, summary stats, expandable details, and print support
 - **Legacy operator modules**: `separacao/`, `conferencia/`, `balcao/`, `handheld/`
 

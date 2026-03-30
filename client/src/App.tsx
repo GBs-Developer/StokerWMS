@@ -78,6 +78,7 @@ import ContagemPage from "@/pages/wms/contagem";
 import ProdutosPage from "@/pages/wms/produtos";
 import PermissoesPage from "@/pages/admin/permissoes";
 import LimpezaPage from "@/pages/admin/limpeza";
+import KpiDashboardPage from "@/pages/admin/kpi-dashboard";
 import SeparationSettingsPage from "@/pages/supervisor/separation-settings";
 import ProductAddressesPage from "@/pages/supervisor/product-addresses";
 import PrintSettingsPage from "@/pages/supervisor/print-settings";
@@ -337,6 +338,12 @@ function Router() {
       <Route path="/admin/limpeza">
         <ProtectedRoute allowedRoles={["administrador"]}>
           <LimpezaPage />
+        </ProtectedRoute>
+      </Route>
+
+      <Route path="/admin/kpi-operadores">
+        <ProtectedRoute allowedRoles={["supervisor", "administrador"]}>
+          <KpiDashboardPage />
         </ProtectedRoute>
       </Route>
 

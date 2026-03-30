@@ -13,7 +13,7 @@ import fs from "fs";
 import { fileURLToPath } from "url";
 import { setupSSE, broadcastSSE } from "./sse";
 import { db } from "./db";
-import { eq } from "drizzle-orm";
+import { eq, sql as drizzleSql } from "drizzle-orm";
 import { getDataContract, getAvailableDatasets } from "./data-contracts";
 import { log } from "./log";
 
@@ -3465,6 +3465,181 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Report counting cycles error:", error);
       res.status(500).json({ error: "Erro ao gerar relatório" });
+    }
+  });
+
+  // ==================== KPI Dashboard ====================
+  app.get("/api/kpi/operators", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const companyId = parseInt(req.query.companyId as string) || (req as any).companyId || 1;
+      const from = (req.query.from as string) || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const to = (req.query.to as string) || new Date().toISOString().slice(0, 10);
+      const fromStr = from + "T00:00:00.000Z";
+      const toStr   = to   + "T23:59:59.999Z";
+
+      // 1) Work units por operador (separação e conferência)
+      const wuRows = await db.execute(drizzleSql`
+        SELECT
+          wu.locked_by                                                AS user_id,
+          u.name                                                      AS user_name,
+          u.username,
+          u.role,
+          COUNT(*) FILTER (WHERE wu.type = 'separacao' AND wu.status = 'concluido')                AS sep_concluidos,
+          COUNT(*) FILTER (WHERE wu.type = 'conferencia' AND wu.status = 'concluido')              AS conf_concluidos,
+          COUNT(*) FILTER (WHERE wu.type = 'separacao' AND wu.status = 'em_andamento')             AS sep_andamento,
+          ROUND(AVG(
+            CASE WHEN wu.status = 'concluido'
+                      AND wu.type = 'separacao'
+                      AND wu.started_at IS NOT NULL
+                      AND wu.completed_at IS NOT NULL
+            THEN EXTRACT(EPOCH FROM (wu.completed_at::timestamptz - wu.started_at::timestamptz)) / 60.0
+            END
+          )::numeric, 1)                                             AS tempo_medio_sep_min,
+          ROUND(AVG(
+            CASE WHEN wu.status = 'concluido'
+                      AND wu.type = 'conferencia'
+                      AND wu.started_at IS NOT NULL
+                      AND wu.completed_at IS NOT NULL
+            THEN EXTRACT(EPOCH FROM (wu.completed_at::timestamptz - wu.started_at::timestamptz)) / 60.0
+            END
+          )::numeric, 1)                                             AS tempo_medio_conf_min
+        FROM work_units wu
+        JOIN users u ON wu.locked_by = u.id
+        WHERE wu.company_id = ${companyId}
+          AND wu.locked_at IS NOT NULL
+          AND wu.locked_at >= ${fromStr}
+          AND wu.locked_at <= ${toStr}
+        GROUP BY wu.locked_by, u.name, u.username, u.role
+      `);
+
+      // 2) Exceções por operador que as registrou
+      const excRows = await db.execute(drizzleSql`
+        SELECT
+          e.reported_by                                              AS user_id,
+          COUNT(*)                                                   AS total_excecoes,
+          COUNT(*) FILTER (WHERE e.type = 'nao_encontrado')         AS nao_encontrado,
+          COUNT(*) FILTER (WHERE e.type = 'avariado')               AS avariado,
+          COUNT(*) FILTER (WHERE e.type = 'vencido')                AS vencido
+        FROM exceptions e
+        WHERE e.created_at >= ${fromStr}
+          AND e.created_at <= ${toStr}
+        GROUP BY e.reported_by
+      `);
+
+      // 3) Itens separados (qty_picked) via work_units concluídos de separação
+      const itemRows = await db.execute(drizzleSql`
+        SELECT
+          wu.locked_by                                               AS user_id,
+          COUNT(DISTINCT wu.order_id)                                AS ordens_unicas,
+          COUNT(oi.id)                                               AS total_itens,
+          COALESCE(SUM(oi.qty_picked), 0)                           AS total_qty_picked,
+          COALESCE(SUM(oi.quantity), 0)                             AS total_qty_esperada,
+          COUNT(*) FILTER (WHERE oi.qty_picked > oi.quantity)       AS itens_excedidos
+        FROM work_units wu
+        JOIN order_items oi ON oi.order_id = wu.order_id
+        WHERE wu.type = 'separacao'
+          AND wu.status = 'concluido'
+          AND wu.company_id = ${companyId}
+          AND wu.locked_at IS NOT NULL
+          AND wu.locked_at >= ${fromStr}
+          AND wu.locked_at <= ${toStr}
+        GROUP BY wu.locked_by
+      `);
+
+      // 4) Volumes gerados por operador (conferência)
+      const volRows = await db.execute(drizzleSql`
+        SELECT
+          ov.created_by                                              AS user_id,
+          COUNT(*)                                                   AS pedidos_com_volume,
+          COALESCE(SUM(ov.total_volumes), 0)                        AS total_volumes,
+          COALESCE(SUM(ov.sacola), 0)                               AS sacolas,
+          COALESCE(SUM(ov.caixa), 0)                                AS caixas,
+          COALESCE(SUM(ov.saco), 0)                                 AS sacos,
+          COALESCE(SUM(ov.avulso), 0)                               AS avulsos
+        FROM order_volumes ov
+        WHERE ov.created_at >= ${fromStr}
+          AND ov.created_at <= ${toStr}
+        GROUP BY ov.created_by
+      `);
+
+      // 5) Atividade diária de separação (últimos 7 dias dentro do range)
+      const dailyRows = await db.execute(drizzleSql`
+        SELECT
+          wu.locked_by                                               AS user_id,
+          LEFT(wu.completed_at, 10)                                  AS dia,
+          COUNT(*) FILTER (WHERE wu.type = 'separacao')             AS sep_dia,
+          COUNT(*) FILTER (WHERE wu.type = 'conferencia')           AS conf_dia
+        FROM work_units wu
+        WHERE wu.status = 'concluido'
+          AND wu.company_id = ${companyId}
+          AND wu.completed_at IS NOT NULL
+          AND wu.completed_at >= ${fromStr}
+          AND wu.completed_at <= ${toStr}
+        GROUP BY wu.locked_by, LEFT(wu.completed_at, 10)
+        ORDER BY dia ASC
+      `);
+
+      // Merge all data by userId
+      const excMap = new Map(excRows.rows.map((r: any) => [r.user_id, r]));
+      const itemMap = new Map(itemRows.rows.map((r: any) => [r.user_id, r]));
+      const volMap = new Map(volRows.rows.map((r: any) => [r.user_id, r]));
+      const dailyMap = new Map<string, any[]>();
+      for (const r of dailyRows.rows as any[]) {
+        if (!dailyMap.has(r.user_id)) dailyMap.set(r.user_id, []);
+        dailyMap.get(r.user_id)!.push({ dia: r.dia, sep: Number(r.sep_dia), conf: Number(r.conf_dia) });
+      }
+
+      const operators = (wuRows.rows as any[]).map((wu) => {
+        const exc  = excMap.get(wu.user_id)  || {};
+        const item = itemMap.get(wu.user_id) || {};
+        const vol  = volMap.get(wu.user_id)  || {};
+        const daily = dailyMap.get(wu.user_id) || [];
+
+        const sepConcluidos   = Number(wu.sep_concluidos   ?? 0);
+        const confConcluidos  = Number(wu.conf_concluidos  ?? 0);
+        const totalExcecoes   = Number(exc.total_excecoes  ?? 0);
+        const totalItens      = Number(item.total_itens    ?? 0);
+        const totalQtyPicked  = Number(item.total_qty_picked  ?? 0);
+        const taxaExcecao     = totalItens > 0 ? parseFloat(((totalExcecoes / totalItens) * 100).toFixed(1)) : 0;
+
+        return {
+          userId:           wu.user_id,
+          userName:         wu.user_name,
+          username:         wu.username,
+          role:             wu.role,
+          // Separação
+          pedidosSeparados:    sepConcluidos,
+          pedidosAndamento:    Number(wu.sep_andamento ?? 0),
+          tempoMedioSepMin:    wu.tempo_medio_sep_min !== null ? Number(wu.tempo_medio_sep_min) : null,
+          // Conferência
+          pedidosConferidos:   confConcluidos,
+          tempoMedioConfMin:   wu.tempo_medio_conf_min !== null ? Number(wu.tempo_medio_conf_min) : null,
+          // Itens
+          totalItens,
+          totalQtyPicked,
+          totalQtyEsperada:    Number(item.total_qty_esperada ?? 0),
+          itensExcedidos:      Number(item.itens_excedidos ?? 0),
+          // Exceções
+          totalExcecoes,
+          taxaExcecao,
+          excNaoEncontrado:    Number(exc.nao_encontrado ?? 0),
+          excAvariado:         Number(exc.avariado ?? 0),
+          excVencido:          Number(exc.vencido  ?? 0),
+          // Volumes (conferência)
+          pedidosComVolume:    Number(vol.pedidos_com_volume ?? 0),
+          totalVolumes:        Number(vol.total_volumes ?? 0),
+          // Atividade diária
+          diario:              daily,
+        };
+      });
+
+      // Ordenar por pedidos separados desc
+      operators.sort((a, b) => b.pedidosSeparados - a.pedidosSeparados);
+
+      res.json({ operators, from, to, companyId });
+    } catch (error) {
+      log(`KPI operators error: ${(error as Error).message}`, "error");
+      res.status(500).json({ error: "Erro ao gerar KPIs" });
     }
   });
 
