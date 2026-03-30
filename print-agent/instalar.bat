@@ -1,4 +1,5 @@
 @echo off
+cd /d "%~dp0"
 title Stoker WMS - Instalador do Agente de Impressao
 echo.
 echo ============================================================
@@ -23,7 +24,7 @@ echo.
 
 :: Instala dependencias
 echo Instalando dependencias...
-pip install -r requirements.txt --quiet
+pip install -r requirements.txt
 if errorlevel 1 (
     echo [AVISO] Algumas dependencias podem nao ter sido instaladas.
 )
