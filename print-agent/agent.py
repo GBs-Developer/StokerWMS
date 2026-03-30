@@ -148,7 +148,17 @@ def _render_volume_label(data: dict, pdf_path: str) -> bool:
 
 
 def _draw_single_volume(c, vol, PAGE_W, PAGE_H, cm, mm, HexColor, black, white, code128):
-    """Desenha uma etiqueta de volume em uma página."""
+    """Desenha uma etiqueta de volume em uma página.
+
+    Layout (total = PAGE_H = 100 mm):
+      Hero header  38 mm  — pedido + volume em destaque máximo
+      Cliente      20 mm  — destinatário + endereço
+      Info strip   10 mm  — rota + contagem de embalagens
+      Código barras 24 mm — barcode Code128 centralizado
+      Rodapé        8 mm  — operador + data/hora
+                  --------
+      Total       100 mm
+    """
     erp_order = vol.get("erpOrderId", "—")
     vol_num = vol.get("volumeNumber", 1)
     vol_total = vol.get("totalVolumes", 1)
@@ -165,164 +175,158 @@ def _draw_single_volume(c, vol, PAGE_W, PAGE_H, cm, mm, HexColor, black, white, 
 
     y = PAGE_H
 
-    # ── Header (fundo escuro) ───────────────────────────────────────────
-    header_h = 22 * mm
+    # ── HERO HEADER (38 mm) — pedido (esq.) e volume (dir.) ────────────
+    hero_h = 38 * mm
     c.setFillColor(HexColor("#111111"))
-    c.rect(0, y - header_h, PAGE_W, header_h, fill=1, stroke=0)
+    c.rect(0, y - hero_h, PAGE_W, hero_h, fill=1, stroke=0)
+
+    # Separador vertical suave no centro
+    c.setStrokeColor(HexColor("#2a2a2a"))
+    c.setLineWidth(0.5)
+    c.line(PAGE_W / 2, y - 5 * mm, PAGE_W / 2, y - hero_h + 5 * mm)
+
+    half = PAGE_W / 2
+
+    # ─ Lado esquerdo: PEDIDO ────────────────────────────────────────────
+    c.setFillColor(HexColor("#888888"))
+    c.setFont("Helvetica", 6)
+    c.drawString(3 * mm, y - 6 * mm, "PEDIDO")
+
+    order_str = str(erp_order)
+    # Fonte adaptável: cabe em 44 mm de largura
+    max_order_w = half - 6 * mm
+    for fs in (30, 26, 22, 18, 14):
+        if c.stringWidth(order_str, "Helvetica-Bold", fs) <= max_order_w:
+            break
+    c.setFillColor(white)
+    c.setFont("Helvetica-Bold", fs)
+    c.drawString(3 * mm, y - 22 * mm, order_str)
+
+    # Rota pequena abaixo do pedido
+    c.setFillColor(HexColor("#666666"))
+    c.setFont("Helvetica", 7)
+    c.drawString(3 * mm, y - 32 * mm, f"ROTA  {route}")
+
+    # ─ Lado direito: VOLUME ──────────────────────────────────────────────
+    c.setFillColor(HexColor("#888888"))
+    c.setFont("Helvetica", 6)
+    c.drawRightString(PAGE_W - 3 * mm, y - 6 * mm, "VOLUME")
+
+    vol_str = str(vol_num)
+    total_str = f"/{vol_total}"
+
+    # Fonte adaptável para o número do volume (cabe em 44 mm)
+    max_vol_w = half - 6 * mm
+    for vfs in (48, 42, 36, 30, 24):
+        vw = c.stringWidth(vol_str, "Helvetica-Bold", vfs)
+        tw = c.stringWidth(total_str, "Helvetica", int(vfs * 0.55))
+        if vw + tw <= max_vol_w:
+            break
+    tfs = int(vfs * 0.55)
+    vw = c.stringWidth(vol_str, "Helvetica-Bold", vfs)
+    tw = c.stringWidth(total_str, "Helvetica", tfs)
+
+    right_center = half + (half / 2)
+    start_x = right_center - (vw + tw) / 2
 
     c.setFillColor(white)
-    c.setFont("Helvetica", 7)
-    c.drawString(3 * mm, y - 6 * mm, "PEDIDO")
-    c.setFont("Helvetica-Bold", 16)
-    c.drawString(3 * mm, y - 14 * mm, str(erp_order))
+    c.setFont("Helvetica-Bold", vfs)
+    c.drawString(start_x, y - 28 * mm, vol_str)
 
-    c.setFont("Helvetica", 7)
-    c.drawRightString(PAGE_W - 3 * mm, y - 6 * mm, "VOLUME")
-    c.setFont("Helvetica-Bold", 26)
-    vol_text = str(vol_num)
-    total_text = f" / {vol_total}"
-    c.drawRightString(PAGE_W - 3 * mm, y - 18 * mm, vol_text + total_text)
+    c.setFillColor(HexColor("#999999"))
+    c.setFont("Helvetica", tfs)
+    c.drawString(start_x + vw, y - 28 * mm, total_str)
 
-    y -= header_h
+    y -= hero_h
 
-    # ── Rota / Pacote ───────────────────────────────────────────────────
-    row_h = 12 * mm
-    c.setStrokeColor(HexColor("#cccccc"))
-    c.setLineWidth(0.5)
-    c.line(0, y - row_h, PAGE_W, y - row_h)
-    c.line(PAGE_W / 2, y, PAGE_W / 2, y - row_h)
-
-    c.setFillColor(HexColor("#777777"))
-    c.setFont("Helvetica", 6)
-    c.drawString(3 * mm, y - 4 * mm, "ROTA ID")
-    c.setFillColor(black)
-    c.setFont("Helvetica-Bold", 11)
-    c.drawString(3 * mm, y - 10 * mm, str(route) or "—")
-
-    c.setFillColor(HexColor("#777777"))
-    c.setFont("Helvetica", 6)
-    c.drawRightString(PAGE_W - 3 * mm, y - 4 * mm, "PACOTE ID")
-    c.setFillColor(black)
-    c.setFont("Helvetica-Bold", 11)
-    c.drawRightString(PAGE_W - 3 * mm, y - 10 * mm, str(vol_num))
-
-    y -= row_h
-
-    # ── Cliente ─────────────────────────────────────────────────────────
-    c.setStrokeColor(HexColor("#cccccc"))
-    c.setFillColor(HexColor("#f7faff"))
-    client_h = 22 * mm
+    # ── CLIENTE (20 mm) ──────────────────────────────────────────────────
+    client_h = 20 * mm
+    c.setFillColor(HexColor("#f5f8ff"))
     c.rect(0, y - client_h, PAGE_W, client_h, fill=1, stroke=0)
+    c.setStrokeColor(HexColor("#cccccc"))
+    c.line(0, y, PAGE_W, y)
     c.line(0, y - client_h, PAGE_W, y - client_h)
 
-    c.setFillColor(HexColor("#777777"))
-    c.setFont("Helvetica", 6)
+    c.setFillColor(HexColor("#888888"))
+    c.setFont("Helvetica", 5.5)
     c.drawString(3 * mm, y - 4 * mm, "DESTINATÁRIO")
 
     c.setFillColor(black)
-    c.setFont("Helvetica-Bold", 11)
-    name_text = customer[:40] if len(customer) > 40 else customer
-    c.drawString(3 * mm, y - 10 * mm, name_text)
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(3 * mm, y - 9.5 * mm, customer[:44])
 
-    c.setFont("Helvetica", 9)
-    line_y = y - 15 * mm
-    if address:
-        c.drawString(3 * mm, line_y, address[:50])
-        line_y -= 4 * mm
-    if neighborhood:
-        c.drawString(3 * mm, line_y, neighborhood[:40])
-        line_y -= 4 * mm
+    c.setFont("Helvetica", 7.5)
+    c.setFillColor(HexColor("#333333"))
+    addr_parts = [p for p in [address, neighborhood] if p]
+    addr_line = "  ·  ".join(addr_parts)[:58]
+    if addr_line:
+        c.drawString(3 * mm, y - 14.5 * mm, addr_line)
     if city_state:
-        c.setFont("Helvetica-Bold", 9)
-        c.drawString(3 * mm, line_y, city_state[:40])
+        c.setFont("Helvetica-Bold", 7.5)
+        c.drawString(3 * mm, y - 18.5 * mm, city_state[:44])
 
     y -= client_h
 
-    # ── Contagem de embalagens ──────────────────────────────────────────
-    pkg_h = 12 * mm
-    pkg_types = [("SACOLA", counts.get("sacola", 0)), ("CAIXA", counts.get("caixa", 0)),
-                 ("SACO", counts.get("saco", 0)), ("AVULSO", counts.get("avulso", 0))]
-    col_w = PAGE_W / 4
+    # ── INFO STRIP (10 mm) — rota + embalagens ───────────────────────────
+    info_h = 10 * mm
+    c.setFillColor(HexColor("#eeeeee"))
+    c.rect(0, y - info_h, PAGE_W, info_h, fill=1, stroke=0)
+    c.setStrokeColor(HexColor("#cccccc"))
+    c.line(0, y - info_h, PAGE_W, y - info_h)
 
-    c.setFillColor(HexColor("#fafafa"))
-    c.rect(0, y - pkg_h, PAGE_W, pkg_h, fill=1, stroke=0)
-
-    for i, (label, val) in enumerate(pkg_types):
+    # 5 colunas iguais: ROTA | SACOLA | CAIXA | SACO | AVULSO
+    cols = [("ROTA", str(route))] + [
+        (lbl, str(counts.get(k, 0)))
+        for lbl, k in [("SACOLA", "sacola"), ("CAIXA", "caixa"),
+                       ("SACO", "saco"), ("AVULSO", "avulso")]
+    ]
+    col_w = PAGE_W / len(cols)
+    for i, (lbl, val) in enumerate(cols):
         cx = i * col_w + col_w / 2
         if i > 0:
             c.setStrokeColor(HexColor("#cccccc"))
-            c.line(i * col_w, y, i * col_w, y - pkg_h)
+            c.line(i * col_w, y, i * col_w, y - info_h)
         c.setFillColor(HexColor("#888888"))
-        c.setFont("Helvetica", 5.5)
-        c.drawCentredString(cx, y - 4 * mm, label)
+        c.setFont("Helvetica", 5)
+        c.drawCentredString(cx, y - 3.5 * mm, lbl)
         c.setFillColor(black)
-        c.setFont("Helvetica-Bold", 13)
-        c.drawCentredString(cx, y - 10 * mm, str(val))
+        c.setFont("Helvetica-Bold", 8)
+        c.drawCentredString(cx, y - 8 * mm, val)
 
-    c.setStrokeColor(HexColor("#cccccc"))
-    c.line(0, y - pkg_h, PAGE_W, y - pkg_h)
-    y -= pkg_h
+    y -= info_h
 
-    # ── Volume central grande ───────────────────────────────────────────
-    vol_center_h = 30 * mm
-    c.setStrokeColor(HexColor("#cccccc"))
-    c.line(0, y - vol_center_h, PAGE_W, y - vol_center_h)
+    # ── CÓDIGO DE BARRAS (24 mm) ─────────────────────────────────────────
+    barcode_h = 24 * mm
+    try:
+        bc = code128.Code128(barcode_text, barWidth=0.65 * mm, barHeight=15 * mm, humanReadable=True)
+        bc_w = bc.width
+        bc.drawOn(c, (PAGE_W - bc_w) / 2, y - barcode_h + 4 * mm)
+    except Exception:
+        c.setFont("Courier-Bold", 12)
+        c.drawCentredString(PAGE_W / 2, y - barcode_h / 2, barcode_text)
 
-    center_x = PAGE_W / 2
-    c.setFillColor(HexColor("#777777"))
-    c.setFont("Helvetica", 8)
-    c.drawCentredString(center_x, y - 6 * mm, "VOLUME")
+    y -= barcode_h
 
-    big_text = str(vol_num)
-    slash_text = f" / {vol_total}"
-    c.setFont("Helvetica-Bold", 42)
-    big_w = c.stringWidth(big_text, "Helvetica-Bold", 42)
-    c.setFont("Helvetica", 22)
-    slash_w = c.stringWidth(slash_text, "Helvetica", 22)
-    start_x = center_x - (big_w + slash_w) / 2
-    c.setFillColor(HexColor("#111111"))
-    c.setFont("Helvetica-Bold", 42)
-    c.drawString(start_x, y - 22 * mm, big_text)
-    c.setFillColor(HexColor("#555555"))
-    c.setFont("Helvetica", 22)
-    c.drawString(start_x + big_w, y - 22 * mm, slash_text)
-
-    y -= vol_center_h
-
-    # ── Footer (operador + data) ────────────────────────────────────────
-    footer_h = 10 * mm
+    # ── RODAPÉ (8 mm) ────────────────────────────────────────────────────
+    footer_h = 8 * mm
     c.setFillColor(HexColor("#f0f4f8"))
     c.rect(0, y - footer_h, PAGE_W, footer_h, fill=1, stroke=0)
     c.setStrokeColor(HexColor("#cccccc"))
-    c.line(0, y - footer_h, PAGE_W, y - footer_h)
+    c.line(0, y, PAGE_W, y)
 
     c.setFillColor(HexColor("#888888"))
-    c.setFont("Helvetica", 5.5)
-    c.drawString(3 * mm, y - 4 * mm, "CONFERIDO POR")
+    c.setFont("Helvetica", 5)
+    c.drawString(3 * mm, y - 3 * mm, "CONFERIDO POR")
     c.setFillColor(black)
-    c.setFont("Helvetica-Bold", 8)
-    c.drawString(3 * mm, y - 8.5 * mm, operator[:30])
+    c.setFont("Helvetica-Bold", 6.5)
+    c.drawString(3 * mm, y - 7 * mm, operator[:30])
 
     c.setFillColor(HexColor("#888888"))
-    c.setFont("Helvetica", 5.5)
-    c.drawRightString(PAGE_W - 3 * mm, y - 4 * mm, "DATA/HORA")
+    c.setFont("Helvetica", 5)
+    c.drawRightString(PAGE_W - 3 * mm, y - 3 * mm, "DATA/HORA")
     c.setFillColor(black)
-    c.setFont("Helvetica-Bold", 8)
-    c.drawRightString(PAGE_W - 3 * mm, y - 8.5 * mm, f"{date_str} {time_str}")
-
-    y -= footer_h
-
-    # ── Código de barras ────────────────────────────────────────────────
-    remaining_h = y
-    barcode_y = remaining_h / 2 - 8 * mm
-
-    try:
-        bc = code128.Code128(barcode_text, barWidth=0.8 * mm, barHeight=14 * mm, humanReadable=True)
-        bc_w = bc.width
-        bc.drawOn(c, (PAGE_W - bc_w) / 2, barcode_y)
-    except Exception:
-        c.setFont("Courier-Bold", 14)
-        c.drawCentredString(PAGE_W / 2, barcode_y + 5 * mm, barcode_text)
+    c.setFont("Helvetica-Bold", 6.5)
+    c.drawRightString(PAGE_W - 3 * mm, y - 7 * mm, f"{date_str} {time_str}")
 
 
 def _render_pallet_label(data: dict, pdf_path: str) -> bool:
