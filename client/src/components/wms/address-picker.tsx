@@ -1,8 +1,8 @@
-import { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { MapPin, CheckCircle2, XCircle, AlertTriangle } from "lucide-react";
+import { MapPin, CheckCircle2, XCircle, AlertTriangle, Keyboard } from "lucide-react";
 
 interface WmsAddress {
   id: string;
@@ -30,7 +30,10 @@ export function AddressPicker({ availableAddresses, onAddressSelect, onClear, va
   const [activeField, setActiveField] = useState<string | null>(null);
   const [highlightIndex, setHighlightIndex] = useState(-1);
 
-  const ruaRef = useRef<HTMLInputElement>(null);
+  /** Teclado virtual ativado apenas quando o operador precisar digitar manualmente */
+  const [keyboardEnabled, setKeyboardEnabled] = useState(false);
+
+  const ruaRef   = useRef<HTMLInputElement>(null);
   const blocoRef = useRef<HTMLInputElement>(null);
   const nivelRef = useRef<HTMLInputElement>(null);
   const bairroRef = useRef<HTMLInputElement>(null);
@@ -43,6 +46,7 @@ export function AddressPicker({ availableAddresses, onAddressSelect, onClear, va
   const addressesRef = useRef(availableAddresses);
   addressesRef.current = availableAddresses;
 
+  // Sincroniza campos quando valor externo é definido
   useEffect(() => {
     if (value) {
       const match = addressesRef.current.find(a => a.id === value);
@@ -90,9 +94,9 @@ export function AddressPicker({ availableAddresses, onAddressSelect, onClear, va
 
     const filtered = availableAddresses.filter(a => {
       if (activeField === "bairro") return !bairro || a.bairro.startsWith(bairro);
-      if (activeField === "rua") return a.bairro === bairro && (!rua || a.rua.startsWith(rua));
-      if (activeField === "bloco") return a.bairro === bairro && a.rua === rua && (!bloco || a.bloco.startsWith(bloco));
-      if (activeField === "nível") return a.bairro === bairro && a.rua === rua && a.bloco === bloco && (!nivel || a.nivel.startsWith(nivel));
+      if (activeField === "rua")    return a.bairro === bairro && (!rua   || a.rua.startsWith(rua));
+      if (activeField === "bloco")  return a.bairro === bairro && a.rua === rua && (!bloco || a.bloco.startsWith(bloco));
+      if (activeField === "nível")  return a.bairro === bairro && a.rua === rua && a.bloco === bloco && (!nivel || a.nivel.startsWith(nivel));
       return false;
     });
 
@@ -107,13 +111,18 @@ export function AddressPicker({ availableAddresses, onAddressSelect, onClear, va
 
   const selectSuggestion = (val: string) => {
     if (activeField === "bairro") { setBairro(val); ruaRef.current?.focus(); }
-    else if (activeField === "rua") { setRua(val); blocoRef.current?.focus(); }
+    else if (activeField === "rua")   { setRua(val);   blocoRef.current?.focus(); }
     else if (activeField === "bloco") { setBloco(val); nivelRef.current?.focus(); }
     else if (activeField === "nível") { setNivel(val); }
     setActiveField(null);
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent, fieldName: string, nextRef: React.RefObject<HTMLInputElement> | null) => {
+  const handleKeyDown = (
+    e: React.KeyboardEvent,
+    fieldName: string,
+    nextRef: React.RefObject<HTMLInputElement> | null
+  ) => {
+    // Navega sugestões com setas
     if (suggestions.length > 0 && activeField === fieldName) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -136,10 +145,19 @@ export function AddressPicker({ availableAddresses, onAddressSelect, onClear, va
         return;
       }
     }
-    if (e.key === "Enter" && nextRef) {
+
+    // Enter avança para o próximo campo (comportamento de bipe de QR code)
+    if (e.key === "Enter") {
       e.preventDefault();
-      nextRef.current?.focus();
+      if (nextRef) {
+        nextRef.current?.focus();
+      } else {
+        // Último campo (Nível) — fecha sugestões e perde foco
+        setActiveField(null);
+        nivelRef.current?.blur();
+      }
     }
+
     if (e.key === "Escape") {
       setActiveField(null);
     }
@@ -149,18 +167,20 @@ export function AddressPicker({ availableAddresses, onAddressSelect, onClear, va
 
   const fields = [
     { label: "Bairro", name: "bairro", ref: bairroRef, value: bairro, set: setBairro, next: ruaRef },
-    { label: "Rua", name: "rua", ref: ruaRef, value: rua, set: setRua, next: blocoRef },
-    { label: "Bloco", name: "bloco", ref: blocoRef, value: bloco, set: setBloco, next: nivelRef },
-    { label: "Nível", name: "nível", ref: nivelRef, value: nivel, set: setNivel, next: null },
+    { label: "Rua",    name: "rua",    ref: ruaRef,    value: rua,    set: setRua,    next: blocoRef },
+    { label: "Bloco",  name: "bloco",  ref: blocoRef,  value: bloco,  set: setBloco,  next: nivelRef },
+    { label: "Nível",  name: "nível",  ref: nivelRef,  value: nivel,  set: setNivel,  next: null },
   ];
 
   return (
     <div className="space-y-3 p-4 border rounded-xl bg-muted/20">
+      {/* Cabeçalho: rótulo + botão de teclado */}
       <div className="flex items-center justify-between">
         <Label className="flex items-center gap-2 text-primary font-semibold">
           <MapPin className="h-4 w-4" /> {label || "Endereço de Destino"}
         </Label>
         <div className="flex items-center gap-2">
+          {/* Status do endereço */}
           {currentMatch ? (
             <span className="text-xs font-bold text-green-600 flex items-center gap-1">
               <CheckCircle2 className="h-3.5 w-3.5" /> {currentMatch.code}
@@ -172,9 +192,23 @@ export function AddressPicker({ availableAddresses, onAddressSelect, onClear, va
               </span>
             )
           )}
+
+          {/* Toggle de teclado virtual */}
+          <Button
+            type="button"
+            variant={keyboardEnabled ? "default" : "outline"}
+            size="sm"
+            className="h-7 w-7 p-0"
+            title={keyboardEnabled ? "Desativar teclado" : "Ativar teclado"}
+            onClick={() => setKeyboardEnabled(k => !k)}
+            data-testid="btn-toggle-keyboard-address"
+          >
+            <Keyboard className="h-3.5 w-3.5" />
+          </Button>
         </div>
       </div>
 
+      {/* Campos BAIRRO / RUA / BLOCO / NÍVEL */}
       <div className="grid grid-cols-4 gap-2">
         {fields.map(({ label: fieldLabel, name, ref, value: val, set, next }) => (
           <div key={fieldLabel} className="space-y-1 relative">
@@ -183,6 +217,7 @@ export function AddressPicker({ availableAddresses, onAddressSelect, onClear, va
               ref={ref}
               placeholder=""
               value={val}
+              inputMode={keyboardEnabled ? "text" : "none"}
               onChange={e => set(alphaNumOnly(e.target.value))}
               className={fieldClass}
               onFocus={() => setActiveField(name)}
@@ -190,6 +225,7 @@ export function AddressPicker({ availableAddresses, onAddressSelect, onClear, va
               onKeyDown={e => handleKeyDown(e, name, next)}
               data-testid={`input-address-${fieldLabel.toLowerCase()}`}
             />
+            {/* Sugestões de autocomplete */}
             {activeField === name && suggestions.length > 0 && (
               <div
                 ref={suggestionsRef}
@@ -216,7 +252,14 @@ export function AddressPicker({ availableAddresses, onAddressSelect, onClear, va
       </div>
 
       <p className="text-[10px] text-muted-foreground text-center">
-        Bipe o endereço ou digite o código
+        Bipe o endereço — Enter avança ao próximo campo &nbsp;·&nbsp;
+        <button
+          type="button"
+          className="underline underline-offset-2 hover:text-foreground transition-colors"
+          onClick={() => { setKeyboardEnabled(k => !k); bairroRef.current?.focus(); }}
+        >
+          {keyboardEnabled ? "desativar teclado" : "ativar teclado"}
+        </button>
       </p>
 
       {occupiedWarning && (
