@@ -19,7 +19,6 @@ import tempfile
 import subprocess
 import configparser
 import traceback
-import hashlib
 import socket
 
 # ── Logging ────────────────────────────────────────────────────────────────────
@@ -54,20 +53,38 @@ RECONNECT_S = cfg.getint("agent", "reconnect_seconds", fallback=5)
 PING_INTERVAL = cfg.getint("agent", "ping_interval", fallback=20)
 VERIFY_SSL = cfg.getboolean("agent", "verify_ssl", fallback=True)
 
-# Extrai apenas scheme + host:porta (ignora qualquer caminho digitado por engano)
 try:
     from urllib.parse import urlparse as _urlparse
     _raw = cfg.get("agent", "server_url").strip().rstrip("/")
     _parsed = _urlparse(_raw)
-    # Se não tem scheme, tenta adicionar http:// para parsear
     if not _parsed.scheme:
         _parsed = _urlparse("http://" + _raw)
     SERVER_BASE = f"{_parsed.scheme}://{_parsed.netloc}"
 except Exception:
     SERVER_BASE = cfg.get("agent", "server_url").strip().rstrip("/")
 
-# Converte http(s):// → ws(s)://
 WS_URL = SERVER_BASE.replace("https://", "wss://").replace("http://", "ws://") + "/ws/print-agent"
+
+
+# ── Validação de dependências na inicialização ────────────────────────────────
+
+def _check_dependencies():
+    """Verifica se todas as dependências estão instaladas antes de iniciar."""
+    missing = []
+    try:
+        import websocket  # noqa: F401
+    except ImportError:
+        missing.append("websocket-client")
+    try:
+        from xhtml2pdf import pisa  # noqa: F401
+    except ImportError:
+        missing.append("xhtml2pdf")
+    if missing:
+        log.error(f"Dependências faltando: {', '.join(missing)}")
+        log.error(f"Execute: pip install {' '.join(missing)}")
+        sys.exit(1)
+
+_check_dependencies()
 
 
 # ── Printer detection (Windows) ────────────────────────────────────────────────
@@ -84,8 +101,6 @@ def get_printers():
             if name:
                 printers.append({"name": name, "isDefault": name == default})
     except ImportError:
-        log.warning("win32print não disponível — listando sem módulo Windows")
-        # Fallback: PowerShell
         try:
             result = subprocess.run(
                 ["powershell", "-Command",
@@ -95,8 +110,8 @@ def get_printers():
             if result.returncode == 0:
                 names = [n.strip() for n in result.stdout.strip().splitlines() if n.strip()]
                 printers = [{"name": n, "isDefault": False} for n in names]
-        except Exception as e:
-            log.warning(f"Fallback PowerShell falhou: {e}")
+        except Exception:
+            pass
     except Exception as e:
         log.warning(f"Erro ao listar impressoras: {e}")
     return printers
@@ -126,31 +141,46 @@ def _strip_external_fonts(html: str) -> str:
     html = re.sub(r'<link[^>]*fonts\.gstatic\.com[^>]*/?\s*>', '', html, flags=re.IGNORECASE)
     return html
 
-def generate_pdf(html_content: str, pdf_path: str, job_id: str) -> bool:
-    """
-    Gera PDF a partir de HTML usando xhtml2pdf.
-    Sem Chrome, sem navegador, sem porta de debug, sem WebSocket.
-    100% Python puro.
-    """
+_PDF_TIMEOUT = 30
+
+def _generate_pdf_worker(html_content: str, pdf_path: str) -> str:
+    """Worker que roda em thread separada para poder ter timeout."""
     import logging as _logging
-    _logging.getLogger("xhtml2pdf").setLevel(_logging.ERROR)
-    _logging.getLogger("reportlab").setLevel(_logging.ERROR)
+    _logging.getLogger("xhtml2pdf").setLevel(_logging.CRITICAL)
+    _logging.getLogger("reportlab").setLevel(_logging.CRITICAL)
+    _logging.getLogger("html5lib").setLevel(_logging.CRITICAL)
 
     from xhtml2pdf import pisa
+
+    with open(pdf_path, "wb") as pdf_file:
+        status = pisa.CreatePDF(html_content, dest=pdf_file)
+
+    if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 100:
+        return "ok"
+
+    return f"xhtml2pdf falhou (err={getattr(status, 'err', '?')})"
+
+def generate_pdf(html_content: str, pdf_path: str, job_id: str) -> bool:
+    """
+    Gera PDF a partir de HTML usando xhtml2pdf com timeout.
+    Sem Chrome, sem navegador, sem porta de debug, sem WebSocket.
+    """
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 
     html_content = _strip_external_fonts(html_content)
 
     with _pdf_lock:
-        with open(pdf_path, "wb") as pdf_file:
-            pisa_status = pisa.CreatePDF(html_content, dest=pdf_file)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_generate_pdf_worker, html_content, pdf_path)
+            try:
+                result = future.result(timeout=_PDF_TIMEOUT)
+            except FuturesTimeout:
+                raise RuntimeError(f"xhtml2pdf timeout ({_PDF_TIMEOUT}s)")
 
-        if pisa_status.err:
-            raise RuntimeError(f"xhtml2pdf retornou {pisa_status.err} erro(s)")
-
-        if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 0:
+        if result == "ok":
             return True
 
-        raise RuntimeError("xhtml2pdf não gerou o arquivo PDF")
+        raise RuntimeError(result)
 
 
 # ── Limpeza de arquivos temporários antigos na inicialização ──────────────────
@@ -180,19 +210,33 @@ _cleanup_stale_temp_files()
 
 # ── Impressão ─────────────────────────────────────────────────────────────────
 
+MAX_RETRIES = 2
+
 def print_html(html: str, printer: str, copies: int) -> dict:
-    """Converts HTML to PDF via xhtml2pdf (pure Python), then sends to printer via SumatraPDF."""
+    """Converts HTML to PDF via xhtml2pdf (pure Python), then sends to printer."""
     tmp = tempfile.gettempdir()
     job_id = os.urandom(4).hex()
     pdf_path = os.path.join(tmp, f"stoker_{job_id}.pdf")
 
     try:
         t_start = time.time()
-        try:
-            generate_pdf(html, pdf_path, job_id)
-        except Exception as e:
-            log.error(f"[{job_id}] ✗ Falha ao gerar PDF: {e}")
-            return {"success": False, "error": f"Falha ao gerar PDF: {e}"}
+
+        last_error = None
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                if os.path.exists(pdf_path):
+                    os.remove(pdf_path)
+                generate_pdf(html, pdf_path, job_id)
+                last_error = None
+                break
+            except Exception as e:
+                last_error = e
+                if attempt < MAX_RETRIES:
+                    time.sleep(0.5)
+
+        if last_error:
+            log.error(f"[{job_id}] ✗ PDF falhou após {MAX_RETRIES} tentativas: {last_error}")
+            return {"success": False, "error": f"Falha ao gerar PDF: {last_error}"}
 
         sumatra = find_sumatra()
         if not sumatra:
@@ -229,8 +273,8 @@ def print_html(html: str, printer: str, copies: int) -> dict:
         return {"success": True}
 
     except subprocess.TimeoutExpired:
-        log.error(f"[{job_id}] ✗ Timeout (>45s)")
-        return {"success": False, "error": "Timeout ao gerar/enviar impressão (>45s)."}
+        log.error(f"[{job_id}] ✗ Timeout (>30s)")
+        return {"success": False, "error": "Timeout ao imprimir (>30s)."}
     except Exception as e:
         log.error(f"[{job_id}] ✗ {e}")
         return {"success": False, "error": str(e)}
@@ -243,11 +287,10 @@ def print_html(html: str, printer: str, copies: int) -> dict:
 
 # ── WebSocket Agent ────────────────────────────────────────────────────────────
 
-try:
-    import websocket
-except ImportError:
-    log.error("Módulo 'websocket-client' não instalado. Execute: pip install websocket-client")
-    sys.exit(1)
+import websocket
+from concurrent.futures import ThreadPoolExecutor
+
+_print_pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="print")
 
 class PrintAgent:
     def __init__(self):
@@ -255,14 +298,17 @@ class PrintAgent:
         self._running = True
         self._registered = False
         self._ping_thread = None
+        self._send_lock = threading.Lock()
 
     def send(self, msg: dict):
-        """Sends a JSON message. Silently ignores if not connected."""
-        try:
-            if self._ws:
-                self._ws.send(json.dumps(msg))
-        except Exception as e:
-            log.warning(f"Erro ao enviar mensagem: {e}")
+        """Thread-safe JSON send. Silently ignores if not connected."""
+        with self._send_lock:
+            try:
+                ws = self._ws
+                if ws and ws.sock and ws.sock.connected:
+                    ws.send(json.dumps(msg))
+            except Exception:
+                pass
 
     def on_open(self, ws):
         self._registered = False
@@ -278,7 +324,6 @@ class PrintAgent:
         try:
             msg = json.loads(data)
         except Exception:
-            log.warning("Mensagem inválida recebida do servidor")
             return
 
         msg_type = msg.get("type", "")
@@ -293,22 +338,17 @@ class PrintAgent:
                 self._ping_thread.start()
 
         elif msg_type == "register_error":
-            log.error(f"Erro no registro: {msg.get('message', '?')}. Verifique o token no config.ini.")
+            log.error(f"✗ Registro falhou: {msg.get('message', '?')}")
             self._registered = False
 
         elif msg_type == "print":
-            # Run print job in a separate thread so we don't block the WS
-            threading.Thread(
-                target=self._handle_print,
-                args=(msg,),
-                daemon=True,
-            ).start()
+            _print_pool.submit(self._handle_print, msg)
 
         elif msg_type == "pong":
-            pass  # Heartbeat OK
+            pass
 
         elif msg_type == "error":
-            log.warning(f"Servidor retornou erro: {msg.get('message', '?')}")
+            log.warning(f"Servidor: {msg.get('message', '?')}")
 
     def _handle_print(self, msg: dict):
         job_id  = msg.get("jobId", "?")
@@ -316,7 +356,6 @@ class PrintAgent:
         html    = msg.get("html", "")
         user    = msg.get("user", "?")
 
-        # Proteção contra copies inválido (float, string, None)
         try:
             copies = max(1, min(int(float(msg.get("copies", 1))), 99))
         except (TypeError, ValueError):
@@ -325,16 +364,24 @@ class PrintAgent:
         short_printer = printer.split(" ")[0] if len(printer) > 20 else printer
         log.info(f"[{job_id}] → {short_printer} x{copies} (user={user})")
 
-        if not printer or not html:
-            self.send({"type": "print_result", "jobId": job_id, "success": False, "error": "Dados incompletos no job."})
-            return
+        try:
+            if not printer or not html:
+                self.send({"type": "print_result", "jobId": job_id, "success": False, "error": "Dados incompletos no job."})
+                return
 
-        if len(html) > 5 * 1024 * 1024:  # 5 MB
-            self.send({"type": "print_result", "jobId": job_id, "success": False, "error": "HTML do job excede 5 MB."})
-            return
+            if len(html) > 5 * 1024 * 1024:
+                self.send({"type": "print_result", "jobId": job_id, "success": False, "error": "HTML do job excede 5 MB."})
+                return
 
-        result = print_html(html, printer, copies)
-        self.send({"type": "print_result", "jobId": job_id, **result})
+            result = print_html(html, printer, copies)
+            self.send({"type": "print_result", "jobId": job_id, **result})
+
+        except Exception as e:
+            log.error(f"[{job_id}] ✗ Erro inesperado: {e}")
+            try:
+                self.send({"type": "print_result", "jobId": job_id, "success": False, "error": f"Erro inesperado: {e}"})
+            except Exception:
+                pass
 
     def _ping_loop(self):
         while self._running and self._registered:
@@ -343,11 +390,16 @@ class PrintAgent:
                 self.send({"type": "ping"})
 
     def on_error(self, ws, error):
-        log.warning(f"WS erro: {error}")
+        err_msg = str(error)
+        if "Connection refused" in err_msg or "timed out" in err_msg:
+            pass
+        else:
+            log.warning(f"WS: {err_msg[:100]}")
 
     def on_close(self, ws, code, reason):
         self._registered = False
-        log.info("Desconectado do servidor")
+        if code and code != 1000:
+            log.info(f"Desconectado (código={code})")
 
     def run_forever(self):
         while self._running:
@@ -376,7 +428,6 @@ class PrintAgent:
                 log.error(f"Erro: {e}")
 
             if self._running:
-                log.info(f"Reconectando em {RECONNECT_S}s...")
                 time.sleep(RECONNECT_S)
 
 if __name__ == "__main__":

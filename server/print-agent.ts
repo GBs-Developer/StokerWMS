@@ -38,6 +38,7 @@ interface AgentMessage {
 interface PrintJobResult {
   resolve: (result: { success: boolean; error?: string }) => void;
   timeoutId: ReturnType<typeof setTimeout>;
+  agentId: string;
 }
 
 // ─── In-memory registry ────────────────────────────────────────────────────────
@@ -119,7 +120,7 @@ export async function printViaAgent(
         resolve({ success: false, error: "Timeout: agente não respondeu em 60s." });
       }, 60_000);
 
-      pendingJobs.set(jobId, { resolve, timeoutId });
+      pendingJobs.set(jobId, { resolve, timeoutId, agentId: registeredAgentId ?? "" });
 
       try {
         agent.ws.send(JSON.stringify({
@@ -382,6 +383,16 @@ export function setupPrintAgentWS(httpServer: HttpServer): void {
         const agent = agents.get(registeredAgentId);
         if (agent) {
           log(`[agent] "${agent.name}" (${agent.machineId}) desconectado`, "print");
+
+          // Resolve apenas os jobs pendentes DESTE agente como erro
+          for (const [jobId, pending] of pendingJobs.entries()) {
+            if (pending.agentId === registeredAgentId) {
+              clearTimeout(pending.timeoutId);
+              pendingJobs.delete(jobId);
+              pending.resolve({ success: false, error: `Agente "${agent.name}" desconectou durante impressão.` });
+            }
+          }
+
           agents.delete(registeredAgentId);
         }
       }
