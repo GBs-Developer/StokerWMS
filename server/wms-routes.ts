@@ -1637,7 +1637,7 @@ export function registerWmsRoutes(app: Express) {
 
       if (!product) {
         const boxMatches = await db.select().from(products)
-          .where(sql`${products.boxBarcodes} LIKE ${'%' + code + '%'}`);
+          .where(sql`${products.boxBarcodes}::text LIKE ${'%' + code + '%'}`);
         product = boxMatches.find(p => {
           if (!p.boxBarcodes) return false;
           try {

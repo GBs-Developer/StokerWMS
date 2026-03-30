@@ -850,8 +850,12 @@ export class DatabaseStorage implements IStorage {
     if (!workUnit) return false;
 
     let items;
-    if (workUnit.type === "separacao" || workUnit.type === "conferencia") {
+    if (workUnit.type === "conferencia") {
       items = await db.select().from(orderItems).where(eq(orderItems.orderId, workUnit.orderId));
+    } else if (workUnit.type === "separacao") {
+      const filters: any[] = [eq(orderItems.orderId, workUnit.orderId)];
+      if (workUnit.section) filters.push(eq(orderItems.section, workUnit.section));
+      items = await db.select().from(orderItems).where(and(...filters));
     } else {
       const whereClause = and(
         eq(orderItems.orderId, workUnit.orderId),
