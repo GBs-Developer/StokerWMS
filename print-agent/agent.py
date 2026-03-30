@@ -42,15 +42,26 @@ def load_config():
     return cfg
 
 cfg = load_config()
-SERVER_URL  = cfg.get("agent", "server_url").rstrip("/")
 TOKEN       = cfg.get("agent", "token").strip()
 MACHINE_ID  = cfg.get("agent", "machine_id", fallback="").strip().upper() or socket.gethostname().upper()
 RECONNECT_S = cfg.getint("agent", "reconnect_seconds", fallback=5)
 PING_INTERVAL = cfg.getint("agent", "ping_interval", fallback=20)
 VERIFY_SSL = cfg.getboolean("agent", "verify_ssl", fallback=True)
 
+# Extrai apenas scheme + host:porta (ignora qualquer caminho digitado por engano)
+try:
+    from urllib.parse import urlparse as _urlparse
+    _raw = cfg.get("agent", "server_url").strip().rstrip("/")
+    _parsed = _urlparse(_raw)
+    # Se não tem scheme, tenta adicionar http:// para parsear
+    if not _parsed.scheme:
+        _parsed = _urlparse("http://" + _raw)
+    SERVER_BASE = f"{_parsed.scheme}://{_parsed.netloc}"
+except Exception:
+    SERVER_BASE = cfg.get("agent", "server_url").strip().rstrip("/")
+
 # Converte http(s):// → ws(s)://
-WS_URL = SERVER_URL.replace("https://", "wss://").replace("http://", "ws://") + "/ws/print-agent"
+WS_URL = SERVER_BASE.replace("https://", "wss://").replace("http://", "ws://") + "/ws/print-agent"
 
 log.info(f"Máquina: {MACHINE_ID}")
 log.info(f"Servidor: {WS_URL}")
