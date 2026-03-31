@@ -39,7 +39,7 @@ interface PalletItemDraft {
 
 type ActiveTab = "scan" | "nf";
 
-const DRAFT_KEY = (cid: number) => `pallet_draft_${cid}`;
+const DRAFT_KEY = (cid: number) => `wms:pallet_draft_${cid}`;
 
 interface PalletDraft {
   items: PalletItemDraft[];

@@ -90,8 +90,9 @@ export interface IStorage {
 
   createException(exception: InsertException): Promise<Exception>;
   deleteException(id: string): Promise<void>;
+  deleteExceptionWithRollback(id: string, exc: any): Promise<void>;
   deleteExceptionsForItem(orderItemId: string): Promise<void>;
-  authorizeExceptions(exceptionIds: string[], authData: { authorizedBy: string; authorizedByName: string; authorizedAt: string }): Promise<void>;
+  authorizeExceptions(exceptionIds: string[], authData: { authorizedBy: string; authorizedByName: string; authorizedAt: string }, companyId?: number): Promise<void>;
 
   // Audit Logs
   createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
@@ -426,39 +427,43 @@ export class DatabaseStorage implements IStorage {
   }
 
   async checkAndUpdateOrderStatus(orderId: string): Promise<WorkUnit | null> {
-    // Agora validamos se TODAS as unidades de trabalho de separa\u00e7\u00e3o est\u00e3o conclu\u00eddas
-    const allWusComplete = await this.checkAllWorkUnitsComplete(orderId);
-    let createdWorkUnit: WorkUnit | null = null;
+      return await db.transaction(async (tx) => {
+        const sepUnits = await tx.select().from(workUnits)
+          .where(and(eq(workUnits.orderId, orderId), eq(workUnits.type, "separacao")));
+        if (sepUnits.length === 0) return null;
+        const allWusDone = sepUnits.every(u => u.status === "concluido");
+        if (!allWusDone) return null;
 
-    if (allWusComplete) {
-      await db.update(orders)
-        .set({
-          status: "separado",
-          updatedAt: new Date().toISOString()
-        })
-        .where(eq(orders.id, orderId));
+        let createdWorkUnit: WorkUnit | null = null;
 
-      // Criar Unidade de Confer\u00eancia se n\u00e3o existir
-      const existing = await db.select().from(workUnits)
-        .where(and(
-          eq(workUnits.orderId, orderId),
-          eq(workUnits.type, "conferencia")
-        ))
-        .limit(1);
+        await tx.update(orders)
+          .set({
+            status: "separado",
+            updatedAt: new Date().toISOString()
+          })
+          .where(eq(orders.id, orderId));
 
-      if (existing.length === 0) {
-        const order = await this.getOrderById(orderId);
-        [createdWorkUnit] = await db.insert(workUnits).values({
-          orderId,
-          type: "conferencia",
-          status: "pendente",
-          pickupPoint: 0,
-          companyId: order?.companyId || undefined,
-        }).returning();
-      }
+        const existing = await tx.select().from(workUnits)
+          .where(and(
+            eq(workUnits.orderId, orderId),
+            eq(workUnits.type, "conferencia")
+          ))
+          .limit(1);
+
+        if (existing.length === 0) {
+          const [order] = await tx.select().from(orders).where(eq(orders.id, orderId)).limit(1);
+          [createdWorkUnit] = await tx.insert(workUnits).values({
+            orderId,
+            type: "conferencia",
+            status: "pendente",
+            pickupPoint: 0,
+            companyId: order?.companyId || undefined,
+          }).returning();
+        }
+
+        return createdWorkUnit;
+      });
     }
-    return createdWorkUnit;
-  }
 
   async recalculateOrderStatus(orderId: string): Promise<void> {
     const order = await this.getOrderById(orderId);
@@ -584,6 +589,15 @@ export class DatabaseStorage implements IStorage {
       if (orderItemIds.length > 0) {
         await tx.delete(exceptions).where(
           inArray(exceptions.orderItemId, orderItemIds.map(i => i.id))
+        );
+      }
+
+      const wuIds = await tx.select({ id: workUnits.id })
+        .from(workUnits)
+        .where(eq(workUnits.orderId, orderId));
+      if (wuIds.length > 0) {
+        await tx.delete(pickingSessions).where(
+          inArray(pickingSessions.workUnitId, wuIds.map(w => w.id))
         );
       }
     });
@@ -1035,18 +1049,98 @@ export class DatabaseStorage implements IStorage {
     await db.delete(exceptions).where(eq(exceptions.id, id));
   }
 
+  async deleteExceptionWithRollback(id: string, exc: any): Promise<void> {
+    await db.transaction(async (tx) => {
+      await tx.delete(exceptions).where(eq(exceptions.id, id));
+
+      if (exc.orderItemId) {
+        const wuType = exc.workUnit?.type;
+        const isSeparacao = wuType === "separacao";
+
+        if (isSeparacao) {
+          await tx.update(orderItems)
+            .set({ status: "pendente", separatedQty: 0, checkedQty: 0 })
+            .where(eq(orderItems.id, exc.orderItemId));
+        } else {
+          await tx.update(orderItems)
+            .set({ status: "pendente", checkedQty: 0 })
+            .where(eq(orderItems.id, exc.orderItemId));
+        }
+
+        if (exc.workUnit) {
+          await tx.update(workUnits)
+            .set({
+              status: "pendente",
+              completedAt: null,
+              lockedBy: null,
+              lockedAt: null,
+            })
+            .where(eq(workUnits.id, exc.workUnit.id));
+        }
+
+        if (isSeparacao && exc.orderItem?.orderId) {
+          await tx.update(workUnits)
+            .set({ status: "pendente", completedAt: null })
+            .where(and(
+              eq(workUnits.orderId, exc.orderItem.orderId),
+              eq(workUnits.type, "conferencia")
+            ));
+        }
+
+        if (exc.orderItem?.orderId) {
+          const [order] = await tx.select().from(orders).where(eq(orders.id, exc.orderItem.orderId)).limit(1);
+          if (order) {
+            let newStatus = order.status;
+            if (isSeparacao && ["separado", "em_conferencia", "conferido"].includes(order.status)) {
+              newStatus = "em_separacao";
+            } else if (!isSeparacao && ["conferido"].includes(order.status)) {
+              newStatus = "separado";
+            }
+            if (order.status !== newStatus) {
+              await tx.update(orders)
+                .set({ status: newStatus as any, updatedAt: new Date().toISOString() })
+                .where(eq(orders.id, order.id));
+            }
+          }
+        }
+      }
+    });
+  }
+
   async deleteExceptionsForItem(orderItemId: string): Promise<void> {
     await db.delete(exceptions).where(eq(exceptions.orderItemId, orderItemId));
   }
 
-  async authorizeExceptions(exceptionIds: string[], authData: { authorizedBy: string; authorizedByName: string; authorizedAt: string }): Promise<void> {
-    await db.update(exceptions)
-      .set({
-        authorizedBy: authData.authorizedBy,
-        authorizedByName: authData.authorizedByName,
-        authorizedAt: authData.authorizedAt,
-      })
-      .where(inArray(exceptions.id, exceptionIds));
+  async authorizeExceptions(exceptionIds: string[], authData: { authorizedBy: string; authorizedByName: string; authorizedAt: string }, companyId?: number): Promise<void> {
+    if (companyId) {
+      const validExceptions = await db.select({ id: exceptions.id })
+        .from(exceptions)
+        .innerJoin(workUnits, eq(exceptions.workUnitId, workUnits.id))
+        .where(and(
+          inArray(exceptions.id, exceptionIds),
+          eq(workUnits.companyId, companyId)
+        ));
+      const validIds = validExceptions.map(e => e.id);
+      if (validIds.length === 0) return;
+      await db.update(exceptions)
+        .set({
+          authorizedBy: authData.authorizedBy,
+          authorizedByName: authData.authorizedByName,
+          authorizedAt: authData.authorizedAt,
+        })
+        .where(and(
+          inArray(exceptions.id, validIds),
+          sql`${exceptions.authorizedBy} IS NULL`
+        ));
+    } else {
+      await db.update(exceptions)
+        .set({
+          authorizedBy: authData.authorizedBy,
+          authorizedByName: authData.authorizedByName,
+          authorizedAt: authData.authorizedAt,
+        })
+        .where(inArray(exceptions.id, exceptionIds));
+    }
   }
 
   // Audit Logs
@@ -1498,7 +1592,19 @@ export class DatabaseStorage implements IStorage {
 
       // 2. Process Exceptions
       for (const exc of payload.exceptions) {
-        // Create the exception
+        if (!exc.quantity || exc.quantity <= 0) continue;
+
+        const [item] = await tx.select().from(orderItems)
+          .where(eq(orderItems.id, exc.orderItemId)).limit(1);
+        if (item) {
+          const existingExcRows = await tx.select().from(exceptions)
+            .where(eq(exceptions.orderItemId, exc.orderItemId));
+          const currentExcQty = existingExcRows.reduce((sum: number, e: any) => sum + Number(e.quantity || 0), 0);
+          if (currentExcQty + exc.quantity > Number(item.quantity)) {
+            continue;
+          }
+        }
+
         await tx.insert(exceptions).values({
           workUnitId: workUnitId,
           orderItemId: exc.orderItemId,

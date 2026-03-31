@@ -100,12 +100,20 @@ Routes are registered in `server/routes.ts` (legacy + auth) and `server/wms-rout
 - State machine: `pendente` → `em_andamento` → `concluido` (with `recontagem` and `excecao` branches)
 
 ### Concurrency & Data Integrity
+- **Lock ownership enforcement**: `assertLockOwnership()` function verifies that the requesting user is the lock owner before allowing scan-item, check-item, balcao-item, batch-sync, complete, complete-balcao, and complete-conference operations. Supervisors/admins bypass this check.
+- **Terminal state guard**: Completion endpoints (complete, complete-balcao, complete-conference) return idempotent success if work unit is already `concluido`, preventing duplicate audit logs and SSE broadcasts
 - **Batch sync** (`processBatchSync`): Uses SQL-level `COALESCE(field, 0) + qty` increments instead of read-modify-write, preventing race conditions on concurrent quantity updates
+- **Batch sync exception validation**: Exception quantity validated against item total within the transaction; negative/zero quantities skipped
 - **Completion checks** (`checkAndCompleteWorkUnit`, `checkAndCompleteConference`): Wrapped in database transactions to ensure atomic read-verify-update
+- **Order status transition** (`checkAndUpdateOrderStatus`): Fully transactional — all reads (work units, existing conference check) and writes (status update, conference WU creation) happen within a single `db.transaction()` to prevent duplicate conference work units
+- **Exception deletion** (`deleteExceptionWithRollback`): Single transaction wraps exception delete + item qty reset + WU status reset + order status downgrade, preventing partial state on failure
 - **Exception adjustments** (`adjustItemQuantityForException`): Wrapped in transactions
 - **Progress resets** (`resetWorkUnitProgress`, `resetConferenciaProgress`): Wrapped in transactions
 - **Stale response protection**: All three critical modules (separação, conferência, balcão) use `activeSessionTokenRef` to discard in-flight API responses if the operator switched orders/context while awaiting
 - **Pending delta cleanup**: All modules clear `usePendingDeltaStore` on unlock to prevent state contamination between orders
+- **Picking session cleanup**: `unlock` endpoint and `relaunchOrder` both delete associated picking sessions to prevent ghost sessions
+- **Exception authorization scoping**: `authorizeExceptions` accepts optional `companyId` and validates exception ownership via JOIN to `workUnits.companyId`; also blocks re-authorization of already-authorized exceptions
+- **Failed login auditing**: Failed login attempts logged with IP/UserAgent for security monitoring
 
 ### Database Indexes
 Critical indexes added for query performance:

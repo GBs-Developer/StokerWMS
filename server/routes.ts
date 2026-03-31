@@ -51,6 +51,23 @@ function authorizeWorkUnit(wu: { companyId: number; section: string | null }, re
   return { allowed: true };
 }
 
+function assertLockOwnership(wu: { lockedBy: string | null; lockExpiresAt: string | null }, req: Request): { allowed: boolean; reason?: string } {
+  const user = (req as any).user;
+  if (user?.role === "supervisor" || user?.role === "administrador") {
+    return { allowed: true };
+  }
+  if (!wu.lockedBy) {
+    return { allowed: false, reason: "Unidade não está bloqueada" };
+  }
+  if (wu.lockedBy !== user?.id) {
+    return { allowed: false, reason: "Unidade bloqueada por outro operador" };
+  }
+  if (wu.lockExpiresAt && new Date(wu.lockExpiresAt) < new Date()) {
+    return { allowed: false, reason: "Lock expirado. Bloqueie novamente." };
+  }
+  return { allowed: true };
+}
+
 function authorizeOrder(order: { companyId: number | null }, req: Request): { allowed: boolean; reason?: string } {
   const companyId = (req as any).companyId;
   if (companyId && order.companyId !== companyId) {
@@ -256,6 +273,14 @@ export async function registerRoutes(
       const user = await storage.getUserByUsername(data.username);
 
       if (!user || !await verifyPassword(data.password, user.password)) {
+        await storage.createAuditLog({
+          userId: user?.id || "unknown",
+          action: "login_failed",
+          entityType: "user",
+          details: `Tentativa de login falhou - Usuário: ${data.username}`,
+          ipAddress: getClientIp(req),
+          userAgent: getUserAgent(req),
+        });
         return res.status(401).json({ error: "Credenciais inválidas" });
       }
 
@@ -1308,6 +1333,10 @@ export async function registerRoutes(
 
       await storage.unlockWorkUnits(workUnitIds);
 
+      for (const wuId of workUnitIds) {
+        await db.delete(pickingSessions).where(eq(pickingSessions.workUnitId, wuId));
+      }
+
       if (reset) {
         for (const id of workUnitIds) {
           const wu = await storage.getWorkUnitById(id);
@@ -1569,6 +1598,8 @@ export async function registerRoutes(
       }
       const authWU = authorizeWorkUnit(workUnit, req);
       if (!authWU.allowed) return res.status(403).json({ error: authWU.reason });
+      const lockCheck = assertLockOwnership(workUnit, req);
+      if (!lockCheck.allowed) return res.status(403).json({ error: lockCheck.reason });
 
       const product = await storage.getProductByBarcode(barcode);
       if (!product) {
@@ -1724,6 +1755,8 @@ export async function registerRoutes(
       }
       const authWU = authorizeWorkUnit(workUnit, req);
       if (!authWU.allowed) return res.status(403).json({ error: authWU.reason });
+      const lockCheck = assertLockOwnership(workUnit, req);
+      if (!lockCheck.allowed) return res.status(403).json({ error: lockCheck.reason });
 
       const product = await storage.getProductByBarcode(barcode);
       if (!product) {
@@ -1907,6 +1940,8 @@ export async function registerRoutes(
       }
       const authWU = authorizeWorkUnit(workUnit, req);
       if (!authWU.allowed) return res.status(403).json({ error: authWU.reason });
+      const lockCheck = assertLockOwnership(workUnit, req);
+      if (!lockCheck.allowed) return res.status(403).json({ error: lockCheck.reason });
 
       const product = await storage.getProductByBarcode(barcode);
       if (!product) {
@@ -2009,6 +2044,12 @@ export async function registerRoutes(
       if (!wuCheck) return res.status(404).json({ error: "Unidade não encontrada" });
       const authWU = authorizeWorkUnit(wuCheck, req);
       if (!authWU.allowed) return res.status(403).json({ error: authWU.reason });
+      const lockCheck = assertLockOwnership(wuCheck, req);
+      if (!lockCheck.allowed) return res.status(403).json({ error: lockCheck.reason });
+
+      if (wuCheck.status === "concluido") {
+        return res.json({ success: true });
+      }
 
       const isComplete = await storage.checkAndCompleteWorkUnit(req.params.id as string);
 
@@ -2045,6 +2086,8 @@ export async function registerRoutes(
       if (!wuCheck) return res.status(404).json({ error: "Unidade não encontrada" });
       const authWU = authorizeWorkUnit(wuCheck, req);
       if (!authWU.allowed) return res.status(403).json({ error: authWU.reason });
+      const lockCheck = assertLockOwnership(wuCheck, req);
+      if (!lockCheck.allowed) return res.status(403).json({ error: lockCheck.reason });
       const { items, exceptions } = req.body;
       const userId = (req as any).user.id;
 
@@ -2093,6 +2136,13 @@ export async function registerRoutes(
       if (!wuCheck) return res.status(404).json({ error: "Unidade não encontrada" });
       const authWU = authorizeWorkUnit(wuCheck, req);
       if (!authWU.allowed) return res.status(403).json({ error: authWU.reason });
+      const lockCheck = assertLockOwnership(wuCheck, req);
+      if (!lockCheck.allowed) return res.status(403).json({ error: lockCheck.reason });
+
+      if (wuCheck.status === "concluido") {
+        return res.json({ success: true });
+      }
+
       const isComplete = await storage.checkAndCompleteWorkUnit(id);
 
       if (isComplete) {
@@ -2124,6 +2174,13 @@ export async function registerRoutes(
       if (!wuCheck) return res.status(404).json({ error: "Unidade não encontrada" });
       const authWU = authorizeWorkUnit(wuCheck, req);
       if (!authWU.allowed) return res.status(403).json({ error: authWU.reason });
+      const lockCheck = assertLockOwnership(wuCheck, req);
+      if (!lockCheck.allowed) return res.status(403).json({ error: lockCheck.reason });
+
+      if (wuCheck.status === "concluido") {
+        return res.json({ success: true });
+      }
+
       const isComplete = await storage.checkAndCompleteConference(id);
 
       if (isComplete) {
@@ -2249,62 +2306,18 @@ export async function registerRoutes(
   app.delete("/api/exceptions/:id", isAuthenticated, requireCompany, requireRole("administrador"), async (req: Request, res: Response) => {
     try {
       const exceptionId = req.params.id as string;
-      // Get exception details before deleting to know the orderItemId
       const allExceptions = await storage.getAllExceptions();
       const exc = allExceptions.find((e: any) => e.id === exceptionId);
       if (!exc) {
         return res.status(404).json({ error: "Exceção não encontrada" });
       }
-      await storage.deleteException(exceptionId);
-      
-      // Reset item status back to pendente so it re-enters the picking flow
-      if (exc.orderItemId) {
-        const wuType = exc.workUnit?.type;
-        const isSeparacao = wuType === "separacao";
 
-        // Reset item quantities based on where the exception happened
-        if (isSeparacao) {
-          await storage.updateOrderItem(exc.orderItemId, { status: "pendente", separatedQty: 0, checkedQty: 0 });
-        } else {
-          // Defaults to assuming conference layer for backward compatibility
-          await storage.updateOrderItem(exc.orderItemId, { status: "pendente", checkedQty: 0 });
-        }
-
-        // Reset the work unit status to make it show up in the flow again
-        if (exc.workUnit) {
-          await storage.updateWorkUnit(exc.workUnit.id, { 
-            status: "pendente", 
-            completedAt: null as any,
-            lockedBy: null as any, 
-            lockedAt: null as any 
-          });
-        }
-
-        // Quando a exceção era de Separação, a WU de conferência pode ter ficado
-        // como "concluido" durante o ciclo anterior. Precisamos reativá-la para que
-        // o pedido reapareça no módulo de Conferência após a re-separação.
-        // Os checkedQty dos outros itens são preservados — só o item excluído terá checkedQty=0.
-        if (isSeparacao && exc.orderItem?.orderId) {
-          await storage.resetConferenciaWorkUnitForOrder(exc.orderItem.orderId);
-        }
-
-        // Downgrade the Order status so it goes back to the correct module
-        if (exc.orderItem?.orderId) {
-            const order = await storage.getOrderById(exc.orderItem.orderId);
-            if (order) {
-                let newStatus = order.status;
-                if (isSeparacao && ["separado", "em_conferencia", "conferido"].includes(order.status)) {
-                    newStatus = "em_separacao";
-                } else if (!isSeparacao && ["conferido"].includes(order.status)) {
-                    newStatus = "separado";
-                }
-                
-                if (order.status !== newStatus) {
-                    await storage.updateOrder(order.id, { status: newStatus as any });
-                }
-            }
-        }
+      if (exc.workUnit?.companyId && exc.workUnit.companyId !== (req as any).companyId) {
+        return res.status(403).json({ error: "Acesso negado: empresa diferente" });
       }
+
+      await storage.deleteExceptionWithRollback(exceptionId, exc);
+
       await storage.createAuditLog({
         userId: (req as any).user.id,
         action: "delete_exception",
@@ -2487,7 +2500,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/exceptions/item/:orderItemId", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
+  app.delete("/api/exceptions/item/:orderItemId", isAuthenticated, requireCompany, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
     try {
       const orderItemId = req.params.orderItemId as string;
 
@@ -2541,13 +2554,12 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Apenas supervisores ou administradores podem autorizar exceções" });
       }
 
-      // Authorize exceptions
       const now = new Date().toISOString();
       await storage.authorizeExceptions(exceptionIds, {
         authorizedBy: authUser.id,
         authorizedByName: authUser.name,
         authorizedAt: now,
-      });
+      }, (req as any).companyId);
 
       await storage.createAuditLog({
         userId: authUser.id,
@@ -2599,7 +2611,7 @@ export async function registerRoutes(
         authorizedBy: authUser.id,
         authorizedByName: authUser.name,
         authorizedAt: now,
-      });
+      }, (req as any).companyId);
 
       await storage.createAuditLog({
         userId: authUser.id,
@@ -2644,7 +2656,7 @@ export async function registerRoutes(
         authorizedBy: user.id,
         authorizedByName: user.name,
         authorizedAt: now,
-      });
+      }, (req as any).companyId);
 
       await storage.createAuditLog({
         userId: user.id,
