@@ -135,6 +135,10 @@ export default function BalcaoPage() {
 
   const scanWorkerRunningRef = useRef(false);
   const scanQueueRef = useRef<string[]>([]);
+
+  type IncrementTask = { workUnitId: string; barcode: string; qty: number; itemId: string; apSnapshot: AggregatedProduct };
+  const incrementQueueRef = useRef<IncrementTask[]>([]);
+  const incrementWorkerRunningRef = useRef(false);
   const syncTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
@@ -429,16 +433,6 @@ export default function BalcaoPage() {
     },
   });
 
-  const scanItemMutation = useMutation({
-    mutationFn: async ({ workUnitId, barcode, quantity }: { workUnitId: string; barcode: string; quantity?: number }) => {
-      const body = quantity ? { barcode, quantity } : { barcode };
-      const res = await apiRequest("POST", `/api/work-units/${workUnitId}/scan-item`, body);
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
-    },
-  });
 
   const createExceptionMutation = useMutation({
     mutationFn: async (data: {
@@ -863,6 +857,60 @@ export default function BalcaoPage() {
     }, 300);
   }, [queryClient, workUnitsQueryKey, user, aggregatedProducts]);
 
+  const processIncrementQueue = useCallback(async () => {
+    if (incrementWorkerRunningRef.current) return;
+    incrementWorkerRunningRef.current = true;
+    try {
+      while (incrementQueueRef.current.length > 0) {
+        if (overQtyModalOpenRef.current) {
+          incrementQueueRef.current = [];
+          break;
+        }
+        const task = incrementQueueRef.current.shift()!;
+        try {
+          const res = await apiRequest("POST", `/api/work-units/${task.workUnitId}/scan-item`, {
+            barcode: task.barcode,
+            quantity: task.qty,
+          });
+          const result = await res.json();
+          if (result.status === "over_quantity" || result.status === "over_quantity_with_exception") {
+            incrementQueueRef.current = [];
+            task.apSnapshot.items.forEach(item => {
+              usePendingDeltaStore.getState().clearItem("balcao", item.id);
+              usePendingDeltaStore.getState().resetBaseline("balcao", item.id);
+            });
+            queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+            const tQtyManual = task.apSnapshot.totalQty - task.apSnapshot.exceptionQty;
+            setOverQtyContext({
+              productName: task.apSnapshot.product.name,
+              itemIds: task.apSnapshot.items.map(i => i.id),
+              workUnitId: task.workUnitId,
+              barcode: task.barcode,
+              targetQty: tQtyManual,
+              message: result.message || `A quantidade de "${task.apSnapshot.product.name}" excedeu o máximo permitido (${tQtyManual}). A coleta foi reiniciada.`,
+              serverAlreadyReset: true,
+            });
+            setOverQtyModalOpen(true);
+            overQtyModalOpenRef.current = true;
+            break;
+          } else if (result.status !== "success") {
+            usePendingDeltaStore.getState().dec("balcao", task.itemId, task.qty);
+            setScanStatus("error");
+            setScanMessage("Erro ao incrementar");
+          } else {
+            queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+          }
+        } catch {
+          usePendingDeltaStore.getState().dec("balcao", task.itemId, task.qty);
+          setScanStatus("error");
+          setScanMessage("Erro ao incrementar");
+        }
+      }
+    } finally {
+      incrementWorkerRunningRef.current = false;
+    }
+  }, [queryClient, workUnitsQueryKey]);
+
   const handleScanItem = useCallback((barcode: string) => {
     if (syncTimerRef.current) {
       clearTimeout(syncTimerRef.current);
@@ -874,7 +922,7 @@ export default function BalcaoPage() {
 
   useBarcodeScanner(handleScanItem, step === "picking");
 
-  const handleIncrementProduct = async (ap: AggregatedProduct, qty: number = 1) => {
+  const handleIncrementProduct = useCallback((ap: AggregatedProduct, qty: number = 1) => {
     if (overQtyModalOpenRef.current) return;
     const remaining = ap.totalQty - ap.separatedQty - ap.exceptionQty;
     if (remaining <= 0) return;
@@ -904,42 +952,15 @@ export default function BalcaoPage() {
     setScanStatus("idle");
     setScanMessage("");
 
-    try {
-      const result = await scanItemMutation.mutateAsync({
-        workUnitId: wu.id,
-        barcode,
-        quantity: qty
-      });
-
-      if (result.status === "over_quantity" || result.status === "over_quantity_with_exception") {
-        ap.items.forEach(item => {
-          usePendingDeltaStore.getState().clearItem("balcao", item.id);
-          usePendingDeltaStore.getState().resetBaseline("balcao", item.id);
-        });
-        queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
-        const tQtyManual = ap.totalQty - ap.exceptionQty;
-        setOverQtyContext({
-          productName: ap.product.name,
-          itemIds: ap.items.map(i => i.id),
-          workUnitId: wu.id,
-          barcode,
-          targetQty: tQtyManual,
-          message: result.message || `A quantidade de "${ap.product.name}" excedeu o máximo permitido (${tQtyManual}). A coleta foi reiniciada.`,
-          serverAlreadyReset: true,
-        });
-        setOverQtyModalOpen(true);
-        overQtyModalOpenRef.current = true;
-      } else if (result.status !== "success") {
-        usePendingDeltaStore.getState().dec("balcao", incompleteItem.id, qty);
-        setScanStatus("error");
-        setScanMessage("Erro ao incrementar");
-      }
-    } catch {
-      usePendingDeltaStore.getState().dec("balcao", incompleteItem.id, qty);
-      setScanStatus("error");
-      setScanMessage("Erro ao incrementar");
-    }
-  };
+    incrementQueueRef.current.push({
+      workUnitId: wu.id,
+      barcode,
+      qty,
+      itemId: incompleteItem.id,
+      apSnapshot: ap,
+    });
+    processIncrementQueue();
+  }, [canUseManualQty, allMyUnits, processIncrementQueue, toast]);
 
   const handleConfirmOverQty = async () => {
     if (!overQtyContext) return;

@@ -144,6 +144,10 @@ export default function ConferenciaPage() {
 
   const scanQueueRef = useRef<string[]>([]);
   const scanWorkerRunningRef = useRef(false);
+
+  type IncrementTask = { workUnitId: string; barcode: string; qty: number; itemId: string; apSnapshot: AggregatedProduct };
+  const incrementQueueRef = useRef<IncrementTask[]>([]);
+  const incrementWorkerRunningRef = useRef(false);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [overQtyModalOpen, setOverQtyModalOpen] = useState(false);
   const overQtyModalOpenRef = useRef(false);
@@ -456,12 +460,6 @@ export default function ConferenciaPage() {
     },
   });
 
-  const scanItemMutation = useMutation({
-    mutationFn: async ({ workUnitId, barcode, quantity = 1 }: { workUnitId: string; barcode: string; quantity?: number }) => {
-      const res = await apiRequest("POST", `/api/work-units/${workUnitId}/check-item`, { barcode, quantity });
-      return res.json();
-    },
-  });
 
   const createExceptionMutation = useMutation({
     mutationFn: async (data: {
@@ -878,6 +876,60 @@ export default function ConferenciaPage() {
     }, 300);
   }, [queryClient, workUnitsQueryKey, user, aggregatedProducts]);
 
+  const processIncrementQueue = useCallback(async () => {
+    if (incrementWorkerRunningRef.current) return;
+    incrementWorkerRunningRef.current = true;
+    try {
+      while (incrementQueueRef.current.length > 0) {
+        if (overQtyModalOpenRef.current) {
+          incrementQueueRef.current = [];
+          break;
+        }
+        const task = incrementQueueRef.current.shift()!;
+        try {
+          const res = await apiRequest("POST", `/api/work-units/${task.workUnitId}/check-item`, {
+            barcode: task.barcode,
+            quantity: task.qty,
+          });
+          const result = await res.json();
+          if (result.status === "over_quantity" || result.status === "over_quantity_with_exception") {
+            incrementQueueRef.current = [];
+            task.apSnapshot.items.forEach(item => {
+              usePendingDeltaStore.getState().clearItem("conferencia", item.id);
+              usePendingDeltaStore.getState().resetBaseline("conferencia", item.id);
+            });
+            queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+            const targetQty = task.apSnapshot.totalSeparatedQty;
+            setOverQtyContext({
+              productName: task.apSnapshot.product.name,
+              itemIds: task.apSnapshot.items.map(i => i.id),
+              workUnitId: task.workUnitId,
+              barcode: task.barcode,
+              targetQty,
+              message: result.message || `A quantidade de "${task.apSnapshot.product.name}" excedeu o máximo permitido (${targetQty}). A coleta foi reiniciada.`,
+              serverAlreadyReset: false,
+            });
+            setOverQtyModalOpen(true);
+            overQtyModalOpenRef.current = true;
+            break;
+          } else if (result.status !== "success") {
+            usePendingDeltaStore.getState().dec("conferencia", task.itemId, task.qty);
+            setScanStatus("error");
+            setScanMessage("Erro ao incrementar");
+          } else {
+            queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+          }
+        } catch {
+          usePendingDeltaStore.getState().dec("conferencia", task.itemId, task.qty);
+          setScanStatus("error");
+          setScanMessage("Erro ao incrementar");
+        }
+      }
+    } finally {
+      incrementWorkerRunningRef.current = false;
+    }
+  }, [queryClient, workUnitsQueryKey]);
+
   const handleScanItem = useCallback((barcode: string) => {
     if (overQtyModalOpenRef.current) return;
     if (syncTimerRef.current) {
@@ -896,7 +948,7 @@ export default function ConferenciaPage() {
 
   useBarcodeScanner(globalScanHandler, step === "checking");
 
-  const handleIncrementProduct = async (ap: AggregatedProduct, qty: number = 1) => {
+  const handleIncrementProduct = useCallback((ap: AggregatedProduct, qty: number = 1) => {
     if (overQtyModalOpenRef.current) return;
     const remaining = ap.totalSeparatedQty - ap.checkedQty;
     if (remaining <= 0) return;
@@ -928,48 +980,15 @@ export default function ConferenciaPage() {
     setScanStatus("idle");
     setScanMessage("");
 
-    const currentToken = activeSessionTokenRef.current;
-    try {
-      const result = await scanItemMutation.mutateAsync({
-        workUnitId: wu.id,
-        barcode,
-        quantity: qty
-      });
-
-      if (activeSessionTokenRef.current !== currentToken) {
-        console.warn("Stale response descartada na contagem manual.");
-        return;
-      }
-
-      if (result.status === "over_quantity" || result.status === "over_quantity_with_exception") {
-        ap.items.forEach(item => {
-          usePendingDeltaStore.getState().clearItem("conferencia", item.id);
-          usePendingDeltaStore.getState().resetBaseline("conferencia", item.id);
-        });
-        queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
-        const targetQty = ap.totalSeparatedQty;
-        setOverQtyContext({
-          productName: ap.product.name,
-          itemIds: ap.items.map(i => i.id),
-          workUnitId: wu.id,
-          barcode: ap.product.barcode || "",
-          targetQty,
-          message: result.message || `A quantidade de "${ap.product.name}" excedeu o máximo permitido (${targetQty}). A coleta foi reiniciada.`,
-          serverAlreadyReset: false,
-        });
-        setOverQtyModalOpen(true);
-        overQtyModalOpenRef.current = true;
-      } else if (result.status !== "success") {
-        usePendingDeltaStore.getState().dec("conferencia", incompleteItem.id, qty);
-        setScanStatus("error");
-        setScanMessage("Erro ao incrementar");
-      }
-    } catch {
-      usePendingDeltaStore.getState().dec("conferencia", incompleteItem.id, qty);
-      setScanStatus("error");
-      setScanMessage("Erro ao incrementar");
-    }
-  };
+    incrementQueueRef.current.push({
+      workUnitId: wu.id,
+      barcode,
+      qty,
+      itemId: incompleteItem.id,
+      apSnapshot: ap,
+    });
+    processIncrementQueue();
+  }, [canUseManualQty, allMyUnits, processIncrementQueue, toast]);
 
   const handleOverQtyRecount = async () => {
     if (!overQtyContext) return;
