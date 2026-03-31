@@ -107,6 +107,9 @@ export default function RecebimentoPage() {
   const [editPalletDialog, setEditPalletDialog] = useState<any>(null);
   const [editPalletItems, setEditPalletItems] = useState<any[]>([]);
   const [editPalletLoading, setEditPalletLoading] = useState(false);
+  const [editScanInput, setEditScanInput] = useState("");
+  const [editScanLoading, setEditScanLoading] = useState(false);
+  const [editScanError, setEditScanError] = useState("");
   const [cancelPalletTarget, setCancelPalletTarget] = useState<any>(null);
 
   const scanInputRef = useRef<HTMLInputElement>(null);
@@ -424,6 +427,40 @@ export default function RecebimentoPage() {
       toast({ title: "Erro ao carregar pallet", variant: "destructive" });
     } finally {
       setEditPalletLoading(false);
+    }
+  };
+
+  const handleEditScan = async () => {
+    const code = editScanInput.trim();
+    if (!code) return;
+    setEditScanLoading(true);
+    setEditScanError("");
+    try {
+      const res = await fetch(`/api/products/by-barcode/${encodeURIComponent(code)}`, { credentials: "include" });
+      if (res.ok) {
+        const product = await res.json();
+        const qty = product.boxQty || 1;
+        setEditPalletItems(prev => {
+          const existingIdx = prev.findIndex(it => (it.productId || it.product?.id) === product.id);
+          if (existingIdx >= 0) {
+            return prev.map((it, i) => i === existingIdx ? { ...it, quantity: it.quantity + qty } : it);
+          }
+          return [...prev, {
+            productId: product.id,
+            product: { name: product.name, erpCode: product.erpCode },
+            quantity: qty,
+            lot: undefined,
+            expiryDate: undefined,
+          }];
+        });
+        setEditScanInput("");
+      } else {
+        setEditScanError("Produto não encontrado para este código");
+      }
+    } catch {
+      setEditScanError("Erro de conexão ao buscar produto");
+    } finally {
+      setEditScanLoading(false);
     }
   };
 
@@ -968,55 +1005,89 @@ export default function RecebimentoPage() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!editPalletDialog} onOpenChange={open => !open && setEditPalletDialog(null)}>
+      <Dialog open={!!editPalletDialog} onOpenChange={open => { if (!open) { setEditPalletDialog(null); setEditScanInput(""); setEditScanError(""); } }}>
         <DialogContent className="rounded-2xl max-w-md">
           <DialogHeader>
             <DialogTitle className="font-mono text-sm">Editar {editPalletDialog?.code}</DialogTitle>
+            <DialogDescription>Adicione ou remova produtos do pallet</DialogDescription>
           </DialogHeader>
           {editPalletLoading ? (
             <div className="text-center py-8"><Loader2 className="h-5 w-5 mx-auto animate-spin" /></div>
           ) : (
-            <div className="divide-y divide-border/30 max-h-60 overflow-y-auto rounded-xl border border-border/30">
-              {editPalletItems.map((item, idx) => (
-                <div key={idx} className="flex items-center gap-2 px-3 py-2.5">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium truncate">{item.product?.name || "Produto"}</p>
-                    <p className="text-[10px] text-muted-foreground font-mono">{item.product?.erpCode || ""}</p>
-                  </div>
-                  <div className="flex items-center gap-0.5 shrink-0">
-                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 rounded-lg" onClick={() => {
-                      setEditPalletItems(prev => prev.map((it, i) => i === idx ? { ...it, quantity: Math.max(1, it.quantity - 1) } : it));
-                    }}>
-                      <Minus className="h-3 w-3" />
-                    </Button>
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wide">Adicionar produto</p>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <ScanBarcode className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/50" />
                     <Input
-                      value={Number(item.quantity).toString()}
-                      onChange={e => {
-                        const v = parseInt(e.target.value.replace(/\D/g, "")) || 1;
-                        setEditPalletItems(prev => prev.map((it, i) => i === idx ? { ...it, quantity: v } : it));
-                      }}
-                      className="h-7 w-12 text-center font-mono font-bold text-sm p-0 rounded-lg"
+                      placeholder="Bipe ou digite o código..."
+                      value={editScanInput}
+                      onChange={e => { setEditScanInput(e.target.value); setEditScanError(""); }}
+                      onKeyDown={e => e.key === "Enter" && handleEditScan()}
+                      className="pl-8 h-9 rounded-xl text-xs font-mono"
+                      disabled={editScanLoading}
+                      autoFocus
+                      data-testid="input-edit-pallet-scan"
                     />
-                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 rounded-lg" onClick={() => {
-                      setEditPalletItems(prev => prev.map((it, i) => i === idx ? { ...it, quantity: it.quantity + 1 } : it));
-                    }}>
-                      <Plus className="h-3 w-3" />
-                    </Button>
-                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 rounded-lg text-destructive" onClick={() => {
-                      setEditPalletItems(prev => prev.filter((_, i) => i !== idx));
-                    }}>
-                      <X className="h-3 w-3" />
-                    </Button>
                   </div>
+                  <Button size="sm" className="h-9 rounded-xl px-3" onClick={handleEditScan} disabled={editScanLoading || !editScanInput.trim()} data-testid="button-edit-pallet-add">
+                    {editScanLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+                  </Button>
                 </div>
-              ))}
-              {editPalletItems.length === 0 && (
-                <p className="text-xs text-muted-foreground text-center py-4">Nenhum item</p>
+                {editScanError && (
+                  <p className="text-[11px] text-destructive flex items-center gap-1">
+                    <AlertCircle className="h-3 w-3" />{editScanError}
+                  </p>
+                )}
+              </div>
+
+              <div className="divide-y divide-border/30 max-h-52 overflow-y-auto rounded-xl border border-border/30">
+                {editPalletItems.map((item, idx) => (
+                  <div key={idx} className="flex items-center gap-2 px-3 py-2.5" data-testid={`edit-pallet-item-${idx}`}>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium truncate">{item.product?.name || "Produto"}</p>
+                      <p className="text-[10px] text-muted-foreground font-mono">{item.product?.erpCode || ""}</p>
+                    </div>
+                    <div className="flex items-center gap-0.5 shrink-0">
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0 rounded-lg" onClick={() => {
+                        setEditPalletItems(prev => prev.map((it, i) => i === idx ? { ...it, quantity: Math.max(1, it.quantity - 1) } : it));
+                      }} data-testid={`button-edit-dec-${idx}`}>
+                        <Minus className="h-3 w-3" />
+                      </Button>
+                      <Input
+                        value={Number(item.quantity).toString()}
+                        onChange={e => {
+                          const v = parseInt(e.target.value.replace(/\D/g, "")) || 1;
+                          setEditPalletItems(prev => prev.map((it, i) => i === idx ? { ...it, quantity: v } : it));
+                        }}
+                        className="h-7 w-12 text-center font-mono font-bold text-sm p-0 rounded-lg"
+                        data-testid={`input-edit-qty-${idx}`}
+                      />
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0 rounded-lg" onClick={() => {
+                        setEditPalletItems(prev => prev.map((it, i) => i === idx ? { ...it, quantity: it.quantity + 1 } : it));
+                      }} data-testid={`button-edit-inc-${idx}`}>
+                        <Plus className="h-3 w-3" />
+                      </Button>
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0 rounded-lg text-destructive" onClick={() => {
+                        setEditPalletItems(prev => prev.filter((_, i) => i !== idx));
+                      }} data-testid={`button-edit-remove-${idx}`}>
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+                {editPalletItems.length === 0 && (
+                  <p className="text-xs text-muted-foreground text-center py-4">Nenhum item</p>
+                )}
+              </div>
+              {editPalletItems.length > 0 && (
+                <p className="text-[10px] text-muted-foreground text-right">{editPalletItems.length} produto(s) · {editPalletItems.reduce((s, i) => s + i.quantity, 0)} un</p>
               )}
             </div>
           )}
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setEditPalletDialog(null)} className="rounded-xl">Cancelar</Button>
+            <Button variant="outline" onClick={() => { setEditPalletDialog(null); setEditScanInput(""); setEditScanError(""); }} className="rounded-xl">Cancelar</Button>
             <Button onClick={savePalletEdit} disabled={editPalletLoading} className="rounded-xl" data-testid="button-save-pallet-edit">
               {editPalletLoading ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : null}
               Salvar
