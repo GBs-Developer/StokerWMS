@@ -69,6 +69,8 @@ export interface IStorage {
   createOrderItem(item: InsertOrderItem): Promise<OrderItem>;
   getOrderItemsByOrderId(orderId: string): Promise<(OrderItem & { product: Product; exceptionQty?: number; exceptions?: Exception[] })[]>;
   updateOrderItem(id: string, data: Partial<OrderItem>): Promise<OrderItem | undefined>;
+  atomicIncrementSeparatedQty(itemId: string, delta: number, newStatus: string): Promise<OrderItem | undefined>;
+  atomicIncrementCheckedQty(itemId: string, delta: number, newStatus: string): Promise<OrderItem | undefined>;
   relaunchOrder(orderId: string): Promise<void>;
 
   // Work Units
@@ -546,6 +548,28 @@ export class DatabaseStorage implements IStorage {
     const [updated] = await db.update(orderItems)
       .set(data)
       .where(eq(orderItems.id, id))
+      .returning();
+    return updated;
+  }
+
+  async atomicIncrementSeparatedQty(itemId: string, delta: number, newStatus: string): Promise<OrderItem | undefined> {
+    const [updated] = await db.update(orderItems)
+      .set({
+        separatedQty: sql`COALESCE(${orderItems.separatedQty}, 0) + ${delta}`,
+        status: newStatus,
+      })
+      .where(eq(orderItems.id, itemId))
+      .returning();
+    return updated;
+  }
+
+  async atomicIncrementCheckedQty(itemId: string, delta: number, newStatus: string): Promise<OrderItem | undefined> {
+    const [updated] = await db.update(orderItems)
+      .set({
+        checkedQty: sql`COALESCE(${orderItems.checkedQty}, 0) + ${delta}`,
+        status: newStatus,
+      })
+      .where(eq(orderItems.id, itemId))
       .returning();
     return updated;
   }

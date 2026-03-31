@@ -625,7 +625,8 @@ export default function BalcaoPage() {
   };
 
   const finalizeWorkUnits = async () => {
-    usePendingDeltaStore.getState().clear("balcao");
+    scanQueueRef.current = [];
+    incrementQueueRef.current = [];
 
     // Enviar deduções de endereço para os produtos com endereço selecionado
     const deductions = aggregatedProducts

@@ -1710,10 +1710,8 @@ export async function registerRoutes(
       }
 
       const newQty = currentQty + requestedQty;
-      await storage.updateOrderItem(item.id, {
-        separatedQty: Number(newQty),
-        status: newQty >= adjustedTarget ? "separado" : "pendente",
-      });
+      const newStatus = newQty >= adjustedTarget ? "separado" : "pendente";
+      await storage.atomicIncrementSeparatedQty(item.id, requestedQty, newStatus);
 
       broadcastSSE("item_picked", { workUnitId: req.params.id, orderId: workUnit.orderId, productId: product.id, userId: (req as any).user.id }, (req as any).companyId);
 
@@ -1824,10 +1822,8 @@ export async function registerRoutes(
       }
 
       const newQty = currentQty + requestedQty;
-      await storage.updateOrderItem(item.id, {
-        checkedQty: Number(newQty),
-        status: newQty >= targetQty ? "conferido" : "separado",
-      });
+      const newStatus = newQty >= targetQty ? "conferido" : "separado";
+      await storage.atomicIncrementCheckedQty(item.id, requestedQty, newStatus);
 
       // BUGFIX: Automatic completion removed.
       // The conference unit will only be marked as "concluido" when the user
@@ -2018,10 +2014,8 @@ export async function registerRoutes(
       }
 
       const newQty = currentQty + requestedQty;
-      await storage.updateOrderItem(item.id, {
-        separatedQty: Number(newQty),
-        status: newQty >= targetQty ? "conferido" : "pendente",
-      });
+      const newStatus = newQty >= targetQty ? "conferido" : "pendente";
+      await storage.atomicIncrementSeparatedQty(item.id, requestedQty, newStatus);
 
       const updated = await storage.getWorkUnitById(req.params.id as string);
 

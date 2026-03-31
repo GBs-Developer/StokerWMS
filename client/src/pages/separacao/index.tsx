@@ -646,7 +646,8 @@ export default function SeparacaoPage() {
   };
 
   const finalizeWorkUnits = async () => {
-    usePendingDeltaStore.getState().clear("separacao");
+    scanQueueRef.current = [];
+    incrementQueueRef.current = [];
 
     // Enviar deduções de endereço para os produtos que tiveram endereço selecionado
     const deductions = aggregatedProducts
@@ -696,9 +697,10 @@ export default function SeparacaoPage() {
           }
         }
       }
+      usePendingDeltaStore.getState().clear("separacao");
+      clearSession();
       setStep("select");
       setSelectedWorkUnits([]);
-      clearSession();
       if (anyUnlock) {
         toast({ title: "Salvo", description: "Sua parte foi concluída. Pedido liberado para outras seções.", variant: "default" });
       } else {

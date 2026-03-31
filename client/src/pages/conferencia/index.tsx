@@ -639,7 +639,7 @@ export default function ConferenciaPage() {
   };
 
   const finalizeWorkUnits = async () => {
-    usePendingDeltaStore.getState().clear("conferencia");
+    scanQueueRef.current = [];
     try {
       let anyUnlock = false;
       const completedIds: string[] = []; // Track successfully completed units
