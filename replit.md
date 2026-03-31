@@ -102,15 +102,20 @@ Routes are registered in `server/routes.ts` (legacy + auth) and `server/wms-rout
 ### Concurrency & Data Integrity
 - **Lock ownership enforcement**: `assertLockOwnership()` function verifies that the requesting user is the lock owner before allowing scan-item, check-item, balcao-item, batch-sync, complete, complete-balcao, and complete-conference operations. Supervisors/admins bypass this check.
 - **Terminal state guard**: Completion endpoints (complete, complete-balcao, complete-conference) return idempotent success if work unit is already `concluido`, preventing duplicate audit logs and SSE broadcasts
-- **Batch sync** (`processBatchSync`): Uses SQL-level `COALESCE(field, 0) + qty` increments instead of read-modify-write, preventing race conditions on concurrent quantity updates
+- **Atomic quantity increments**: All scan endpoints (scan-item, check-item, balcao-item) and batch-sync use SQL-level `COALESCE(field, 0) + delta` atomic increments via `atomicIncrementSeparatedQty`/`atomicIncrementCheckedQty` methods — prevents race conditions on concurrent quantity updates
 - **Batch sync exception validation**: Exception quantity validated against item total within the transaction; negative/zero quantities skipped
 - **Completion checks** (`checkAndCompleteWorkUnit`, `checkAndCompleteConference`): Wrapped in database transactions to ensure atomic read-verify-update
-- **Order status transition** (`checkAndUpdateOrderStatus`): Fully transactional — all reads (work units, existing conference check) and writes (status update, conference WU creation) happen within a single `db.transaction()` to prevent duplicate conference work units
+- **Order status transition** (`checkAndUpdateOrderStatus`): Fully transactional — all reads (work units, existing conference check) and writes (status update, conference WU creation) happen within a single `db.transaction()`. Guards against cancelled/finalizado orders to prevent status resurrection
+- **Status transition guards**: `complete-balcao` and `complete-conference` both verify order isn't `cancelado` before updating status. Prevents resurrecting cancelled orders
 - **Exception deletion** (`deleteExceptionWithRollback`): Single transaction wraps exception delete + item qty reset + WU status reset + order status downgrade, preventing partial state on failure
 - **Exception adjustments** (`adjustItemQuantityForException`): Wrapped in transactions
 - **Progress resets** (`resetWorkUnitProgress`, `resetConferenciaProgress`): Wrapped in transactions
 - **Stale response protection**: All three critical modules (separação, conferência, balcão) use `activeSessionTokenRef` to discard in-flight API responses if the operator switched orders/context while awaiting
-- **Pending delta cleanup**: All modules clear `usePendingDeltaStore` on unlock to prevent state contamination between orders
+- **Queue draining on finalize/cancel**: All three modules clear `scanQueueRef` and `incrementQueueRef` on cancel AND finalize, preventing orphaned API calls from leaking into the next session
+- **Delta store safety**: Pending delta store is cleared AFTER successful API completion (not before), preventing data loss on network failure. Cancel handlers clear it immediately since no persistence is needed
+- **Full state cleanup on cancel**: All three modules clear queues, delta stores, selectedAddresses, and reset currentProductIndex on cancel — prevents state contamination between orders
+- **reset-item-check WU status**: Resetting checked items also sets work unit status back to `em_andamento` within the same transaction, preventing inconsistent state where items are reset but WU remains `concluido`
+- **Relaunch company scoping**: `/api/orders/relaunch` now validates order belongs to requesting company before relaunching
 - **Picking session cleanup**: `unlock` endpoint and `relaunchOrder` both delete associated picking sessions to prevent ghost sessions
 - **Exception authorization scoping**: `authorizeExceptions` accepts optional `companyId` and validates exception ownership via JOIN to `workUnits.companyId`; also blocks re-authorization of already-authorized exceptions
 - **Failed login auditing**: Failed login attempts logged with IP/UserAgent for security monitoring

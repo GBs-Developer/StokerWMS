@@ -1060,7 +1060,11 @@ export default function SeparacaoPage() {
   };
 
   const handleCancelPicking = () => {
+    scanQueueRef.current = [];
+    incrementQueueRef.current = [];
     usePendingDeltaStore.getState().clear("separacao");
+    setSelectedAddresses({});
+    setCurrentProductIndex(0);
     const ids = allMyUnits.map(wu => wu.id);
     if (ids.length > 0) {
       unlockMutation.mutate({ ids, reset: true });

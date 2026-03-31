@@ -430,6 +430,9 @@ export class DatabaseStorage implements IStorage {
 
   async checkAndUpdateOrderStatus(orderId: string): Promise<WorkUnit | null> {
       return await db.transaction(async (tx) => {
+        const [currentOrder] = await tx.select().from(orders).where(eq(orders.id, orderId)).limit(1);
+        if (!currentOrder || currentOrder.status === "cancelado" || currentOrder.status === "finalizado") return null;
+
         const sepUnits = await tx.select().from(workUnits)
           .where(and(eq(workUnits.orderId, orderId), eq(workUnits.type, "separacao")));
         if (sepUnits.length === 0) return null;

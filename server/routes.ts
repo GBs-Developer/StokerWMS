@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import cookieParser from "cookie-parser";
 import { storage } from "./storage";
 import { hashPassword, verifyPassword, createAuthSession, isAuthenticated, requireRole, requireCompany, getTokenFromRequest, getUserFromToken, generateBadgeCode } from "./auth";
-import { loginSchema, insertRouteSchema, orderItems, pickingSessions, pickupPoints, type MappingField, datasetEnum, type User, type OrderItem, type Product, type WorkUnit, type Exception, type PickingSession, type ExceptionType, type ManualQtyRule, type UserSettings, BatchSyncPayload } from "@shared/schema";
+import { loginSchema, insertRouteSchema, orderItems, workUnits, pickingSessions, pickupPoints, type MappingField, datasetEnum, type User, type OrderItem, type Product, type WorkUnit, type Exception, type PickingSession, type ExceptionType, type ManualQtyRule, type UserSettings, BatchSyncPayload } from "@shared/schema";
 import { registerWmsRoutes } from "./wms-routes";
 import { registerPrintRoutes, refreshPrinterCache } from "./print-routes";
 import { getConnectedAgents } from "./print-agent";
@@ -908,6 +908,9 @@ export async function registerRoutes(
       }
 
       for (const id of orderIds) {
+        const order = await storage.getOrderById(id);
+        if (!order) continue;
+        if (order.companyId !== (req as any).companyId) continue;
         await storage.relaunchOrder(id);
       }
 
@@ -1874,6 +1877,9 @@ export async function registerRoutes(
               .where(eq(orderItems.id, id));
           }
         }
+        await tx.update(workUnits)
+          .set({ status: "em_andamento" })
+          .where(eq(workUnits.id, req.params.id as string));
       });
 
       const resetWorkUnit = await storage.getWorkUnitById(req.params.id as string);
@@ -2053,7 +2059,10 @@ export async function registerRoutes(
 
       const workUnit = await storage.getWorkUnitById(req.params.id as string);
       if (workUnit) {
-        await storage.updateOrder(workUnit.orderId, { status: "finalizado" });
+        const order = await storage.getOrderById(workUnit.orderId);
+        if (order && order.status !== "cancelado") {
+          await storage.updateOrder(workUnit.orderId, { status: "finalizado" });
+        }
       }
 
       await storage.createAuditLog({
@@ -2180,7 +2189,10 @@ export async function registerRoutes(
       if (isComplete) {
         const wu = await storage.getWorkUnitById(id);
         if (wu) {
-          await storage.updateOrder(wu.orderId, { status: "conferido" });
+          const order = await storage.getOrderById(wu.orderId);
+          if (order && order.status !== "cancelado" && order.status !== "finalizado") {
+            await storage.updateOrder(wu.orderId, { status: "conferido" });
+          }
           broadcastSSE("conference_finished", { workUnitId: id, orderId: wu.orderId }, (req as any).companyId);
         }
         res.json({ success: true });
