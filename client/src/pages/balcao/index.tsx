@@ -135,6 +135,7 @@ export default function BalcaoPage() {
 
   const scanWorkerRunningRef = useRef(false);
   const scanQueueRef = useRef<string[]>([]);
+  const activeSessionTokenRef = useRef("");
 
   type IncrementTask = { workUnitId: string; barcode: string; qty: number; itemId: string; apSnapshot: AggregatedProduct };
   const incrementQueueRef = useRef<IncrementTask[]>([]);
@@ -179,6 +180,10 @@ export default function BalcaoPage() {
   });
 
   const pendingInvalidateRef = useRef(false);
+
+  useEffect(() => {
+    activeSessionTokenRef.current = selectedWorkUnits.join(",") + "|" + step;
+  }, [selectedWorkUnits, step]);
 
   useEffect(() => {
     if (!workUnits || !user) return;
@@ -424,6 +429,7 @@ export default function BalcaoPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+      usePendingDeltaStore.getState().clear("balcao");
       clearSession();
       setSelectedWorkUnits([]);
       setStep("select");
@@ -860,19 +866,30 @@ export default function BalcaoPage() {
   const processIncrementQueue = useCallback(async () => {
     if (incrementWorkerRunningRef.current) return;
     incrementWorkerRunningRef.current = true;
+    const sessionTokenAtStart = activeSessionTokenRef.current;
     try {
       while (incrementQueueRef.current.length > 0) {
         if (overQtyModalOpenRef.current) {
           incrementQueueRef.current = [];
           break;
         }
+        if (activeSessionTokenRef.current !== sessionTokenAtStart) {
+          console.warn("[balcao] Stale increment worker — contexto alterado, descartando fila.");
+          incrementQueueRef.current = [];
+          break;
+        }
         const task = incrementQueueRef.current.shift()!;
         try {
+          const currentToken = activeSessionTokenRef.current;
           const res = await apiRequest("POST", `/api/work-units/${task.workUnitId}/scan-item`, {
             barcode: task.barcode,
             quantity: task.qty,
           });
           const result = await res.json();
+          if (activeSessionTokenRef.current !== currentToken) {
+            console.warn("[balcao] Stale response descartada (contexto alterado).");
+            break;
+          }
           if (result.status === "over_quantity" || result.status === "over_quantity_with_exception") {
             incrementQueueRef.current = [];
             task.apSnapshot.items.forEach(item => {

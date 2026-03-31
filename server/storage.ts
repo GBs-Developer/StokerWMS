@@ -76,7 +76,7 @@ export interface IStorage {
   getWorkUnitById(id: string): Promise<(WorkUnit & { order: Order; items: (OrderItem & { product: Product; exceptionQty?: number })[] }) | undefined>;
   createWorkUnit(workUnit: InsertWorkUnit): Promise<WorkUnit>;
   updateWorkUnit(id: string, data: Partial<WorkUnit>): Promise<WorkUnit | undefined>;
-  lockWorkUnits(workUnitIds: string[], userId: string, expiresAt: Date): Promise<void>;
+  lockWorkUnits(workUnitIds: string[], userId: string, expiresAt: Date): Promise<number>;
   unlockWorkUnits(workUnitIds: string[]): Promise<void>;
   resetWorkUnitProgress(id: string): Promise<void>; // Added missing interface method
   resetConferenciaProgress(id: string): Promise<void>;
@@ -775,16 +775,30 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async lockWorkUnits(workUnitIds: string[], userId: string, expiresAt: Date): Promise<void> {
-    await db.update(workUnits)
-      .set({
-        lockedBy: userId,
-        lockedAt: new Date().toISOString(),
-        lockExpiresAt: expiresAt.toISOString(),
-        // status: "em_andamento", // Status update moved to scan-cart
-        // startedAt: new Date().toISOString(), // Moved to scan-cart
-      })
-      .where(inArray(workUnits.id, workUnitIds));
+  async lockWorkUnits(workUnitIds: string[], userId: string, expiresAt: Date): Promise<number> {
+    const now = new Date().toISOString();
+    return await db.transaction(async (tx) => {
+      const result = await tx.update(workUnits)
+        .set({
+          lockedBy: userId,
+          lockedAt: now,
+          lockExpiresAt: expiresAt.toISOString(),
+        })
+        .where(and(
+          inArray(workUnits.id, workUnitIds),
+          or(
+            isNull(workUnits.lockedBy),
+            eq(workUnits.lockedBy, userId),
+            lt(workUnits.lockExpiresAt, now)
+          )
+        ))
+        .returning();
+
+      if (result.length < workUnitIds.length) {
+        throw new Error("LOCK_CONFLICT");
+      }
+      return result.length;
+    });
   }
 
   async unlockWorkUnits(workUnitIds: string[]): Promise<void> {
@@ -795,42 +809,43 @@ export class DatabaseStorage implements IStorage {
   }
 
   async resetWorkUnitProgress(id: string): Promise<void> {
-    const [wu] = await db.select().from(workUnits).where(eq(workUnits.id, id));
-    if (!wu) return;
+    await db.transaction(async (tx) => {
+      const [wu] = await tx.select().from(workUnits).where(eq(workUnits.id, id));
+      if (!wu) return;
 
-    if (wu.type === "separacao") {
-      await db.update(orderItems)
-        .set({ separatedQty: 0, status: "pendente" })
-        .where(eq(orderItems.orderId, wu.orderId));
-    } else {
-      await db.update(orderItems)
-        .set({ separatedQty: 0, status: "pendente" })
-        .where(and(
-          eq(orderItems.orderId, wu.orderId),
-          eq(orderItems.pickupPoint, wu.pickupPoint),
-          wu.section ? eq(orderItems.section, wu.section) : undefined
-        ));
-    }
+      if (wu.type === "separacao") {
+        await tx.update(orderItems)
+          .set({ separatedQty: 0, status: "pendente" })
+          .where(eq(orderItems.orderId, wu.orderId));
+      } else {
+        await tx.update(orderItems)
+          .set({ separatedQty: 0, status: "pendente" })
+          .where(and(
+            eq(orderItems.orderId, wu.orderId),
+            eq(orderItems.pickupPoint, wu.pickupPoint),
+            wu.section ? eq(orderItems.section, wu.section) : undefined
+          ));
+      }
 
-    // Reset work unit status
-    await db.update(workUnits)
-      .set({ status: "pendente", startedAt: null, completedAt: null, cartQrCode: null })
-      .where(eq(workUnits.id, id));
+      await tx.update(workUnits)
+        .set({ status: "pendente", startedAt: null, completedAt: null, cartQrCode: null })
+        .where(eq(workUnits.id, id));
+    });
   }
 
   async resetConferenciaProgress(id: string): Promise<void> {
-    const [wu] = await db.select().from(workUnits).where(eq(workUnits.id, id));
-    if (!wu) return;
+    await db.transaction(async (tx) => {
+      const [wu] = await tx.select().from(workUnits).where(eq(workUnits.id, id));
+      if (!wu) return;
 
-    // Reset items checkedQty
-    await db.update(orderItems)
-      .set({ checkedQty: 0 })
-      .where(eq(orderItems.orderId, wu.orderId));
+      await tx.update(orderItems)
+        .set({ checkedQty: 0 })
+        .where(eq(orderItems.orderId, wu.orderId));
 
-    // Reset work unit status
-    await db.update(workUnits)
-      .set({ status: "pendente", startedAt: null, completedAt: null })
-      .where(eq(workUnits.id, id));
+      await tx.update(workUnits)
+        .set({ status: "pendente", startedAt: null, completedAt: null })
+        .where(eq(workUnits.id, id));
+    });
   }
 
   async resetConferenciaWorkUnitForOrder(orderId: string): Promise<void> {
@@ -846,47 +861,45 @@ export class DatabaseStorage implements IStorage {
   }
 
   async checkAndCompleteWorkUnit(id: string, autoComplete: boolean = true): Promise<boolean> {
-    const [workUnit] = await db.select().from(workUnits).where(eq(workUnits.id, id));
-    if (!workUnit) return false;
+    return await db.transaction(async (tx) => {
+      const [workUnit] = await tx.select().from(workUnits).where(eq(workUnits.id, id));
+      if (!workUnit) return false;
 
-    let items;
-    if (workUnit.type === "conferencia") {
-      items = await db.select().from(orderItems).where(eq(orderItems.orderId, workUnit.orderId));
-    } else if (workUnit.type === "separacao") {
-      const filters: any[] = [eq(orderItems.orderId, workUnit.orderId)];
-      if (workUnit.section) filters.push(eq(orderItems.section, workUnit.section));
-      items = await db.select().from(orderItems).where(and(...filters));
-    } else {
-      const whereClause = and(
-        eq(orderItems.orderId, workUnit.orderId),
-        eq(orderItems.pickupPoint, workUnit.pickupPoint),
-        workUnit.section ? eq(orderItems.section, workUnit.section) : undefined
-      );
-      items = await db.select().from(orderItems).where(whereClause);
-    }
-
-    // Get exceptions for this work unit
-    const unitExceptions = await db.select().from(exceptions).where(eq(exceptions.workUnitId, id));
-
-    const allComplete = items.every(item => {
-      const itemExcs = unitExceptions.filter(e => e.orderItemId === item.id);
-      const excQty = itemExcs.reduce((sum, e) => sum + Number(e.quantity), 0);
-      const isItemDone = Number(item.separatedQty) + excQty >= Number(item.quantity);
-      // console.log(`Debug WU ${id}: Item ${item.id} status - Sep: ${item.separatedQty}, Exc: ${excQty}, Target: ${item.quantity}. Done: ${isItemDone}`);
-      return isItemDone;
-    });
-
-    // console.log(`Debug WU ${id}: All Complete ? ${allComplete} `);
-
-    if (allComplete) {
-      if (autoComplete) {
-        await db.update(workUnits)
-          .set({ status: "concluido", completedAt: new Date().toISOString(), lockedBy: null, lockedAt: null })
-          .where(eq(workUnits.id, id));
+      let items;
+      if (workUnit.type === "conferencia") {
+        items = await tx.select().from(orderItems).where(eq(orderItems.orderId, workUnit.orderId));
+      } else if (workUnit.type === "separacao") {
+        const filters: any[] = [eq(orderItems.orderId, workUnit.orderId)];
+        if (workUnit.section) filters.push(eq(orderItems.section, workUnit.section));
+        items = await tx.select().from(orderItems).where(and(...filters));
+      } else {
+        const whereClause = and(
+          eq(orderItems.orderId, workUnit.orderId),
+          eq(orderItems.pickupPoint, workUnit.pickupPoint),
+          workUnit.section ? eq(orderItems.section, workUnit.section) : undefined
+        );
+        items = await tx.select().from(orderItems).where(whereClause);
       }
-      return true;
-    }
-    return false;
+
+      const unitExceptions = await tx.select().from(exceptions).where(eq(exceptions.workUnitId, id));
+
+      const allComplete = items.every(item => {
+        const itemExcs = unitExceptions.filter(e => e.orderItemId === item.id);
+        const excQty = itemExcs.reduce((sum, e) => sum + Number(e.quantity), 0);
+        const isItemDone = Number(item.separatedQty) + excQty >= Number(item.quantity);
+        return isItemDone;
+      });
+
+      if (allComplete) {
+        if (autoComplete) {
+          await tx.update(workUnits)
+            .set({ status: "concluido", completedAt: new Date().toISOString(), lockedBy: null, lockedAt: null })
+            .where(eq(workUnits.id, id));
+        }
+        return true;
+      }
+      return false;
+    });
   }
 
   async checkAllWorkUnitsComplete(orderId: string): Promise<boolean> {
@@ -955,26 +968,23 @@ export class DatabaseStorage implements IStorage {
   }
 
   async adjustItemQuantityForException(orderItemId: string): Promise<void> {
-    const [item] = await db.select().from(orderItems).where(eq(orderItems.id, orderItemId));
-    if (!item) return;
+    await db.transaction(async (tx) => {
+      const [item] = await tx.select().from(orderItems).where(eq(orderItems.id, orderItemId));
+      if (!item) return;
 
-    const itemExceptions = await db.select().from(exceptions).where(eq(exceptions.orderItemId, orderItemId));
-    const totalExceptionQty = itemExceptions.reduce((sum, e) => sum + Number(e.quantity), 0);
+      const itemExceptions = await tx.select().from(exceptions).where(eq(exceptions.orderItemId, orderItemId));
+      const totalExceptionQty = itemExceptions.reduce((sum, e) => sum + Number(e.quantity), 0);
 
-    const currentSeparated = Number(item.separatedQty);
-    const target = Number(item.quantity);
+      const currentSeparated = Number(item.separatedQty);
+      const target = Number(item.quantity);
+      const maxSeparated = Math.max(0, target - totalExceptionQty);
 
-    // Logic: separated + exception should not exceed target?
-    // Or strictly: separated cannot exceed (target - exception).
-    // The user implies they are converting separated to exception.
-
-    const maxSeparated = Math.max(0, target - totalExceptionQty);
-
-    if (currentSeparated > maxSeparated) {
-      await db.update(orderItems)
-        .set({ separatedQty: maxSeparated })
-        .where(eq(orderItems.id, orderItemId));
-    }
+      if (currentSeparated > maxSeparated) {
+        await tx.update(orderItems)
+          .set({ separatedQty: maxSeparated })
+          .where(eq(orderItems.id, orderItemId));
+      }
+    });
   }
 
   async canCreateException(orderItemId: string, newQuantity: number): Promise<boolean> {
@@ -1411,30 +1421,32 @@ export class DatabaseStorage implements IStorage {
   }
 
   async checkAndCompleteConference(id: string): Promise<boolean> {
-    const [workUnit] = await db.select().from(workUnits).where(eq(workUnits.id, id));
-    if (!workUnit) return false;
+    return await db.transaction(async (tx) => {
+      const [workUnit] = await tx.select().from(workUnits).where(eq(workUnits.id, id));
+      if (!workUnit) return false;
 
-    const items = await db.select().from(orderItems).where(
-      eq(orderItems.orderId, workUnit.orderId)
-    );
+      const items = await tx.select().from(orderItems).where(
+        eq(orderItems.orderId, workUnit.orderId)
+      );
 
-    const unitExceptions = await db.select().from(exceptions).where(eq(exceptions.workUnitId, id));
+      const unitExceptions = await tx.select().from(exceptions).where(eq(exceptions.workUnitId, id));
 
-    const allComplete = items.every(item => {
-      const itemExcs = unitExceptions.filter(e => e.orderItemId === item.id);
-      const excQty = itemExcs.reduce((sum, e) => sum + Number(e.quantity), 0);
-      const sep = Number(item.separatedQty) || 0;
-      if (sep === 0) return true;
-      return Number(item.checkedQty) + excQty >= sep;
+      const allComplete = items.every(item => {
+        const itemExcs = unitExceptions.filter(e => e.orderItemId === item.id);
+        const excQty = itemExcs.reduce((sum, e) => sum + Number(e.quantity), 0);
+        const sep = Number(item.separatedQty) || 0;
+        if (sep === 0) return true;
+        return Number(item.checkedQty) + excQty >= sep;
+      });
+
+      if (allComplete) {
+        await tx.update(workUnits)
+          .set({ status: "concluido", completedAt: new Date().toISOString(), lockedBy: null, lockedAt: null })
+          .where(eq(workUnits.id, id));
+        return true;
+      }
+      return false;
     });
-
-    if (allComplete) {
-      await db.update(workUnits)
-        .set({ status: "concluido", completedAt: new Date().toISOString(), lockedBy: null, lockedAt: null })
-        .where(eq(workUnits.id, id));
-      return true;
-    }
-    return false;
   }
 
   async getCacheOrcamentosPreview(limit: number): Promise<any[]> {
@@ -1457,21 +1469,20 @@ export class DatabaseStorage implements IStorage {
       for (const item of payload.items) {
         if (!item.qtyToAdd || item.qtyToAdd <= 0) continue;
 
-        // Fetch current item state inside transaction ensuring row lock if needed, but select is fine here
-        const [dbItem] = await tx.select().from(orderItems).where(eq(orderItems.id, item.orderItemId));
-        if (!dbItem) continue;
-
-        // Determine which field to update based on Work Unit Type
         if (wu.type === "separacao") {
-          const newQty = Number(dbItem.separatedQty) + item.qtyToAdd;
           await tx.update(orderItems)
-            .set({ separatedQty: newQty, status: "separado" }) // updating status visually
+            .set({
+              separatedQty: sql`COALESCE(${orderItems.separatedQty}, 0) + ${item.qtyToAdd}`,
+              status: "separado",
+            })
             .where(eq(orderItems.id, item.orderItemId));
 
         } else if (wu.type === "conferencia" || wu.type === "balcao") {
-          const newQty = Number(dbItem.checkedQty) + item.qtyToAdd;
           await tx.update(orderItems)
-            .set({ checkedQty: newQty, status: "conferido" })
+            .set({
+              checkedQty: sql`COALESCE(${orderItems.checkedQty}, 0) + ${item.qtyToAdd}`,
+              status: "conferido",
+            })
             .where(eq(orderItems.id, item.orderItemId));
         }
 

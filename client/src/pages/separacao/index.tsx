@@ -160,6 +160,7 @@ export default function SeparacaoPage() {
   const scanQueueRef = useRef<string[]>([]);
   const scanWorkerRunningRef = useRef(false);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeSessionTokenRef = useRef("");
 
   type IncrementTask = { workUnitId: string; barcode: string; qty: number; itemId: string; apSnapshot: AggregatedProduct };
   const incrementQueueRef = useRef<IncrementTask[]>([]);
@@ -202,6 +203,10 @@ export default function SeparacaoPage() {
 
 
   const pendingInvalidateRef = useRef(false);
+
+  useEffect(() => {
+    activeSessionTokenRef.current = selectedWorkUnits.join(",") + "|" + step;
+  }, [selectedWorkUnits, step]);
 
   useEffect(() => {
     const handleOnline = () => {
@@ -894,19 +899,30 @@ export default function SeparacaoPage() {
   const processIncrementQueue = useCallback(async () => {
     if (incrementWorkerRunningRef.current) return;
     incrementWorkerRunningRef.current = true;
+    const sessionTokenAtStart = activeSessionTokenRef.current;
     try {
       while (incrementQueueRef.current.length > 0) {
         if (overQtyModalOpenRef.current) {
           incrementQueueRef.current = [];
           break;
         }
+        if (activeSessionTokenRef.current !== sessionTokenAtStart) {
+          console.warn("[separacao] Stale increment worker — contexto alterado, descartando fila.");
+          incrementQueueRef.current = [];
+          break;
+        }
         const task = incrementQueueRef.current.shift()!;
         try {
+          const currentToken = activeSessionTokenRef.current;
           const res = await apiRequest("POST", `/api/work-units/${task.workUnitId}/scan-item`, {
             barcode: task.barcode,
             quantity: task.qty,
           });
           const result = await res.json();
+          if (activeSessionTokenRef.current !== currentToken) {
+            console.warn("[separacao] Stale response descartada (contexto alterado).");
+            break;
+          }
           if (result.status === "over_quantity" || result.status === "over_quantity_with_exception") {
             incrementQueueRef.current = [];
             task.apSnapshot.items.forEach(item => {

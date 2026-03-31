@@ -94,9 +94,26 @@ Routes are registered in `server/routes.ts` (legacy + auth) and `server/wms-rout
 - Separação users only see work units matching their assigned sections (regardless of separation mode); users with no sections see nothing
 - Orders' `pickup_points` field aggregates ALL unique pickup points from order items (not just the first one)
 - Lock mechanism with TTL (15 minutes default) prevents concurrent operations at the order level
+- **Atomic locking**: `lockWorkUnits` uses a database transaction with WHERE guard (`lockedBy IS NULL OR same user OR expired`); if any requested unit is already locked by another operator, the entire transaction rolls back (no partial locks)
 - Heartbeat system extends locks for active sessions
 - Force unlock capability for supervisors
 - State machine: `pendente` → `em_andamento` → `concluido` (with `recontagem` and `excecao` branches)
+
+### Concurrency & Data Integrity
+- **Batch sync** (`processBatchSync`): Uses SQL-level `COALESCE(field, 0) + qty` increments instead of read-modify-write, preventing race conditions on concurrent quantity updates
+- **Completion checks** (`checkAndCompleteWorkUnit`, `checkAndCompleteConference`): Wrapped in database transactions to ensure atomic read-verify-update
+- **Exception adjustments** (`adjustItemQuantityForException`): Wrapped in transactions
+- **Progress resets** (`resetWorkUnitProgress`, `resetConferenciaProgress`): Wrapped in transactions
+- **Stale response protection**: All three critical modules (separação, conferência, balcão) use `activeSessionTokenRef` to discard in-flight API responses if the operator switched orders/context while awaiting
+- **Pending delta cleanup**: All modules clear `usePendingDeltaStore` on unlock to prevent state contamination between orders
+
+### Database Indexes
+Critical indexes added for query performance:
+- `idx_order_items_order_id`, `idx_order_items_product_id` — order item lookups
+- `idx_work_units_order_id`, `idx_work_units_locked_by`, `idx_work_units_company_status` — work unit queries
+- `idx_picking_sessions_order_section` — session lookups
+- `idx_exceptions_work_unit_id`, `idx_exceptions_order_item_id` — exception queries
+- `idx_audit_logs_entity`, `idx_audit_logs_user_id` — audit log queries
 
 ### WMS Modules
 

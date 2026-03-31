@@ -655,7 +655,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/sections/groups", isAuthenticated, async (req: Request, res: Response) => {
+  app.post("/api/sections/groups", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
     try {
 
       const { name, sections } = req.body;
@@ -674,7 +674,7 @@ export async function registerRoutes(
     }
   });
 
-  app.put("/api/sections/groups/:id", isAuthenticated, async (req: Request, res: Response) => {
+  app.put("/api/sections/groups/:id", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
     try {
       const id = req.params.id as string;
       const { name, sections } = req.body;
@@ -694,7 +694,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/sections/groups/:id", isAuthenticated, async (req: Request, res: Response) => {
+  app.delete("/api/sections/groups/:id", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
     try {
       const id = req.params.id as string;
       await storage.deleteSectionGroup(id);
@@ -1367,19 +1367,22 @@ export async function registerRoutes(
         if (!authWU.allowed) return res.status(403).json({ error: authWU.reason });
       }
 
-      await storage.lockWorkUnits(workUnitIds, userId, expiresAt);
+      const lockedCount = await storage.lockWorkUnits(workUnitIds, userId, expiresAt);
 
       await storage.createAuditLog({
         userId,
         action: "lock_work_units",
         entityType: "work_unit",
-        details: `${workUnitIds.length} unidades bloqueadas`,
+        details: `${lockedCount} unidades bloqueadas`,
         ipAddress: getClientIp(req),
         userAgent: getUserAgent(req),
       });
 
       res.json({ success: true, expiresAt });
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.message === "LOCK_CONFLICT") {
+        return res.status(409).json({ error: "Uma ou mais unidades já estão em uso por outro operador" });
+      }
       console.error("Lock work units error:", error);
       res.status(500).json({ error: "Erro interno" });
     }
@@ -3141,7 +3144,7 @@ export async function registerRoutes(
   });
 
   // GET /api/order-volumes/:orderId — busca volume de um pedido específico
-  app.get("/api/order-volumes/:orderId", isAuthenticated, async (req: Request, res: Response) => {
+  app.get("/api/order-volumes/:orderId", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       const volume = await storage.getOrderVolume(req.params.orderId as string);
       res.json(volume || null);
@@ -3200,7 +3203,7 @@ export async function registerRoutes(
   });
 
   // DELETE /api/order-volumes/:orderId — remove volumes de um pedido
-  app.delete("/api/order-volumes/:orderId", isAuthenticated, async (req: Request, res: Response) => {
+  app.delete("/api/order-volumes/:orderId", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {
       await storage.deleteOrderVolume(req.params.orderId as string);
       res.json({ ok: true });
