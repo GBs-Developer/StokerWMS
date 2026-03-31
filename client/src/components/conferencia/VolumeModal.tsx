@@ -83,7 +83,7 @@ type Screen = "search" | "form";
 export function VolumeModal({ open, onClose, defaultErpOrderId }: VolumeModalProps) {
     const { toast } = useToast();
     const queryClient = useQueryClient();
-    const { user } = useAuth();
+    const { user, companyId, companiesData } = useAuth();
     const searchRef = useRef<HTMLInputElement>(null);
 
     const [screen, setScreen] = useState<Screen>("search");
@@ -246,6 +246,9 @@ export function VolumeModal({ open, onClose, defaultErpOrderId }: VolumeModalPro
         const addressLine = [order.address, order.addressNumber ? `nº ${order.addressNumber}` : ""].filter(Boolean).join(", ");
         const cityLine = [order.city, order.state].filter(Boolean).join(" - ");
 
+        const senderCompany = companiesData.find(c => c.id === companyId);
+        const senderName = senderCompany?.name || "";
+
         const volumes = Array.from({ length: total }, (_, i) => ({
             erpOrderId: order.erpOrderId,
             volumeNumber: i + 1,
@@ -260,6 +263,7 @@ export function VolumeModal({ open, onClose, defaultErpOrderId }: VolumeModalPro
             time: tStr,
             counts: { ...counts },
             barcode: `${order.erpOrderId}${String(i + 1).padStart(3, "0")}`,
+            sender: senderName,
         }));
 
         return { template: "volume_label", data: { volumes } };

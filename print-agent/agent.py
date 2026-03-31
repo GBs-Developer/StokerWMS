@@ -154,8 +154,8 @@ def _draw_single_volume(c, vol, PAGE_W, PAGE_H, cm, mm, HexColor, black, white, 
       Hero header   55 mm  — pedido (esq.) + volume (dir.) em destaque máximo
       Cliente       30 mm  — destinatário + endereço completo
       Info strip    16 mm  — ROTA | SACOLA | CAIXA | SACO | AVULSO
-      Código barras 35 mm  — Code128 centralizado com texto legível
-      Rodapé        14 mm  — operador + data/hora
+      Código barras 31 mm  — Code128 centralizado com texto legível
+      Rodapé        18 mm  — remetente + operador + data/hora
                    --------
       Total        150 mm
     """
@@ -171,17 +171,18 @@ def _draw_single_volume(c, vol, PAGE_W, PAGE_H, cm, mm, HexColor, black, white, 
     date_str = vol.get("date", "")
     time_str = vol.get("time", "")
     counts = vol.get("counts", {})
+    sender = vol.get("sender", "")
     barcode_text = vol.get("barcode", f"{erp_order}{str(vol_num).zfill(3)}")
 
     y = PAGE_H
 
     # ── HERO HEADER (55 mm) — pedido (esq.) e volume (dir.) ────────────
     hero_h = 55 * mm
-    c.setFillColor(HexColor("#111111"))
+    c.setFillColor(HexColor("#1a3a5c"))
     c.rect(0, y - hero_h, PAGE_W, hero_h, fill=1, stroke=0)
 
     # Separador vertical suave no centro
-    c.setStrokeColor(HexColor("#2a2a2a"))
+    c.setStrokeColor(HexColor("#3a6a9c"))
     c.setLineWidth(0.5)
     c.line(PAGE_W / 2, y - 6 * mm, PAGE_W / 2, y - hero_h + 6 * mm)
 
@@ -299,38 +300,51 @@ def _draw_single_volume(c, vol, PAGE_W, PAGE_H, cm, mm, HexColor, black, white, 
 
     y -= info_h
 
-    # ── CÓDIGO DE BARRAS (35 mm) ─────────────────────────────────────────
-    barcode_h = 35 * mm
+    # ── CÓDIGO DE BARRAS (31 mm) ─────────────────────────────────────────
+    barcode_h = 31 * mm
     try:
-        bc = code128.Code128(barcode_text, barWidth=0.72 * mm, barHeight=22 * mm, humanReadable=True)
+        bc = code128.Code128(barcode_text, barWidth=0.72 * mm, barHeight=18 * mm, humanReadable=True)
         bc_w = bc.width
-        bc.drawOn(c, (PAGE_W - bc_w) / 2, y - barcode_h + 6 * mm)
+        bc.drawOn(c, (PAGE_W - bc_w) / 2, y - barcode_h + 5 * mm)
     except Exception:
         c.setFont("Courier-Bold", 14)
         c.drawCentredString(PAGE_W / 2, y - barcode_h / 2, barcode_text)
 
     y -= barcode_h
 
-    # ── RODAPÉ (14 mm) ───────────────────────────────────────────────────
-    footer_h = 14 * mm
+    # ── RODAPÉ (18 mm) — remetente + operador/data ───────────────────────
+    footer_h = 18 * mm
     c.setFillColor(HexColor("#f0f4f8"))
     c.rect(0, y - footer_h, PAGE_W, footer_h, fill=1, stroke=0)
     c.setStrokeColor(HexColor("#cccccc"))
     c.line(0, y, PAGE_W, y)
 
+    # Linha divisória interna
+    c.setStrokeColor(HexColor("#e0e0e0"))
+    c.line(0, y - 8 * mm, PAGE_W, y - 8 * mm)
+
+    # Remetente (primeira linha)
     c.setFillColor(HexColor("#888888"))
     c.setFont("Helvetica", 5.5)
-    c.drawString(3 * mm, y - 4 * mm, "CONFERIDO POR")
+    c.drawString(3 * mm, y - 4 * mm, "REMETENTE")
     c.setFillColor(black)
     c.setFont("Helvetica-Bold", 8)
-    c.drawString(3 * mm, y - 10 * mm, operator[:30])
+    c.drawString(3 * mm, y - 7.5 * mm, sender[:48] if sender else "—")
+
+    # Operador e data/hora (segunda linha)
+    c.setFillColor(HexColor("#888888"))
+    c.setFont("Helvetica", 5.5)
+    c.drawString(3 * mm, y - 11 * mm, "CONFERIDO POR")
+    c.setFillColor(black)
+    c.setFont("Helvetica-Bold", 7)
+    c.drawString(3 * mm, y - 14.5 * mm, operator[:28])
 
     c.setFillColor(HexColor("#888888"))
     c.setFont("Helvetica", 5.5)
-    c.drawRightString(PAGE_W - 3 * mm, y - 4 * mm, "DATA/HORA")
+    c.drawRightString(PAGE_W - 3 * mm, y - 11 * mm, "DATA/HORA")
     c.setFillColor(black)
-    c.setFont("Helvetica-Bold", 8)
-    c.drawRightString(PAGE_W - 3 * mm, y - 10 * mm, f"{date_str} {time_str}")
+    c.setFont("Helvetica-Bold", 7)
+    c.drawRightString(PAGE_W - 3 * mm, y - 14.5 * mm, f"{date_str} {time_str}")
 
 
 def _render_pallet_label(data: dict, pdf_path: str) -> bool:
