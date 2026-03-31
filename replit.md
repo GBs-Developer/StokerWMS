@@ -248,3 +248,14 @@ Tables defined in `shared/schema.ts`:
 - Server-Sent Events via `/api/sse` endpoint
 - Event types include picking, conference, exception, lock, work unit, and pallet events
 - WMS events: `pallet_created`, `pallet_allocated`, `pallet_transferred`, `pallet_cancelled`
+- All SSE broadcasts include `companyId` parameter for tenant isolation
+
+### Transaction & Atomicity Patterns
+- **Atomic increments**: `atomicIncrementSeparatedQty` / `atomicIncrementCheckedQty` use `COALESCE(field, 0) + delta` SQL — used by all scan endpoints (scan-item, check-item, balcao-item)
+- **Atomic resets**: `atomicResetItemAndWorkUnit` wraps item qty reset + work unit status reset + order status rollback in a single transaction — used by all over-quantity reset paths
+- **Conference completion**: `checkAndCompleteConference` atomically marks WU as concluído AND updates order to conferido inside one transaction
+- **Balcão completion**: `checkAndCompleteWorkUnit(id, true, "finalizado")` uses optional `finalOrderStatus` param to set order status atomically within the WU completion transaction
+- **Separation completion**: `checkAndUpdateOrderStatus` runs its own transaction to check all WUs and set order to separado + create conference WU
+- **Reset-item-picking**: Item resets + WU status update wrapped in single `db.transaction`
+- **Status guards**: All completion/status-change endpoints check for `cancelado`/`finalizado` before updates to prevent status resurrection
+- **Audit logs**: `complete_separation`, `complete_conference`, `complete_balcao` all create audit log entries

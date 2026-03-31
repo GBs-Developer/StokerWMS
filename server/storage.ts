@@ -71,6 +71,7 @@ export interface IStorage {
   updateOrderItem(id: string, data: Partial<OrderItem>): Promise<OrderItem | undefined>;
   atomicIncrementSeparatedQty(itemId: string, delta: number, newStatus: string): Promise<OrderItem | undefined>;
   atomicIncrementCheckedQty(itemId: string, delta: number, newStatus: string): Promise<OrderItem | undefined>;
+  atomicResetItemAndWorkUnit(itemId: string, workUnitId: string, orderId: string, field: "separatedQty" | "checkedQty", itemStatus: string): Promise<void>;
   relaunchOrder(orderId: string): Promise<void>;
 
   // Work Units
@@ -83,7 +84,7 @@ export interface IStorage {
   resetWorkUnitProgress(id: string): Promise<void>; // Added missing interface method
   resetConferenciaProgress(id: string): Promise<void>;
   resetConferenciaWorkUnitForOrder(orderId: string): Promise<void>;
-  checkAndCompleteWorkUnit(id: string, autoComplete?: boolean): Promise<boolean>;
+  checkAndCompleteWorkUnit(id: string, autoComplete?: boolean, finalOrderStatus?: string): Promise<boolean>;
   checkAllWorkUnitsComplete(orderId: string): Promise<boolean>;
   checkAllConferenceUnitsComplete(orderId: string): Promise<boolean>;
 
@@ -555,6 +556,19 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
+  async atomicResetItemAndWorkUnit(itemId: string, workUnitId: string, orderId: string, field: "separatedQty" | "checkedQty", itemStatus: string): Promise<void> {
+    await db.transaction(async (tx) => {
+      const setData: any = { status: itemStatus };
+      setData[field] = 0;
+      await tx.update(orderItems).set(setData).where(eq(orderItems.id, itemId));
+      await tx.update(workUnits).set({ status: "em_andamento" }).where(eq(workUnits.id, workUnitId));
+      const [order] = await tx.select().from(orders).where(eq(orders.id, orderId)).limit(1);
+      if (order && order.status === "separado") {
+        await tx.update(orders).set({ status: "em_separacao", updatedAt: new Date().toISOString() }).where(eq(orders.id, orderId));
+      }
+    });
+  }
+
   async atomicIncrementSeparatedQty(itemId: string, delta: number, newStatus: string): Promise<OrderItem | undefined> {
     const [updated] = await db.update(orderItems)
       .set({
@@ -901,7 +915,7 @@ export class DatabaseStorage implements IStorage {
     }
   }
 
-  async checkAndCompleteWorkUnit(id: string, autoComplete: boolean = true): Promise<boolean> {
+  async checkAndCompleteWorkUnit(id: string, autoComplete: boolean = true, finalOrderStatus?: string): Promise<boolean> {
     return await db.transaction(async (tx) => {
       const [workUnit] = await tx.select().from(workUnits).where(eq(workUnits.id, id));
       if (!workUnit) return false;
@@ -936,6 +950,14 @@ export class DatabaseStorage implements IStorage {
           await tx.update(workUnits)
             .set({ status: "concluido", completedAt: new Date().toISOString(), lockedBy: null, lockedAt: null })
             .where(eq(workUnits.id, id));
+        }
+        if (finalOrderStatus) {
+          const [order] = await tx.select().from(orders).where(eq(orders.id, workUnit.orderId)).limit(1);
+          if (order && order.status !== "cancelado" && order.status !== "finalizado") {
+            await tx.update(orders)
+              .set({ status: finalOrderStatus, updatedAt: new Date().toISOString() })
+              .where(eq(orders.id, workUnit.orderId));
+          }
         }
         return true;
       }
@@ -1564,6 +1586,13 @@ export class DatabaseStorage implements IStorage {
         await tx.update(workUnits)
           .set({ status: "concluido", completedAt: new Date().toISOString(), lockedBy: null, lockedAt: null })
           .where(eq(workUnits.id, id));
+
+        const [currentOrder] = await tx.select().from(orders).where(eq(orders.id, workUnit.orderId)).limit(1);
+        if (currentOrder && currentOrder.status !== "cancelado" && currentOrder.status !== "finalizado") {
+          await tx.update(orders)
+            .set({ status: "conferido", updatedAt: new Date().toISOString() })
+            .where(eq(orders.id, workUnit.orderId));
+        }
         return true;
       }
       return false;

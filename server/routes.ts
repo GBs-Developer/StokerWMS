@@ -1621,22 +1621,10 @@ export async function registerRoutes(
 
       // If trying to scan more than adjusted target (accounting for exceptions)
       if (currentQty >= adjustedTarget) {
-        // If there are exceptions, reset and inform user
+        await storage.atomicResetItemAndWorkUnit(item.id, req.params.id as string, workUnit.orderId, "separatedQty", "recontagem");
+        const resetWorkUnit = await storage.getWorkUnitById(req.params.id as string);
+
         if (exceptionQty > 0) {
-          await storage.updateOrderItem(item.id, {
-            separatedQty: 0,
-            status: "recontagem",
-          });
-          // Also reset work unit status if it was completed
-          // Também resetar status do pedido se estava como separado
-          const order = await storage.getOrderById(workUnit.orderId);
-          if (order && order.status === "separado") {
-            await storage.updateOrder(workUnit.orderId, { status: "em_separacao" });
-          }
-          await storage.updateWorkUnit(req.params.id as string, { status: "em_andamento" });
-
-          const resetWorkUnit = await storage.getWorkUnitById(req.params.id as string);
-
           return res.json({
             status: "over_quantity_with_exception",
             workUnit: resetWorkUnit,
@@ -1646,21 +1634,12 @@ export async function registerRoutes(
             message: `Este item tem ${exceptionQty} unidade(s) com exceção. Quantidade disponível para separar: ${adjustedTarget}. Separação resetada, bipe novamente.`
           });
         }
-        // No exceptions, just over quantity - RESET behavior requested
-        await storage.updateOrderItem(item.id, {
-          separatedQty: 0,
-          status: "recontagem",
-        });
-        // Also reset work unit status if it was completed
-        await storage.updateWorkUnit(req.params.id as string, { status: "em_andamento" });
-
-        const resetWorkUnit = await storage.getWorkUnitById(req.params.id as string);
 
         return res.json({
           status: "over_quantity",
           product,
           quantity: 1,
-          workUnit: resetWorkUnit, // Return the reset work unit!
+          workUnit: resetWorkUnit,
           message: `Quantidade excedida! Separação resetada. Bipe os ${adjustedTarget} itens novamente.`
         });
       }
@@ -1678,18 +1657,7 @@ export async function registerRoutes(
 
       // Se a quantidade solicitada exceder o disponível, aplicar regra de reset
       if (requestedQty > availableQty) {
-        // Reset to zero as per user requirement
-        await storage.updateOrderItem(item.id, {
-          separatedQty: 0,
-          status: "recontagem",
-        });
-        // Também resetar status do pedido se estava como separado
-        const order = await storage.getOrderById(workUnit.orderId);
-        if (order && order.status === "separado") {
-          await storage.updateOrder(workUnit.orderId, { status: "em_separacao" });
-        }
-        await storage.updateWorkUnit(req.params.id as string, { status: "em_andamento" });
-
+        await storage.atomicResetItemAndWorkUnit(item.id, req.params.id as string, workUnit.orderId, "separatedQty", "recontagem");
         const resetWorkUnit = await storage.getWorkUnitById(req.params.id as string);
 
         if (exceptionQty > 0) {
@@ -1921,9 +1889,10 @@ export async function registerRoutes(
               .where(eq(orderItems.id, id));
           }
         }
+        await tx.update(workUnits)
+          .set({ status: "em_andamento" })
+          .where(eq(workUnits.id, req.params.id as string));
       });
-
-      await storage.updateWorkUnit(req.params.id as string, { status: "em_andamento" });
       const resetWorkUnit = await storage.getWorkUnitById(req.params.id as string);
       res.json({ status: "success", workUnit: resetWorkUnit });
     } catch (error) {
@@ -1973,11 +1942,7 @@ export async function registerRoutes(
       const requestedQty = Number(req.body.quantity || 1) * multiplier;
 
       if (currentQty >= targetQty) {
-        await storage.updateOrderItem(item.id, {
-          separatedQty: 0,
-          status: "pendente",
-        });
-        await storage.updateWorkUnit(req.params.id as string, { status: "em_andamento" });
+        await storage.atomicResetItemAndWorkUnit(item.id, req.params.id as string, workUnit.orderId, "separatedQty", "pendente");
         const resetWorkUnit = await storage.getWorkUnitById(req.params.id as string);
         return res.json({ 
           status: "over_quantity", 
@@ -1991,12 +1956,7 @@ export async function registerRoutes(
       const availableQty = targetQty - currentQty;
 
       if (requestedQty > availableQty) {
-        await storage.updateOrderItem(item.id, {
-          separatedQty: 0,
-          status: "pendente",
-        });
-        await storage.updateWorkUnit(req.params.id as string, { status: "em_andamento" });
-        
+        await storage.atomicResetItemAndWorkUnit(item.id, req.params.id as string, workUnit.orderId, "separatedQty", "pendente");
         const resetWorkUnit = await storage.getWorkUnitById(req.params.id as string);
 
         if (itemExcQty > 0) {
@@ -2051,18 +2011,10 @@ export async function registerRoutes(
         return res.json({ success: true });
       }
 
-      const isComplete = await storage.checkAndCompleteWorkUnit(req.params.id as string);
+      const isComplete = await storage.checkAndCompleteWorkUnit(req.params.id as string, true, "finalizado");
 
       if (!isComplete) {
         return res.status(400).json({ error: "Existem itens pendentes" });
-      }
-
-      const workUnit = await storage.getWorkUnitById(req.params.id as string);
-      if (workUnit) {
-        const order = await storage.getOrderById(workUnit.orderId);
-        if (order && order.status !== "cancelado") {
-          await storage.updateOrder(workUnit.orderId, { status: "finalizado" });
-        }
       }
 
       await storage.createAuditLog({
@@ -2153,13 +2105,22 @@ export async function registerRoutes(
         if (wu) {
           broadcastSSE("picking_finished", { workUnitId: id, orderId: wu.orderId }, (req as any).companyId);
 
-          // Verificar se agora TODAS as unidades do pedido est\u00e3o prontas
-          // E criar unidade de confer\u00eancia se necess\u00e1rio
           const conferenceUnit = await storage.checkAndUpdateOrderStatus(wu.orderId);
           if (conferenceUnit) {
             broadcastSSE("work_unit_created", conferenceUnit, (req as any).companyId);
           }
         }
+
+        await storage.createAuditLog({
+          userId: (req as any).user.id,
+          action: "complete_separation",
+          entityType: "work_unit",
+          entityId: id,
+          details: `Separação concluída`,
+          ipAddress: getClientIp(req),
+          userAgent: getUserAgent(req),
+        });
+
         res.json({ success: true });
       } else {
         res.status(400).json({ error: "Existem itens pendentes" });
@@ -2189,12 +2150,19 @@ export async function registerRoutes(
       if (isComplete) {
         const wu = await storage.getWorkUnitById(id);
         if (wu) {
-          const order = await storage.getOrderById(wu.orderId);
-          if (order && order.status !== "cancelado" && order.status !== "finalizado") {
-            await storage.updateOrder(wu.orderId, { status: "conferido" });
-          }
           broadcastSSE("conference_finished", { workUnitId: id, orderId: wu.orderId }, (req as any).companyId);
         }
+
+        await storage.createAuditLog({
+          userId: (req as any).user.id,
+          action: "complete_conference",
+          entityType: "work_unit",
+          entityId: id,
+          details: `Conferência concluída`,
+          ipAddress: getClientIp(req),
+          userAgent: getUserAgent(req),
+        });
+
         res.json({ success: true });
       } else {
         res.status(400).json({ error: "Existem itens pendentes" });
