@@ -69,7 +69,7 @@ interface ItemWithProduct extends OrderItem {
 interface AggregatedProduct {
   product: Product;
   totalQty: number;          // Original requested quantity (sum of item.quantity)
-  totalSeparatedQty: number; // Target quantity for conference (totalQty - exceptions)
+  totalSeparatedQty: number; // Target quantity for conference (separatedQty-based formula, matching server)
   checkedQty: number;        // What was actually checked in conference
   exceptionQty: number;
   items: ItemWithProduct[];
