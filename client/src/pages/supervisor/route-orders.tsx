@@ -356,7 +356,7 @@ td.right { text-align: right; text-transform: capitalize; }
                         </div>
 
                         <div className="flex gap-2">
-                            <Button variant="outline" onClick={handlePrint} disabled={isPrinting || filteredOrders.length === 0}>
+                            <Button variant="outline" onClick={handlePrint} disabled={isPrinting || filteredOrders.length === 0} className="hidden sm:inline-flex">
                                 {isPrinting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Printer className="h-4 w-4 mr-2" />}
                                 Imprimir Lista
                             </Button>

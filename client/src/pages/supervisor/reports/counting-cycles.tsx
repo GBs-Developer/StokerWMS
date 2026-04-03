@@ -194,7 +194,7 @@ export default function CountingCyclesReportPage() {
                       <Badge variant="outline" className="text-[10px]">{typeLabels[cycle.type] || cycle.type}</Badge>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Button variant="outline" size="sm" onClick={() => handlePrint(cycle)} data-testid={`button-print-${cycle.id}`}>
+                      <Button variant="outline" size="sm" onClick={() => handlePrint(cycle)} data-testid={`button-print-${cycle.id}`} className="hidden sm:inline-flex">
                         <Printer className="h-3 w-3 mr-1" /> Imprimir
                       </Button>
                       <Button variant="ghost" size="sm" onClick={() => setExpandedCycle(expandedCycle === cycle.id ? null : cycle.id)}>

@@ -213,7 +213,7 @@ td.mono { font-family: monospace; font-weight: bold; }
                                 <CardTitle>Resultado para o Pacote: {searchCode}</CardTitle>
                                 <CardDescription>Pré-visualização do agrupamento por produto.</CardDescription>
                             </div>
-                            <Button onClick={handlePrint} disabled={!loadingMapData || loadingMapData.length === 0 || isGenerating} className="bg-green-600 hover:bg-green-700">
+                            <Button onClick={handlePrint} disabled={!loadingMapData || loadingMapData.length === 0 || isGenerating} className="hidden sm:inline-flex bg-green-600 hover:bg-green-700">
                                 {isGenerating ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Printer className="h-4 w-4 mr-2" />}
                                 Imprimir Relatório
                             </Button>

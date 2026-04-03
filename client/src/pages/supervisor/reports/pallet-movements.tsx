@@ -138,7 +138,7 @@ export default function PalletMovementsReportPage() {
             <label className="text-xs text-muted-foreground block mb-1">Período</label>
             <DatePickerWithRange date={dateRange} onDateChange={setDateRange} className="w-64" />
           </div>
-          <Button variant="outline" onClick={handlePrint} disabled={movements.length === 0} data-testid="button-print-movements">
+          <Button variant="outline" onClick={handlePrint} disabled={movements.length === 0} data-testid="button-print-movements" className="hidden sm:inline-flex">
             <Printer className="h-4 w-4 mr-2" /> Imprimir
           </Button>
         </div>

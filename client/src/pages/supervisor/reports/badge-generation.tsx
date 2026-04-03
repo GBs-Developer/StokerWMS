@@ -80,7 +80,7 @@ export default function BadgeGeneration() {
                         <Button variant="outline" onClick={() => setSelectedUserIds([])} disabled={selectedUserIds.length === 0}>
                             Limpar Seleção
                         </Button>
-                        <Button onClick={handlePrint}>
+                        <Button onClick={handlePrint} className="hidden sm:inline-flex">
                             <Printer className="mr-2 h-4 w-4" />
                             Imprimir {selectedUserIds.length > 0 ? `(${selectedUserIds.length})` : "Todos"}
                         </Button>

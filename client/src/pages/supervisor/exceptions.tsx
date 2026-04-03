@@ -205,7 +205,7 @@ td.nowrap { white-space: nowrap; }
               variant="outline"
               size="sm"
               onClick={handlePrint}
-              className=""
+              className="hidden sm:inline-flex"
             >
               <Printer className="h-4 w-4 mr-2" />
               Imprimir

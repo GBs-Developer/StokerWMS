@@ -118,7 +118,7 @@ export default function WmsAddressesReportPage() {
               </SelectContent>
             </Select>
           </div>
-          <Button variant="outline" onClick={handlePrint} disabled={addresses.length === 0} data-testid="button-print-addresses">
+          <Button variant="outline" onClick={handlePrint} disabled={addresses.length === 0} data-testid="button-print-addresses" className="hidden sm:inline-flex">
             <Printer className="h-4 w-4 mr-2" /> Imprimir
           </Button>
         </div>

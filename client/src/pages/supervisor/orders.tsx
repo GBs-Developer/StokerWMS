@@ -481,7 +481,7 @@ small.dim { color: #888; font-size: 8px; }
       <div className="print:hidden">
         <GradientHeader compact title="Gerenciamento de Pedidos" subtitle="Painel Supervisor">
           <div className="flex gap-1.5">
-            <Button variant="outline" size="sm" onClick={handlePrint} className="px-2 sm:px-3" title="Imprimir">
+            <Button variant="outline" size="sm" onClick={handlePrint} className="hidden sm:inline-flex px-2 sm:px-3" title="Imprimir">
               <Printer className="h-4 w-4 sm:mr-2" />
               <span className="hidden sm:inline">Imprimir</span>
             </Button>

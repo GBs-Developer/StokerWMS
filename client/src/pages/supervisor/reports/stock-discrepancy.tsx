@@ -136,7 +136,7 @@ export default function StockDiscrepancyReportPage() {
             <p className="text-muted-foreground text-sm">Produtos com diferença entre estoque real e WMS</p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" className="text-muted-foreground hover:text-foreground hover:bg-muted" onClick={printReport} disabled={products.length === 0} data-testid="button-print-report">
+            <Button variant="ghost" className="hidden sm:inline-flex text-muted-foreground hover:text-foreground hover:bg-muted" onClick={printReport} disabled={products.length === 0} data-testid="button-print-report">
               <Printer className="h-4 w-4 mr-1.5" /> Imprimir
             </Button>
             <Button variant="ghost" className="text-muted-foreground hover:text-foreground hover:bg-muted" onClick={() => navigate("/supervisor/reports")} data-testid="button-back">
