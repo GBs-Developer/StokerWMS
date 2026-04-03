@@ -165,7 +165,6 @@ async function handleScanItem(client: ScanningClient, msg: any) {
     );
 
     if (scanResult.result === "over_limit" || scanResult.result === "partial_over") {
-      const resetWorkUnit = await storage.getWorkUnitById(workUnitId);
       const msgText = exceptionQty > 0
         ? `Item com ${exceptionQty} exceção(ões). Máx: ${scanResult.adjustedTarget}. Separação reiniciada.`
         : `Quantidade excedida (${scanResult.adjustedTarget}). Separação reiniciada.`;
@@ -176,27 +175,22 @@ async function handleScanItem(client: ScanningClient, msg: any) {
         message: msgText,
         quantity: requestedQty,
         exceptionQty,
-        workUnit: resetWorkUnit,
-        product,
       });
     }
 
     broadcastSSE("item_picked", { workUnitId, orderId: workUnit.orderId, productId: product.id, userId: client.userId }, client.companyId);
     await storage.checkAndCompleteWorkUnit(workUnitId, false);
-    const finalWorkUnit = await storage.getWorkUnitById(workUnitId);
 
     sendAndCache(client.ws, {
       type: "scan_ack",
       msgId,
       status: "success",
-      product,
       quantity: requestedQty,
-      workUnit: finalWorkUnit,
     });
   } catch (error: any) {
     const pgCode = error?.code;
     const detail = pgCode === "23505" ? "Conflito de dados. Atualize a tela."
-      : pgCode === "55P03" ? "Outro operador está bipando este item."
+      : pgCode === "40P01" ? "Conflito temporário. Tente novamente."
       : "Erro interno ao processar leitura.";
     sendMsg(client.ws, { type: "scan_ack", msgId, status: "error", message: detail });
   }
@@ -271,9 +265,7 @@ async function handleCheckItem(client: ScanningClient, msg: any) {
         type: "check_ack",
         msgId,
         status: "over_quantity",
-        product,
         quantity: requestedQty,
-        workUnit,
         message: `Item já totalmente conferido (${checkResult.targetQty}/${checkResult.targetQty}). O extra foi recusado.`,
       });
     }
@@ -287,27 +279,21 @@ async function handleCheckItem(client: ScanningClient, msg: any) {
         type: "check_ack",
         msgId,
         status: statusLabel,
-        product,
         quantity: requestedQty,
-        workUnit,
         exceptionQty: itemExcQty,
         message: msgText,
       });
     }
 
-    const finalWorkUnit = await storage.getWorkUnitById(workUnitId);
-
     sendAndCache(client.ws, {
       type: "check_ack",
       msgId,
       status: "success",
-      product,
       quantity: checkResult.appliedQty,
-      workUnit: finalWorkUnit,
     });
   } catch (error: any) {
     const pgCode = error?.code;
-    const detail = pgCode === "55P03" ? "Outro operador está conferindo este item."
+    const detail = pgCode === "40P01" ? "Conflito temporário. Tente novamente."
       : "Erro interno ao processar conferência.";
     sendMsg(client.ws, { type: "check_ack", msgId, status: "error", message: detail });
   }

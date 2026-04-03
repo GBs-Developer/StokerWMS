@@ -266,11 +266,15 @@ Tables defined in `shared/schema.ts`:
 - **Server-side dedup**: `processedMsgIds` map caches responses by `msgId` for 5 minutes; replayed messages return the cached response instead of re-executing DB mutations
 - **Ack-driven queue removal**: Pending queue messages are removed only when their specific ack arrives (not on flush), preventing message loss on reconnect
 - **Max queue cap**: Pending queue limited to 100 messages to prevent unbounded growth during offline scanning
-- **Per-connection message serialization**: `messageChains` Map chains each scan/check message sequentially per WebSocket connection, preventing same-operator DB lock contention (`FOR UPDATE NOWAIT` errors) and ensuring over_quantity guards see committed data
+- **Per-connection message serialization**: `messageChains` Map chains each scan/check message sequentially per WebSocket connection, preventing same-operator DB lock contention and ensuring over_quantity guards see committed data
+- **Lightweight acks**: WS ack responses contain only `{type, msgId, status, quantity, message?}` — no full product/workUnit objects, reducing bandwidth ~95% per message for high-volume operation
+- **Blocking row locks**: Both `atomicScanSeparatedQty` and `atomicScanCheckedQty` use `FOR UPDATE` (blocking, not NOWAIT) — cross-operator contention waits briefly instead of erroring, preventing scan failures under load
+- **Conferência no auto-complete**: WS check handler does NOT call `checkAndCompleteWorkUnit` — completion only happens when operator clicks "Concluir" button
 
 ### Transaction & Atomicity Patterns
 - **Atomic increments**: `atomicIncrementSeparatedQty` / `atomicIncrementCheckedQty` use `COALESCE(field, 0) + delta` SQL — used by HTTP scan endpoints (scan-item, check-item, balcao-item)
-- **Atomic scan-check**: `atomicScanCheckedQty` uses `FOR UPDATE` row locking inside a transaction — reads `checked_qty`, validates against target, increments atomically. Prevents race conditions in conferência WS handler
+- **Atomic scan-separated**: `atomicScanSeparatedQty` uses `FOR UPDATE` row locking — reads qty, validates against target, increments or resets atomically. Used by WS scan handler
+- **Atomic scan-check**: `atomicScanCheckedQty` uses `FOR UPDATE` row locking — reads `checked_qty`, validates against target (based on `separatedQty`), increments atomically. Used by WS check handler
 - **Atomic resets**: `atomicResetItemAndWorkUnit` wraps item qty reset + work unit status reset + order status rollback in a single transaction — used by all over-quantity reset paths
 - **Conference completion**: `checkAndCompleteConference` atomically marks WU as concluído AND updates order to conferido inside one transaction
 - **Balcão completion**: `checkAndCompleteWorkUnit(id, true, "finalizado")` uses optional `finalOrderStatus` param to set order status atomically within the WU completion transaction

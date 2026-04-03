@@ -635,7 +635,7 @@ export class DatabaseStorage implements IStorage {
     return await db.transaction(async (tx) => {
       // Lock the row to prevent concurrent scans from racing on the same item
       const locked = await tx.execute(
-        sql`SELECT id, separated_qty FROM order_items WHERE id = ${itemId} FOR UPDATE NOWAIT`
+        sql`SELECT id, separated_qty FROM order_items WHERE id = ${itemId} FOR UPDATE`
       );
       const rows = (locked as any).rows ?? (locked as any);
       const row = Array.isArray(rows) ? rows[0] : rows;
