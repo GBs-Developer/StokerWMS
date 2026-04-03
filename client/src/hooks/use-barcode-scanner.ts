@@ -1,62 +1,69 @@
 import { useEffect, useRef, useCallback } from "react";
 
+const SCANNER_GAP_MS = 120;
+const ENTER_GRACE_MS = 300;
+
 export function useBarcodeScanner(
   onScan: (barcode: string) => void,
   enabled: boolean = true
 ) {
   const bufferRef = useRef("");
   const lastKeyTimeRef = useRef(0);
+  const lastCharTimeRef = useRef(0);
   const onScanRef = useRef(onScan);
   onScanRef.current = onScan;
 
   useEffect(() => {
     if (!enabled) return;
 
+    const isEditableTarget = (el: HTMLElement) =>
+      (el.tagName === "INPUT" && (el as HTMLInputElement).type !== "hidden") ||
+      el.tagName === "TEXTAREA" ||
+      el.isContentEditable;
+
+    const clearEditableTarget = (el: HTMLElement) => {
+      try {
+        if (el.tagName === "INPUT") {
+          const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+          if (setter) { setter.call(el, ""); el.dispatchEvent(new Event("input", { bubbles: true })); }
+        } else if (el.tagName === "TEXTAREA") {
+          const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+          if (setter) { setter.call(el, ""); el.dispatchEvent(new Event("input", { bubbles: true })); }
+        } else if (el.isContentEditable) {
+          el.textContent = "";
+        }
+      } catch (_) {}
+    };
+
     const handleKeyDown = (e: KeyboardEvent) => {
       const now = Date.now();
       const gap = now - lastKeyTimeRef.current;
-      const isFastInput = gap <= 80;
-
-      if (gap > 80) {
-        bufferRef.current = "";
-      }
       lastKeyTimeRef.current = now;
 
+      const target = e.target as HTMLElement;
+      const inEditable = isEditableTarget(target);
+
       if (e.key === "Enter") {
-        if (bufferRef.current.length > 2) {
+        const sinceLastChar = now - lastCharTimeRef.current;
+        if (bufferRef.current.length > 2 && sinceLastChar <= ENTER_GRACE_MS) {
           e.preventDefault();
           e.stopPropagation();
           const barcode = bufferRef.current;
           bufferRef.current = "";
 
-          const target = e.target as HTMLElement;
-          try {
-            if (target.tagName === "INPUT" && (target as HTMLInputElement).type !== "hidden") {
-              const nativeSetter = Object.getOwnPropertyDescriptor(
-                HTMLInputElement.prototype, "value"
-              )?.set;
-              if (nativeSetter) {
-                nativeSetter.call(target, "");
-                target.dispatchEvent(new Event("input", { bubbles: true }));
-              }
-            } else if (target.tagName === "TEXTAREA") {
-              const nativeSetter = Object.getOwnPropertyDescriptor(
-                HTMLTextAreaElement.prototype, "value"
-              )?.set;
-              if (nativeSetter) {
-                nativeSetter.call(target, "");
-                target.dispatchEvent(new Event("input", { bubbles: true }));
-              }
-            } else if (target.isContentEditable) {
-              target.textContent = "";
-            }
-          } catch (_) {}
+          if (inEditable) clearEditableTarget(target);
 
           onScanRef.current(barcode);
+        } else {
+          bufferRef.current = "";
         }
       } else if (e.key && e.key.length === 1) {
+        if (gap > SCANNER_GAP_MS) {
+          bufferRef.current = "";
+        }
         bufferRef.current += e.key;
-        if (isFastInput && bufferRef.current.length >= 2) {
+        lastCharTimeRef.current = now;
+        if (!inEditable && gap <= SCANNER_GAP_MS && bufferRef.current.length >= 2) {
           e.preventDefault();
           e.stopPropagation();
         }

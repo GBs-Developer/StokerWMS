@@ -544,6 +544,15 @@ export default function SeparacaoPage() {
     }) || [];
   }, [workUnits, user, filterOrderId, filterRoute, dateRange]);
 
+  useEffect(() => {
+    if (step !== "select") return;
+    const validIds = new Set(availableWorkUnits.map(wu => wu.id));
+    setSelectedWorkUnits(prev => {
+      const pruned = prev.filter(id => validIds.has(id));
+      return pruned.length === prev.length ? prev : pruned;
+    });
+  }, [availableWorkUnits, step]);
+
   const groupedWorkUnits = useMemo(() => {
     const groups: Record<string, typeof availableWorkUnits> = {};
     availableWorkUnits.forEach((wu) => {

@@ -391,7 +391,7 @@ export default function PickingListReport() {
     <thead>
         <tr>
             <th style="width:9%">Cód. Produto</th>
-            <th style="width:10%">CODIGOINTERNOFORN</th>
+            <th style="width:10%">Referência</th>
             <th style="width:22%">Descrição do Produto</th>
             <th style="width:12%">Cód. de Barras</th>
             <th style="width:11%">Pedidos</th>

@@ -294,11 +294,9 @@ export default function ConferenciaPage() {
           sections: [],
         };
       }
-      // targetQty is always what was fundamentally requested minus what was marked as an exception.
-      // This handles normal flows (where separatedQty equals quantity - exceptionQty)
-      // and "Separar Total" flows.
       const itemExcQty = Number(item.exceptionQty || 0);
-      const targetQty = Number(item.quantity) - itemExcQty;
+      const iSep = Number(item.separatedQty);
+      const targetQty = iSep > 0 ? iSep : (itemExcQty > 0 ? 0 : Number(item.quantity));
       map[pid].totalQty += Number(item.quantity);
       map[pid].totalSeparatedQty += targetQty;
       map[pid].checkedQty += Number(item.checkedQty) + (pendingConferencia[item.id] || 0);
@@ -841,7 +839,7 @@ export default function ConferenciaPage() {
           workUnitId: finalUnit.id,
           apItems: [{ id: matchedItem.id }],
           productName: matchedItem.product.name,
-          targetQty: Number(matchedItem.quantity) - Number(matchedItem.exceptionQty ?? 0),
+          targetQty,
           exceptionQty: Number(matchedItem.exceptionQty ?? 0),
         });
         sendCheck(finalUnit.id, barcode, undefined, msgId);
@@ -918,7 +916,8 @@ export default function ConferenciaPage() {
 
     const incompleteItem = ap.items.find(it => {
       const iExc = Number(it.exceptionQty || 0);
-      const iTarget = Number(it.quantity) - iExc;
+      const iSep = Number(it.separatedQty);
+      const iTarget = iSep > 0 ? iSep : (iExc > 0 ? 0 : Number(it.quantity));
       return Number(it.checkedQty) < iTarget;
     });
     if (!incompleteItem) return;

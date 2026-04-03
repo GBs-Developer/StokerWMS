@@ -249,9 +249,10 @@ Tables defined in `shared/schema.ts`:
 
 ### Barcode Scanner Hook (`client/src/hooks/use-barcode-scanner.ts`)
 - Global keydown capture (window, capture phase) — works regardless of focused element
-- Fast input detection (≤80ms gap) identifies scanner vs. human typing
-- During fast input: `preventDefault()` blocks characters from entering focused inputs
-- On Enter with buffer > 2 chars: processes barcode, clears any contaminated input using native value setters (Input/Textarea/contentEditable), wrapped in try-catch
+- Fast input detection (≤120ms `SCANNER_GAP_MS`) identifies scanner vs. human typing
+- Enter tolerance: separate `ENTER_GRACE_MS` (300ms) allows late Enter suffix from Bluetooth scanners without dropping the scan
+- Character keys: `preventDefault()` only when NOT in editable targets (inputs/textareas/contentEditable); scanner chars may enter focused inputs but are cleaned on Enter via native value setters
+- On Enter with buffer > 2 chars AND within grace window: processes barcode, clears contaminated input (Input/Textarea/contentEditable), wrapped in try-catch
 - Enabled/disabled via second parameter (e.g., `step === "picking"`)
 
 ### Real-Time Updates (SSE)
