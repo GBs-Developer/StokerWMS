@@ -1,0 +1,511 @@
+
+> rest-express@1.0.0 dev
+> cross-env NODE_ENV=development tsx server/index.ts
+
+[1G[0KSeeding database...
+Checking for existing users...
+Existing users count: [33m7[39m
+Database already seeded
+[Routes] Registering routes...
+3:46:29 AM [express] Servidor iniciado na porta 5000
+
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+[Auto-Sync] Triggering DB sync...
+ValidationError: The 'X-Forwarded-For' header is set but the Express 'trust proxy' setting is false (default). This could indicate a misconfiguration which would prevent express-rate-limit from accurately identifying users. See https://express-rate-limit.github.io/ERR_ERL_UNEXPECTED_X_FORWARDED_FOR/ for more information.
+    at Object.xForwardedForHeader [90m(file:///home/runner/workspace/[39mnode_modules/[4mexpress-rate-limit[24m/dist/index.mjs:342:13[90m)[39m
+    at wrappedValidations.<computed> [as xForwardedForHeader] [90m(file:///home/runner/workspace/[39mnode_modules/[4mexpress-rate-limit[24m/dist/index.mjs:656:22[90m)[39m
+    at Object.keyGenerator [90m(file:///home/runner/workspace/[39mnode_modules/[4mexpress-rate-limit[24m/dist/index.mjs:759:20[90m)[39m
+    at [90mfile:///home/runner/workspace/[39mnode_modules/[4mexpress-rate-limit[24m/dist/index.mjs:820:32
+[90m    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)[39m
+    at async [90mfile:///home/runner/workspace/[39mnode_modules/[4mexpress-rate-limit[24m/dist/index.mjs:801:5 {
+  code: [32m'ERR_ERL_UNEXPECTED_X_FORWARDED_FOR'[39m,
+  help: [32m'https://express-rate-limit.github.io/ERR_ERL_UNEXPECTED_X_FORWARDED_FOR/'[39m
+}
+Scan item error: error: operator does not exist: jsonb ~~ unknown
+    at [90m/home/runner/workspace/[39mnode_modules/[4mpg-pool[24m/index.js:45:11
+[90m    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)[39m
+    at async <anonymous> [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/node-postgres/session.ts:104:19[90m)[39m
+    at async DatabaseStorage.getProductByBarcode [90m(/home/runner/workspace/[39mserver/storage.ts:297:29[90m)[39m
+    at async <anonymous> [90m(/home/runner/workspace/[39mserver/routes.ts:1515:23[90m)[39m {
+  length: [33m202[39m,
+  severity: [32m'ERROR'[39m,
+  code: [32m'42883'[39m,
+  detail: [90mundefined[39m,
+  hint: [32m'No operator matches the given name and argument types. You might need to add explicit type casts.'[39m,
+  position: [32m'277'[39m,
+  internalPosition: [90mundefined[39m,
+  internalQuery: [90mundefined[39m,
+  where: [90mundefined[39m,
+  schema: [90mundefined[39m,
+  table: [90mundefined[39m,
+  column: [90mundefined[39m,
+  dataType: [90mundefined[39m,
+  constraint: [90mundefined[39m,
+  file: [32m'parse_oper.c'[39m,
+  line: [32m'656'[39m,
+  routine: [32m'op_error'[39m
+}
+3:49:44 AM [express] POST /api/work-units/a33e560a-0f93-440b-a96d-76a59683d135/scan-item 500 in 39ms :: {"error":"Erro interno"}
+Scan item error: error: operator does not exist: jsonb ~~ unknown
+    at [90m/home/runner/workspace/[39mnode_modules/[4mpg-pool[24m/index.js:45:11
+[90m    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)[39m
+    at async <anonymous> [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/node-postgres/session.ts:104:19[90m)[39m
+    at async DatabaseStorage.getProductByBarcode [90m(/home/runner/workspace/[39mserver/storage.ts:297:29[90m)[39m
+    at async <anonymous> [90m(/home/runner/workspace/[39mserver/routes.ts:1515:23[90m)[39m {
+  length: [33m202[39m,
+  severity: [32m'ERROR'[39m,
+  code: [32m'42883'[39m,
+  detail: [90mundefined[39m,
+  hint: [32m'No operator matches the given name and argument types. You might need to add explicit type casts.'[39m,
+  position: [32m'277'[39m,
+  internalPosition: [90mundefined[39m,
+  internalQuery: [90mundefined[39m,
+  where: [90mundefined[39m,
+  schema: [90mundefined[39m,
+  table: [90mundefined[39m,
+  column: [90mundefined[39m,
+  dataType: [90mundefined[39m,
+  constraint: [90mundefined[39m,
+  file: [32m'parse_oper.c'[39m,
+  line: [32m'656'[39m,
+  routine: [32m'op_error'[39m
+}
+3:49:44 AM [express] POST /api/work-units/a33e560a-0f93-440b-a96d-76a59683d135/scan-item 500 in 167ms :: {"error":"Erro interno"}
+Scan item error: error: operator does not exist: jsonb ~~ unknown
+    at [90m/home/runner/workspace/[39mnode_modules/[4mpg-pool[24m/index.js:45:11
+[90m    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)[39m
+    at async <anonymous> [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/node-postgres/session.ts:104:19[90m)[39m
+    at async DatabaseStorage.getProductByBarcode [90m(/home/runner/workspace/[39mserver/storage.ts:297:29[90m)[39m
+    at async <anonymous> [90m(/home/runner/workspace/[39mserver/routes.ts:1515:23[90m)[39m {
+  length: [33m202[39m,
+  severity: [32m'ERROR'[39m,
+  code: [32m'42883'[39m,
+  detail: [90mundefined[39m,
+  hint: [32m'No operator matches the given name and argument types. You might need to add explicit type casts.'[39m,
+  position: [32m'277'[39m,
+  internalPosition: [90mundefined[39m,
+  internalQuery: [90mundefined[39m,
+  where: [90mundefined[39m,
+  schema: [90mundefined[39m,
+  table: [90mundefined[39m,
+  column: [90mundefined[39m,
+  dataType: [90mundefined[39m,
+  constraint: [90mundefined[39m,
+  file: [32m'parse_oper.c'[39m,
+  line: [32m'656'[39m,
+  routine: [32m'op_error'[39m
+}
+3:49:44 AM [express] POST /api/work-units/a33e560a-0f93-440b-a96d-76a59683d135/scan-item 500 in 9ms :: {"error":"Erro interno"}
+Scan item error: error: operator does not exist: jsonb ~~ unknown
+    at [90m/home/runner/workspace/[39mnode_modules/[4mpg-pool[24m/index.js:45:11
+[90m    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)[39m
+    at async <anonymous> [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/node-postgres/session.ts:104:19[90m)[39m
+    at async DatabaseStorage.getProductByBarcode [90m(/home/runner/workspace/[39mserver/storage.ts:297:29[90m)[39m
+    at async <anonymous> [90m(/home/runner/workspace/[39mserver/routes.ts:1515:23[90m)[39m {
+  length: [33m202[39m,
+  severity: [32m'ERROR'[39m,
+  code: [32m'42883'[39m,
+  detail: [90mundefined[39m,
+  hint: [32m'No operator matches the given name and argument types. You might need to add explicit type casts.'[39m,
+  position: [32m'277'[39m,
+  internalPosition: [90mundefined[39m,
+  internalQuery: [90mundefined[39m,
+  where: [90mundefined[39m,
+  schema: [90mundefined[39m,
+  table: [90mundefined[39m,
+  column: [90mundefined[39m,
+  dataType: [90mundefined[39m,
+  constraint: [90mundefined[39m,
+  file: [32m'parse_oper.c'[39m,
+  line: [32m'656'[39m,
+  routine: [32m'op_error'[39m
+}
+3:49:44 AM [express] POST /api/work-units/a33e560a-0f93-440b-a96d-76a59683d135/scan-item 500 in 17ms :: {"error":"Erro interno"}
+Scan item error: error: operator does not exist: jsonb ~~ unknown
+    at [90m/home/runner/workspace/[39mnode_modules/[4mpg-pool[24m/index.js:45:11
+[90m    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)[39m
+    at async <anonymous> [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/node-postgres/session.ts:104:19[90m)[39m
+    at async DatabaseStorage.getProductByBarcode [90m(/home/runner/workspace/[39mserver/storage.ts:297:29[90m)[39m
+    at async <anonymous> [90m(/home/runner/workspace/[39mserver/routes.ts:1515:23[90m)[39m {
+  length: [33m202[39m,
+  severity: [32m'ERROR'[39m,
+  code: [32m'42883'[39m,
+  detail: [90mundefined[39m,
+  hint: [32m'No operator matches the given name and argument types. You might need to add explicit type casts.'[39m,
+  position: [32m'277'[39m,
+  internalPosition: [90mundefined[39m,
+  internalQuery: [90mundefined[39m,
+  where: [90mundefined[39m,
+  schema: [90mundefined[39m,
+  table: [90mundefined[39m,
+  column: [90mundefined[39m,
+  dataType: [90mundefined[39m,
+  constraint: [90mundefined[39m,
+  file: [32m'parse_oper.c'[39m,
+  line: [32m'656'[39m,
+  routine: [32m'op_error'[39m
+}
+3:49:45 AM [express] POST /api/work-units/a33e560a-0f93-440b-a96d-76a59683d135/scan-item 500 in 18ms :: {"error":"Erro interno"}
+Scan item error: error: operator does not exist: jsonb ~~ unknown
+    at [90m/home/runner/workspace/[39mnode_modules/[4mpg-pool[24m/index.js:45:11
+[90m    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)[39m
+    at async <anonymous> [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/node-postgres/session.ts:104:19[90m)[39m
+    at async DatabaseStorage.getProductByBarcode [90m(/home/runner/workspace/[39mserver/storage.ts:297:29[90m)[39m
+    at async <anonymous> [90m(/home/runner/workspace/[39mserver/routes.ts:1515:23[90m)[39m {
+  length: [33m202[39m,
+  severity: [32m'ERROR'[39m,
+  code: [32m'42883'[39m,
+  detail: [90mundefined[39m,
+  hint: [32m'No operator matches the given name and argument types. You might need to add explicit type casts.'[39m,
+  position: [32m'277'[39m,
+  internalPosition: [90mundefined[39m,
+  internalQuery: [90mundefined[39m,
+  where: [90mundefined[39m,
+  schema: [90mundefined[39m,
+  table: [90mundefined[39m,
+  column: [90mundefined[39m,
+  dataType: [90mundefined[39m,
+  constraint: [90mundefined[39m,
+  file: [32m'parse_oper.c'[39m,
+  line: [32m'656'[39m,
+  routine: [32m'op_error'[39m
+}
+3:49:45 AM [express] POST /api/work-units/a33e560a-0f93-440b-a96d-76a59683d135/scan-item 500 in 18ms :: {"error":"Erro interno"}
+Scan item error: error: operator does not exist: jsonb ~~ unknown
+    at [90m/home/runner/workspace/[39mnode_modules/[4mpg-pool[24m/index.js:45:11
+[90m    at process.processTicksAndRejections (node:internal/process/task_queues:95:5)[39m
+    at async <anonymous> [90m(/home/runner/workspace/[39mnode_modules/[4msrc[24m/node-postgres/session.ts:104:19[90m)[39m
+    at async DatabaseStorage.getProductByBarcode [90m(/home/runner/workspace/[39mserver/storage.ts:297:29[90m)[39m
+    at async <anonymous> [90m(/home/runner/workspace/[39mserver/routes.ts:1515:23[90m)[39m {
+  length: [33m202[39m,
+  severity: [32m'ERROR'[39m,
+  code: [32m'42883'[39m,
+  detail: [90mundefined[39m,
+  hint: [32m'No operator matches the given name and argument types. You might need to add explicit type casts.'[39m,
+  position: [32m'277'[39m,
+  internalPosition: [90mundefined[39m,
+  internalQuery: [90mundefined[39m,
+  where: [90mundefined[39m,
+  schema: [90mundefined[39m,
+  table: [90mundefined[39m,
+  column: [90mundefined[39m,
+  dataType: [90mundefined[39m,
+  constraint: [90mundefined[39m,
+  file: [32m'parse_oper.c'[39m,
+  line: [32m'656'[39m,
+  routine: [32m'op_error'[39m
+}
+3:50:17 AM [express] POST /api/work-units/a33e560a-0f93-440b-a96d-76a59683d135/scan-item 500 in 170ms :: {"error":"Erro interno"}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m3:53:54 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/index.css, /src/pages/wms/checkin.tsx, /src/pages/wms/transferencia.tsx, /src/pages/wms/recebimento.tsx[22m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m3:54:53 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/separacao/index.tsx, /src/index.css[22m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m3:54:55 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/separacao/index.tsx, /src/index.css[22m [33m(x2)[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m3:55:05 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/separacao/index.tsx, /src/index.css[22m [33m(x3)[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m3:55:18 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/separacao/index.tsx, /src/index.css[22m [33m(x4)[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m3:55:27 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/conferencia/index.tsx, /src/index.css[22m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m3:55:28 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/balcao/index.tsx, /src/index.css[22m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m3:55:41 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/conferencia/index.tsx, /src/index.css[22m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m3:55:43 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/balcao/index.tsx, /src/index.css[22m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m3:55:52 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/conferencia/index.tsx, /src/index.css[22m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m3:56:06 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/conferencia/index.tsx, /src/index.css[22m [33m(x2)[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m3:56:16 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/balcao/index.tsx, /src/index.css[22m
+[Auto-Sync] Triggering DB sync...
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m3:56:30 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/balcao/index.tsx, /src/index.css[22m [33m(x2)[39m
