@@ -448,13 +448,26 @@ export default function SeparacaoPage() {
       if (!res.ok) throw new Error("Erro ao desbloquear unidades");
       return res.json();
     },
+    onMutate: async (data) => {
+      const ids = Array.isArray(data) ? data : data.ids;
+      const isReset = !Array.isArray(data) && data.reset;
+      await queryClient.cancelQueries({ queryKey: workUnitsQueryKey });
+      queryClient.setQueryData(workUnitsQueryKey, (old: any) => {
+        if (!old) return old;
+        return old.map((wu: any) => {
+          if (!ids.includes(wu.id)) return wu;
+          return {
+            ...wu,
+            lockedBy: null,
+            lockedAt: null,
+            lockExpiresAt: null,
+            ...(isReset ? { status: "pendente", startedAt: null, completedAt: null } : {}),
+          };
+        });
+      });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
-      clearSession();
-      setSelectedWorkUnits([]);
-      setStep("select");
-      setCurrentProductIndex(0);
-      setPickingTab("product");
     },
   });
 
@@ -1025,12 +1038,12 @@ export default function SeparacaoPage() {
     setSelectedAddresses({});
     setCurrentProductIndex(0);
     const ids = allMyUnits.map(wu => wu.id);
+    clearSession();
+    setStep("select");
+    setSelectedWorkUnits([]);
+    setPickingTab("product");
     if (ids.length > 0) {
       unlockMutation.mutate({ ids, reset: true });
-    } else {
-      clearSession();
-      setStep("select");
-      setSelectedWorkUnits([]);
     }
   };
 
