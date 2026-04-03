@@ -5,6 +5,6 @@ export default defineConfig({
   schema: "./shared/schema.ts",
   dialect: "postgresql",
   dbCredentials: {
-    url: process.env.EXTERNAL_DATABASE_URL ?? process.env.DATABASE_URL ?? "postgresql://postgres:1234@127.0.0.1:5435/data_stoker",
+    url: process.env.DATABASE_URL ?? "postgresql://postgres:1234@127.0.0.1:5435/data_stoker",
   },
 });
