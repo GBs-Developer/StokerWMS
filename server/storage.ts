@@ -72,6 +72,7 @@ export interface IStorage {
   atomicIncrementSeparatedQty(itemId: string, delta: number, newStatus: string): Promise<OrderItem | undefined>;
   atomicIncrementCheckedQty(itemId: string, delta: number, newStatus: string): Promise<OrderItem | undefined>;
   atomicResetItemAndWorkUnit(itemId: string, workUnitId: string, orderId: string, field: "separatedQty" | "checkedQty", itemStatus: string): Promise<void>;
+  atomicScanSeparatedQty(itemId: string, delta: number, adjustedTarget: number, workUnitId: string, orderId: string): Promise<{ result: "success"; updated: OrderItem } | { result: "over_limit"; currentQty: number; adjustedTarget: number } | { result: "partial_over"; availableQty: number; adjustedTarget: number }>;
   relaunchOrder(orderId: string): Promise<void>;
 
   // Work Units
@@ -591,6 +592,63 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
+  async atomicScanSeparatedQty(itemId: string, delta: number, adjustedTarget: number, workUnitId: string, orderId: string): Promise<
+    { result: "success"; updated: OrderItem } |
+    { result: "over_limit"; currentQty: number; adjustedTarget: number } |
+    { result: "partial_over"; availableQty: number; adjustedTarget: number }
+  > {
+    return await db.transaction(async (tx) => {
+      // Lock the row to prevent concurrent scans from racing on the same item
+      const locked = await tx.execute(
+        sql`SELECT id, separated_qty FROM order_items WHERE id = ${itemId} FOR UPDATE NOWAIT`
+      );
+      const rows = (locked as any).rows ?? (locked as any);
+      const row = Array.isArray(rows) ? rows[0] : rows;
+      if (!row) throw new Error("Item not found");
+
+      const currentQty = Number(row.separated_qty ?? 0);
+
+      if (currentQty >= adjustedTarget) {
+        // Already at or above limit — reset to 0
+        await tx.update(orderItems)
+          .set({ separatedQty: 0, status: "recontagem" })
+          .where(eq(orderItems.id, itemId));
+        await tx.update(workUnits)
+          .set({ status: "em_andamento" })
+          .where(eq(workUnits.id, workUnitId));
+        const [order] = await tx.select().from(orders).where(eq(orders.id, orderId)).limit(1);
+        if (order && order.status === "separado") {
+          await tx.update(orders).set({ status: "em_separacao", updatedAt: new Date().toISOString() }).where(eq(orders.id, orderId));
+        }
+        return { result: "over_limit" as const, currentQty, adjustedTarget };
+      }
+
+      const availableQty = adjustedTarget - currentQty;
+      if (delta > availableQty) {
+        // Requested qty exceeds what's left — reset to 0
+        await tx.update(orderItems)
+          .set({ separatedQty: 0, status: "recontagem" })
+          .where(eq(orderItems.id, itemId));
+        await tx.update(workUnits)
+          .set({ status: "em_andamento" })
+          .where(eq(workUnits.id, workUnitId));
+        const [order] = await tx.select().from(orders).where(eq(orders.id, orderId)).limit(1);
+        if (order && order.status === "separado") {
+          await tx.update(orders).set({ status: "em_separacao", updatedAt: new Date().toISOString() }).where(eq(orders.id, orderId));
+        }
+        return { result: "partial_over" as const, availableQty, adjustedTarget };
+      }
+
+      const newQty = currentQty + delta;
+      const newStatus = newQty >= adjustedTarget ? "separado" : "pendente";
+      const [updated] = await tx.update(orderItems)
+        .set({ separatedQty: newQty, status: newStatus })
+        .where(eq(orderItems.id, itemId))
+        .returning();
+      return { result: "success" as const, updated };
+    });
+  }
+
   async relaunchOrder(orderId: string): Promise<void> {
     await db.transaction(async (tx) => {
       await tx.update(orders)
@@ -868,13 +926,14 @@ export class DatabaseStorage implements IStorage {
           .set({ separatedQty: 0, status: "pendente" })
           .where(eq(orderItems.orderId, wu.orderId));
       } else {
+        const resetConds: any[] = [
+          eq(orderItems.orderId, wu.orderId),
+          eq(orderItems.pickupPoint, wu.pickupPoint),
+        ];
+        if (wu.section) resetConds.push(eq(orderItems.section, wu.section));
         await tx.update(orderItems)
           .set({ separatedQty: 0, status: "pendente" })
-          .where(and(
-            eq(orderItems.orderId, wu.orderId),
-            eq(orderItems.pickupPoint, wu.pickupPoint),
-            wu.section ? eq(orderItems.section, wu.section) : undefined
-          ));
+          .where(and(...resetConds));
       }
 
       await tx.update(workUnits)
@@ -923,12 +982,12 @@ export class DatabaseStorage implements IStorage {
         if (workUnit.section) filters.push(eq(orderItems.section, workUnit.section));
         items = await tx.select().from(orderItems).where(and(...filters));
       } else {
-        const whereClause = and(
+        const completeConds: any[] = [
           eq(orderItems.orderId, workUnit.orderId),
           eq(orderItems.pickupPoint, workUnit.pickupPoint),
-          workUnit.section ? eq(orderItems.section, workUnit.section) : undefined
-        );
-        items = await tx.select().from(orderItems).where(whereClause);
+        ];
+        if (workUnit.section) completeConds.push(eq(orderItems.section, workUnit.section));
+        items = await tx.select().from(orderItems).where(and(...completeConds));
       }
 
       const unitExceptions = await tx.select().from(exceptions).where(eq(exceptions.workUnitId, id));
@@ -1300,7 +1359,7 @@ export class DatabaseStorage implements IStorage {
       ppFilters = [];
     }
 
-    if (ppFilters.length > 0 && (!filters.orderIds || filters.orderIds.length === 0)) {
+    if (ppFilters.length > 0) {
       conditions.push(inArray(orderItems.pickupPoint, ppFilters));
     }
 

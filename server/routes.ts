@@ -1339,12 +1339,9 @@ export async function registerRoutes(
       for (const wuId of workUnitIds) {
         const wu = await storage.getWorkUnitById(wuId);
         if (wu) {
-          await db.delete(pickingSessions).where(
-            and(
-              eq(pickingSessions.orderId, wu.orderId),
-              wu.section ? eq(pickingSessions.sectionId, wu.section) : undefined
-            )
-          );
+          const sessionConds: any[] = [eq(pickingSessions.orderId, wu.orderId)];
+          if (wu.section) sessionConds.push(eq(pickingSessions.sectionId, wu.section));
+          await db.delete(pickingSessions).where(and(...sessionConds));
         }
       }
 
@@ -1632,34 +1629,8 @@ export async function registerRoutes(
             return sep < tgt;
           }) || matchingItems[0];
 
-      const currentQty = Number(item.separatedQty);
-      const targetQty = Number(item.quantity);
       const exceptionQty = Number(item.exceptionQty || 0);
-      const adjustedTarget = targetQty - exceptionQty;
-
-      if (currentQty >= adjustedTarget) {
-        await storage.atomicResetItemAndWorkUnit(item.id, req.params.id as string, workUnit.orderId, "separatedQty", "recontagem");
-        const resetWorkUnit = await storage.getWorkUnitById(req.params.id as string);
-
-        if (exceptionQty > 0) {
-          return res.json({
-            status: "over_quantity_with_exception",
-            workUnit: resetWorkUnit,
-            product,
-            quantity: 1,
-            exceptionQty,
-            message: `Este item tem ${exceptionQty} unidade(s) com exceção. Quantidade disponível para separar: ${adjustedTarget}. Separação resetada, bipe novamente.`
-          });
-        }
-
-        return res.json({
-          status: "over_quantity",
-          product,
-          quantity: 1,
-          workUnit: resetWorkUnit,
-          message: `Quantidade excedida! Separação resetada. Bipe os ${adjustedTarget} itens novamente.`
-        });
-      }
+      const adjustedTarget = Number(item.quantity) - exceptionQty;
 
       // Calculate multiplier from box barcodes
       let multiplier = 1;
@@ -1668,54 +1639,53 @@ export async function registerRoutes(
         if (bx && bx.qty) multiplier = bx.qty;
       }
 
-      // Aceitar quantidade opcional do frontend (padrão = 1) e multiplicar caso seja código de caixa
-      const requestedQty = Number(req.body.quantity || 1) * multiplier;
-      const availableQty = adjustedTarget - currentQty;
+      // When the frontend sends an explicit quantity (manual entry), it refers to the
+      // number of units already accounting for any multiplier – do NOT multiply again.
+      // Only apply the multiplier when the quantity comes from a single barcode scan (default = 1).
+      const rawQty = req.body.quantity !== undefined && req.body.quantity !== null
+        ? Number(req.body.quantity)
+        : 1;
+      const requestedQty = rawQty === 1 ? multiplier : rawQty;
 
-      // Se a quantidade solicitada exceder o disponível, aplicar regra de reset
-      if (requestedQty > availableQty) {
-        await storage.atomicResetItemAndWorkUnit(item.id, req.params.id as string, workUnit.orderId, "separatedQty", "recontagem");
+      // Atomic check-and-increment: uses SELECT FOR UPDATE to prevent race conditions
+      // between simultaneous scans of the same item.
+      const scanResult = await storage.atomicScanSeparatedQty(
+        item.id, requestedQty, adjustedTarget, req.params.id as string, workUnit.orderId
+      );
+
+      if (scanResult.result === "over_limit") {
         const resetWorkUnit = await storage.getWorkUnitById(req.params.id as string);
-
-        if (exceptionQty > 0) {
-          return res.json({
-            status: "over_quantity_with_exception",
-            workUnit: resetWorkUnit,
-            product,
-            quantity: requestedQty,
-            exceptionQty,
-            message: `Este item tem ${exceptionQty} unidade(s) com exceção. Quantidade disponível: ${availableQty}. Separação resetada.`
-          });
-        }
-
+        const msg = exceptionQty > 0
+          ? `Item com ${exceptionQty} unidade(s) em exceção. Quantidade máxima: ${scanResult.adjustedTarget}. Separação reiniciada — bipe novamente.`
+          : `Quantidade já atingida (${scanResult.adjustedTarget} unidades). Separação reiniciada — bipe novamente.`;
         return res.json({
-          status: "over_quantity",
+          status: exceptionQty > 0 ? "over_quantity_with_exception" : "over_quantity",
+          workUnit: resetWorkUnit,
           product,
           quantity: requestedQty,
-          workUnit: resetWorkUnit,
-          message: `Quantidade excedida! Disponível: ${availableQty}. Separação resetada.`
+          exceptionQty,
+          message: msg,
         });
       }
 
-      const newQty = currentQty + requestedQty;
-      const newStatus = newQty >= adjustedTarget ? "separado" : "pendente";
-      await storage.atomicIncrementSeparatedQty(item.id, requestedQty, newStatus);
+      if (scanResult.result === "partial_over") {
+        const resetWorkUnit = await storage.getWorkUnitById(req.params.id as string);
+        const msg = exceptionQty > 0
+          ? `Item com ${exceptionQty} unidade(s) em exceção. Disponível: ${scanResult.availableQty} de ${scanResult.adjustedTarget}. Separação reiniciada.`
+          : `Quantidade excedida! Disponível: ${scanResult.availableQty} de ${scanResult.adjustedTarget}. Separação reiniciada.`;
+        return res.json({
+          status: exceptionQty > 0 ? "over_quantity_with_exception" : "over_quantity",
+          workUnit: resetWorkUnit,
+          product,
+          quantity: requestedQty,
+          exceptionQty,
+          message: msg,
+        });
+      }
 
       broadcastSSE("item_picked", { workUnitId: req.params.id, orderId: workUnit.orderId, productId: product.id, userId: (req as any).user.id }, (req as any).companyId);
 
-      const unitComplete = await storage.checkAndCompleteWorkUnit(req.params.id as string, false);
-
-      // Desativado autocompletion para Separação - deve ser manual via /complete
-      /*
-      if (unitComplete) {
-        broadcastSSE("picking_finished", { workUnitId: req.params.id, orderId: workUnit.orderId });
-
-        const conferenceUnit = await storage.checkAndUpdateOrderStatus(workUnit.orderId);
-        if (conferenceUnit) {
-          broadcastSSE("work_unit_created", conferenceUnit);
-        }
-      }
-      */
+      await storage.checkAndCompleteWorkUnit(req.params.id as string, false);
 
       const finalWorkUnit = await storage.getWorkUnitById(req.params.id as string);
 
@@ -1727,8 +1697,10 @@ export async function registerRoutes(
       });
     } catch (error: any) {
       console.error("Scan item error:", error);
-      const detail = error?.code === "23505" ? "Conflito de dados. Atualize a tela e tente novamente."
-        : error?.code === "LOCK_CONFLICT" ? "Bloqueio expirado. Reabra a unidade de trabalho."
+      const pgCode = error?.code;
+      const detail = pgCode === "23505" ? "Conflito de dados. Atualize a tela e tente novamente."
+        : pgCode === "55P03" ? "Outro operador está bipando este item. Aguarde um instante e tente novamente."
+        : error?.message === "LOCK_CONFLICT" ? "Bloqueio expirado. Reabra a unidade de trabalho."
         : "Erro interno ao processar leitura. Tente novamente.";
       res.status(500).json({ error: detail });
     }
