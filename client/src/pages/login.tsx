@@ -271,9 +271,14 @@ export default function LoginPage() {
           </button>
         )}
 
-        <p className="text-[10px] text-muted-foreground/25 font-medium tracking-wider">
-          STOKER v2.0 · WMS
-        </p>
+        <div className="flex flex-col items-center gap-1">
+          <p className="text-[10px] text-muted-foreground/25 font-medium tracking-wider">
+            STOKER v2.0 · WMS
+          </p>
+          <p className="text-[10px] text-muted-foreground/20 font-medium">
+            by Gusttavo Batista
+          </p>
+        </div>
       </div>
     </div>
   );
