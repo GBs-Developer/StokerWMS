@@ -4,7 +4,7 @@
 
 Stoker WMS is a warehouse management system designed for logistics operations in Brazil (Portuguese UI). The application handles order picking (separação), verification (conferência), counter service (balcão) workflows, plus new WMS modules: addressing, pallet receiving, check-in/allocation, transfer, and counting cycles. It features multi-company support (companies 1 and 3), role-based access control with distinct interfaces for supervisors and operators, real-time work unit locking, and barcode scanning integration for mobile collector devices.
 
-The system uses SQLite (libsql) as the operational database, supporting ERP synchronization via a staging layer concept. Work units represent atomic tasks that can be locked, tracked through state machines, and audited for accountability.
+The system uses PostgreSQL as the operational database, supporting ERP synchronization via a staging layer concept. Work units represent atomic tasks that can be locked, tracked through state machines, and audited for accountability.
 
 ## User Preferences
 
@@ -47,7 +47,7 @@ Reusable UI components are in `client/src/components/ui/` following shadcn conve
 ### Backend Architecture
 - **Runtime**: Node.js with Express (ESM modules)
 - **Language**: TypeScript
-- **Database ORM**: Drizzle ORM with SQLite (libsql)
+- **Database ORM**: Drizzle ORM with PostgreSQL
 - **Authentication**: JWT tokens stored in HttpOnly cookies with bcrypt password hashing
 - **Session Management**: Custom session table with tokens, session keys, company context, and expiration
 
@@ -105,6 +105,7 @@ Routes are registered in `server/routes.ts` (legacy + auth) and `server/wms-rout
 - **Terminal state guard**: Completion endpoints (complete, complete-balcao, complete-conference) return idempotent success if work unit is already `concluido`, preventing duplicate audit logs and SSE broadcasts
 - **Atomic quantity increments with DB-level cap**: All scan endpoints (scan-item, check-item, balcao-item) and batch-sync use SQL-level `LEAST(COALESCE(field, 0) + delta, quantity - COALESCE(exceptionQty, 0))` atomic increments via `atomicIncrementSeparatedQty`/`atomicIncrementCheckedQty` — prevents both race conditions and over-target quantities at the DB level
 - **Duplicate product handling**: All scan endpoints use `filter()` + smart selection (pick item with lowest progress toward target) instead of `find()`, correctly handling orders with the same product on multiple lines
+- **Batch sync Zod validation**: `batchSyncPayloadSchema` validates items/exceptions arrays with proper types before processing; invalid payloads return 400 with structured error details
 - **Batch sync exception validation**: Exception quantity validated against item total within the transaction; negative/zero quantities skipped
 - **Completion checks** (`checkAndCompleteWorkUnit`, `checkAndCompleteConference`): Wrapped in database transactions to ensure atomic read-verify-update
 - **Order status transition** (`checkAndUpdateOrderStatus`): Fully transactional — all reads (work units, existing conference check) and writes (status update, conference WU creation) happen within a single `db.transaction()`. Guards against cancelled/finalizado orders to prevent status resurrection
@@ -126,11 +127,23 @@ Routes are registered in `server/routes.ts` (legacy + auth) and `server/wms-rout
 
 ### Database Indexes
 Critical indexes added for query performance:
+- `idx_users_username`, `idx_users_badge_code` — login lookups
+- `idx_products_barcode`, `idx_products_section` — product scanning and section filtering
+- `idx_orders_status`, `idx_orders_company_status`, `idx_orders_load_code` — order queries
 - `idx_order_items_order_id`, `idx_order_items_product_id` — order item lookups
 - `idx_work_units_order_id`, `idx_work_units_locked_by`, `idx_work_units_company_status` — work unit queries
 - `idx_picking_sessions_order_section` — session lookups
 - `idx_exceptions_work_unit_id`, `idx_exceptions_order_item_id` — exception queries
 - `idx_audit_logs_entity`, `idx_audit_logs_user_id` — audit log queries
+
+### Status Constants
+Shared constants exported from `shared/schema.ts` for type-safe status comparisons:
+- `ORDER_STATUS` — `PENDENTE`, `EM_SEPARACAO`, `SEPARADO`, `EM_CONFERENCIA`, `CONFERIDO`, `FINALIZADO`, `CANCELADO`
+- `WU_STATUS` — `PENDENTE`, `EM_ANDAMENTO`, `CONCLUIDO`, `RECONTAGEM`, `EXCECAO`
+- `WU_TYPE` — `SEPARACAO`, `CONFERENCIA`, `BALCAO`
+
+### Request Typing
+`AuthenticatedRequest` interface extends Express `Request` with `user?: User` and `companyId?: number` properties (defined in `server/routes.ts`). Gradually replacing `(req as any)` casts.
 
 ### WMS Modules
 

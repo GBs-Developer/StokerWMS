@@ -20,6 +20,30 @@ export type ExceptionType = typeof exceptionTypeEnum[number];
 export const workUnitTypeEnum = ["separacao", "conferencia", "balcao"] as const;
 export type WorkUnitType = typeof workUnitTypeEnum[number];
 
+export const ORDER_STATUS = {
+  PENDENTE: "pendente" as const,
+  EM_SEPARACAO: "em_separacao" as const,
+  SEPARADO: "separado" as const,
+  EM_CONFERENCIA: "em_conferencia" as const,
+  CONFERIDO: "conferido" as const,
+  FINALIZADO: "finalizado" as const,
+  CANCELADO: "cancelado" as const,
+};
+
+export const WU_STATUS = {
+  PENDENTE: "pendente" as const,
+  EM_ANDAMENTO: "em_andamento" as const,
+  CONCLUIDO: "concluido" as const,
+  RECONTAGEM: "recontagem" as const,
+  EXCECAO: "excecao" as const,
+};
+
+export const WU_TYPE = {
+  SEPARACAO: "separacao" as const,
+  CONFERENCIA: "conferencia" as const,
+  BALCAO: "balcao" as const,
+};
+
 export const palletStatusEnum = ["sem_endereco", "alocado", "em_transferencia", "cancelado"] as const;
 export type PalletStatus = typeof palletStatusEnum[number];
 
@@ -76,7 +100,10 @@ export const users = pgTable("users", {
   allowedModules: jsonb("allowed_modules").$type<string[]>(),
   allowedReports: jsonb("allowed_reports").$type<string[]>(),
   createdAt: text("created_at").notNull().default(new Date().toISOString()),
-});
+}, (table) => ({
+  usernameIdx: index("idx_users_username").on(table.username),
+  badgeCodeIdx: index("idx_users_badge_code").on(table.badgeCode),
+}));
 
 export const routes = pgTable("routes", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -163,7 +190,10 @@ export const products = pgTable("products", {
   price: doublePrecision("price").notNull().default(0),
   stockQty: doublePrecision("stock_qty").notNull().default(0),
   erpUpdatedAt: text("erp_updated_at"),
-});
+}, (table) => ({
+  barcodeIdx: index("idx_products_barcode").on(table.barcode),
+  sectionIdx: index("idx_products_section").on(table.section),
+}));
 
 export const orders = pgTable("orders", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -194,7 +224,11 @@ export const orders = pgTable("orders", {
   companyId: integer("company_id"),
   createdAt: text("created_at").notNull().default(new Date().toISOString()),
   updatedAt: text("updated_at").notNull().default(new Date().toISOString()),
-});
+}, (table) => ({
+  statusIdx: index("idx_orders_status").on(table.status),
+  companyStatusIdx: index("idx_orders_company_status").on(table.companyId, table.status),
+  loadCodeIdx: index("idx_orders_load_code").on(table.loadCode),
+}));
 
 export const orderItems = pgTable("order_items", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -209,7 +243,10 @@ export const orderItems = pgTable("order_items", {
   qtyChecked: doublePrecision("qty_checked").default(0),
   status: text("status").default("pendente").$type<ItemStatus>(),
   exceptionType: text("exception_type").$type<ExceptionType>(),
-});
+}, (table) => ({
+  orderIdIdx: index("idx_order_items_order_id").on(table.orderId),
+  productIdIdx: index("idx_order_items_product_id").on(table.productId),
+}));
 
 export const pickingSessions = pgTable("picking_sessions", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -236,7 +273,11 @@ export const workUnits = pgTable("work_units", {
   completedAt: text("completed_at"),
   companyId: integer("company_id"),
   createdAt: text("created_at").notNull().default(new Date().toISOString()),
-});
+}, (table) => ({
+  orderIdIdx: index("idx_work_units_order_id").on(table.orderId),
+  companyStatusIdx: index("idx_work_units_company_status").on(table.companyId, table.status),
+  lockedByIdx: index("idx_work_units_locked_by").on(table.lockedBy),
+}));
 
 export const exceptions = pgTable("exceptions", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -613,6 +654,25 @@ export interface BatchSyncPayload {
   items: BatchSyncItem[];
   exceptions: BatchSyncException[];
 }
+
+export const batchSyncItemSchema = z.object({
+  orderItemId: z.string().min(1),
+  qtyToAdd: z.number(),
+});
+
+export const batchSyncExceptionSchema = z.object({
+  orderItemId: z.string().min(1),
+  type: z.enum(exceptionTypeEnum),
+  quantity: z.number().positive(),
+  observation: z.string().optional(),
+  authorizedBy: z.string().optional(),
+  authorizedByName: z.string().optional(),
+});
+
+export const batchSyncPayloadSchema = z.object({
+  items: z.array(batchSyncItemSchema),
+  exceptions: z.array(batchSyncExceptionSchema),
+});
 export type InsertSectionGroup = typeof sectionGroups.$inferInsert;
 export const loginSchema = z.object({
   username: z.string().min(1, "Usuário é obrigatório"),

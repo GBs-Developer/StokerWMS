@@ -368,11 +368,15 @@ function Router() {
 
       {/* Páginas de impressão — sem sidebar, abertas em nova aba */}
       <Route path="/print/volume-label">
-        <VolumeLabelPage />
+        <ProtectedRoute>
+          <VolumeLabelPage />
+        </ProtectedRoute>
       </Route>
 
       <Route path="/print/pallet-label">
-        <PalletLabelPage />
+        <ProtectedRoute>
+          <PalletLabelPage />
+        </ProtectedRoute>
       </Route>
 
       <Route component={NotFound} />

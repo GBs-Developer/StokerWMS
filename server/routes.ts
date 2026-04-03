@@ -3,7 +3,12 @@ import { createServer, type Server } from "http";
 import cookieParser from "cookie-parser";
 import { storage } from "./storage";
 import { hashPassword, verifyPassword, createAuthSession, isAuthenticated, requireRole, requireCompany, getTokenFromRequest, getUserFromToken, generateBadgeCode } from "./auth";
-import { loginSchema, insertRouteSchema, orderItems, workUnits, pickingSessions, pickupPoints, type MappingField, datasetEnum, type User, type OrderItem, type Product, type WorkUnit, type Exception, type PickingSession, type ExceptionType, type UserSettings, BatchSyncPayload } from "@shared/schema";
+import { loginSchema, insertRouteSchema, orderItems, workUnits, pickingSessions, pickupPoints, type MappingField, datasetEnum, type User, type OrderItem, type Product, type WorkUnit, type Exception, type PickingSession, type ExceptionType, type UserSettings, BatchSyncPayload, batchSyncPayloadSchema } from "@shared/schema";
+
+interface AuthenticatedRequest extends Request {
+  user?: User;
+  companyId?: number;
+}
 import { registerWmsRoutes } from "./wms-routes";
 import { registerPrintRoutes, refreshPrinterCache } from "./print-routes";
 import { getConnectedAgents } from "./print-agent";
@@ -357,7 +362,9 @@ export async function registerRoutes(
           (req as any).user = result.user;
         }
         await storage.deleteSession(token);
-      } catch { }
+      } catch (logoutErr) {
+        console.warn("[AUTH] Erro no logout (sessão pode já ter expirado):", (logoutErr as any)?.message);
+      }
     }
     res.clearCookie("authToken");
     res.json({ success: true });
@@ -2063,17 +2070,16 @@ export async function registerRoutes(
       if (!authWU.allowed) return res.status(403).json({ error: authWU.reason });
       const lockCheck = assertLockOwnership(wuCheck, req);
       if (!lockCheck.allowed) return res.status(403).json({ error: lockCheck.reason });
-      const { items, exceptions } = req.body;
       const userId = (req as any).user.id;
-
-      console.log(`[API] Received Batch Sync for WU ${id} - Items: ${items?.length}, Excs: ${exceptions?.length}`);
-
-      if (!items || !exceptions) {
-        return res.status(400).json({ error: "Payload inválido. 'items' e 'exceptions' são necessários." });
+      const parsed = batchSyncPayloadSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Payload inválido.", details: parsed.error.flatten() });
       }
+      const { items, exceptions: excs } = parsed.data;
 
-      // Process the batch transation
-      await storage.processBatchSync(id, { items, exceptions }, userId);
+      console.log(`[API] Received Batch Sync for WU ${id} - Items: ${items?.length}, Excs: ${excs?.length}`);
+
+      await storage.processBatchSync(id, { items, exceptions: excs }, userId);
 
       // We do NOT complete the unit here. Completing is a separate step usually.
       // But we can return success so the app knows it safely reached the server DB.
@@ -2099,8 +2105,8 @@ export async function registerRoutes(
 
       res.json({ success: true });
     } catch (error) {
-      // Heartbeats shouldn't crash the app, just silent fail
-      res.status(200).json({ success: false });
+      console.warn("[HEARTBEAT] Falha no heartbeat do WU", req.params.id, (error as any)?.message);
+      res.status(500).json({ success: false, error: "Erro no heartbeat" });
     }
   });
 
@@ -3134,10 +3140,19 @@ export async function registerRoutes(
         try {
           const result = await db.execute(rawSql.raw(query));
           return Number((result.rows?.[0] as any)?.count ?? 0);
-        } catch { return 0; }
+        } catch (e) {
+          console.warn("[CLEANUP] Erro ao contar registros:", (e as any)?.message);
+          return 0;
+        }
       };
 
-      const cid = companyId;
+      const cid = Number(companyId);
+      if (!Number.isInteger(cid) || cid <= 0) {
+        return res.status(400).json({ error: "companyId inválido" });
+      }
+      const sanitizeUUID = (val: string) => val.replace(/[^a-f0-9\-]/gi, "").substring(0, 36);
+      const safeUserId = sanitizeUUID((req as any).user?.id || "00000000");
+
       const counts = {
         pedidos: {
           orders: await safeCount(`SELECT COUNT(*) as count FROM orders WHERE company_id = ${cid}`),
@@ -3162,7 +3177,7 @@ export async function registerRoutes(
             UNION SELECT created_by FROM wms_addresses WHERE created_by IS NOT NULL
             UNION SELECT approved_by FROM counting_cycles WHERE approved_by IS NOT NULL
             UNION SELECT created_by FROM counting_cycles WHERE created_by IS NOT NULL
-          ) AND id != '${(req as any).user?.id || "00000000"}'`),
+          ) AND id != '${safeUserId}'`),
         },
         recebimento: {
           nf_cache: await safeCount(`SELECT COUNT(*) as count FROM nf_cache WHERE company_id = ${cid}`),
@@ -3212,17 +3227,12 @@ export async function registerRoutes(
         return res.status(400).json({ error: `Módulos inválidos: ${invalidMods.join(", ")}` });
       }
 
-      const cid = companyId;
+      const cid = Number(companyId);
+      if (!Number.isInteger(cid) || cid <= 0) {
+        return res.status(400).json({ error: "companyId inválido" });
+      }
+      const sanitizeUUID = (val: string) => val.replace(/[^a-f0-9\-]/gi, "").substring(0, 36);
       const deleted: Record<string, number> = {};
-
-      const execDel = async (client: any, query: string, label: string) => {
-        try {
-          const result = await client.execute(query);
-          deleted[label] = (deleted[label] || 0) + (result.rowCount ?? 0);
-        } catch (e) {
-          console.warn(`Cleanup skip ${label}:`, e);
-        }
-      };
 
       const { sql: rawSql } = await import("drizzle-orm");
 
@@ -3236,7 +3246,6 @@ export async function registerRoutes(
           }
         };
 
-        // Step 1: Pedidos — FK order: exceptions → picking_sessions → work_units → order_volumes → order_items → orders → cache
         if (modules.includes("pedidos")) {
           await run(`DELETE FROM exceptions WHERE order_item_id IN (SELECT id FROM order_items WHERE order_id IN (SELECT id FROM orders WHERE company_id = ${cid}))`, "exceptions");
           await run(`DELETE FROM picking_sessions WHERE order_id IN (SELECT id FROM orders WHERE company_id = ${cid})`, "picking_sessions");
@@ -3247,9 +3256,8 @@ export async function registerRoutes(
           await run(`DELETE FROM cache_orcamentos WHERE "IDEMPRESA" = ${cid}`, "cache_orcamentos");
         }
 
-        // Step 2: Usuários sem movimentações — exclui apenas usuários sem registros atribuídos
         if (modules.includes("usuarios")) {
-          const currentUserId = (req as any).user?.id || "00000000";
+          const safeCurrentUserId = sanitizeUUID((req as any).user?.id || "00000000");
           await run(`DELETE FROM users WHERE id NOT IN (
             SELECT user_id FROM picking_sessions WHERE user_id IS NOT NULL
             UNION SELECT locked_by FROM work_units WHERE locked_by IS NOT NULL
@@ -3263,47 +3271,49 @@ export async function registerRoutes(
             UNION SELECT created_by FROM wms_addresses WHERE created_by IS NOT NULL
             UNION SELECT approved_by FROM counting_cycles WHERE approved_by IS NOT NULL
             UNION SELECT created_by FROM counting_cycles WHERE created_by IS NOT NULL
-          ) AND id != '${currentUserId}'`, "users");
+          ) AND id != '${safeCurrentUserId}'`, "users");
         }
 
-        // Step 3: Recebimento & NFs
         if (modules.includes("recebimento")) {
           await run(`DELETE FROM nf_items WHERE company_id = ${cid}`, "nf_items");
           await run(`DELETE FROM nf_cache WHERE company_id = ${cid}`, "nf_cache");
         }
 
-        // Step 4: Contagens (must come before enderecos if both selected)
         if (modules.includes("contagens") || modules.includes("enderecos")) {
           await run(`DELETE FROM counting_cycle_items WHERE company_id = ${cid}`, "counting_cycle_items");
           await run(`DELETE FROM counting_cycles WHERE company_id = ${cid}`, "counting_cycles");
         }
 
-        // Step 5: Pallets (must come before enderecos if both selected)
         if (modules.includes("pallets") || modules.includes("enderecos")) {
           await run(`DELETE FROM pallet_movements WHERE company_id = ${cid}`, "pallet_movements");
           await run(`DELETE FROM pallet_items WHERE company_id = ${cid}`, "pallet_items");
           await run(`DELETE FROM pallets WHERE company_id = ${cid}`, "pallets");
         }
 
-        // Step 6: Endereços (+ product stock)
         if (modules.includes("enderecos")) {
           await run(`DELETE FROM product_company_stock WHERE company_id = ${cid}`, "product_company_stock");
           await run(`DELETE FROM wms_addresses WHERE company_id = ${cid}`, "wms_addresses");
         }
 
-        // Step 7: Logs
         if (modules.includes("logs")) {
           await run(`DELETE FROM audit_logs WHERE company_id = ${cid}`, "audit_logs");
         }
       });
 
-      // Log the cleanup action
       try {
-        const userId = (req as any).user?.id;
-        await db.execute(rawSql.raw(
-          `INSERT INTO audit_logs (id, user_id, company_id, action, entity_type, entity_id, details, created_at) VALUES (gen_random_uuid(), '${userId || "system"}', ${cid}, 'cleanup', 'system', 'cleanup', '{"modules": ${JSON.stringify(JSON.stringify(modules))}, "deleted": ${JSON.stringify(JSON.stringify(deleted))}}', NOW())`
-        ));
-      } catch { /* non-critical */ }
+        const userId = (req as any).user?.id || "system";
+        const details = JSON.stringify({ modules, deleted });
+        await storage.createAuditLog({
+          userId,
+          companyId: cid,
+          action: "cleanup",
+          entityType: "system",
+          entityId: "cleanup",
+          details,
+        });
+      } catch (auditErr) {
+        console.error("[CLEANUP] Falha ao registrar log de auditoria da limpeza:", (auditErr as any)?.message);
+      }
 
       res.json({ ok: true, deleted, modulesProcessed: modules });
     } catch (error) {

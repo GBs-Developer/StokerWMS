@@ -256,25 +256,35 @@ export class DatabaseStorage implements IStorage {
 
   async createRoute(route: InsertRoute): Promise<Route> {
     if (!route.code) {
-      // Auto-generate code from Name (slug) or UUID
-      // Auto-generate code from Name (slug) or UUID
       let slug = route.name.toUpperCase().replace(/[^A-Z0-9]/g, "").substring(0, 10);
       if (!slug || slug.length === 0) {
-        slug = `R-${Math.floor(Math.random() * 10000)}`;
+        slug = `R-${randomUUID().substring(0, 8).toUpperCase()}`;
       }
       route.code = slug;
 
-      // Check existence
       const existing = await db.select().from(routes).where(eq(routes.code, route.code)).limit(1);
       if (existing.length > 0) {
-        route.code = `${route.code}-${Math.floor(Math.random() * 999)}`;
+        route.code = `${route.code}-${randomUUID().substring(0, 6).toUpperCase()}`;
       }
     }
-    const [newRoute] = await db.insert(routes).values({
-      ...route,
-      code: route.code!,
-    }).returning();
-    return newRoute;
+
+    try {
+      const [newRoute] = await db.insert(routes).values({
+        ...route,
+        code: route.code!,
+      }).returning();
+      return newRoute;
+    } catch (e: any) {
+      if (e?.code === "23505") {
+        route.code = `${route.code}-${randomUUID().substring(0, 6).toUpperCase()}`;
+        const [newRoute] = await db.insert(routes).values({
+          ...route,
+          code: route.code!,
+        }).returning();
+        return newRoute;
+      }
+      throw e;
+    }
   }
 
   async updateRoute(id: string, route: Partial<InsertRoute>): Promise<Route | undefined> {
@@ -1143,27 +1153,29 @@ export class DatabaseStorage implements IStorage {
 
   // Exceptions
   async getAllExceptions(): Promise<(Exception & { orderItem: OrderItem & { product: Product; order: Order }; reportedByUser: User; workUnit: WorkUnit })[]> {
-    const excs = await db.select().from(exceptions).orderBy(desc(exceptions.createdAt));
-    const result: (Exception & { orderItem: OrderItem & { product: Product; order: Order }; reportedByUser: User; workUnit: WorkUnit })[] = [];
+    const rows = await db
+      .select({
+        exc: exceptions,
+        item: orderItems,
+        product: products,
+        order: orders,
+        user: users,
+        wu: workUnits,
+      })
+      .from(exceptions)
+      .innerJoin(orderItems, eq(exceptions.orderItemId, orderItems.id))
+      .innerJoin(products, eq(orderItems.productId, products.id))
+      .innerJoin(orders, eq(orderItems.orderId, orders.id))
+      .innerJoin(users, eq(exceptions.reportedBy, users.id))
+      .innerJoin(workUnits, eq(exceptions.workUnitId, workUnits.id))
+      .orderBy(desc(exceptions.createdAt));
 
-    for (const exc of excs) {
-      const [item] = await db.select().from(orderItems).where(eq(orderItems.id, exc.orderItemId));
-      const [product] = item ? await db.select().from(products).where(eq(products.id, item.productId)) : [undefined];
-      const [order] = item ? await db.select().from(orders).where(eq(orders.id, item.orderId)) : [undefined];
-      const [user] = await db.select().from(users).where(eq(users.id, exc.reportedBy));
-      const [wu] = exc.workUnitId ? await db.select().from(workUnits).where(eq(workUnits.id, exc.workUnitId)) : [undefined];
-
-      if (item && product && order && user && wu) {
-        result.push({
-          ...exc,
-          orderItem: { ...item, product, order },
-          reportedByUser: user,
-          workUnit: wu,
-        });
-      }
-    }
-
-    return result;
+    return rows.map(r => ({
+      ...r.exc,
+      orderItem: { ...r.item, product: r.product, order: r.order },
+      reportedByUser: r.user,
+      workUnit: r.wu,
+    }));
   }
 
 
