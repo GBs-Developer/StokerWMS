@@ -276,9 +276,12 @@ export default function HomePage() {
           sidebarCollapsed ? "justify-center px-3" : "px-4 justify-between"
         )}>
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center shrink-0">
-              <Warehouse className="h-4 w-4 text-primary-foreground" />
-            </div>
+            <img
+              src="/stoker-icon.png"
+              alt="Stoker"
+              className="w-7 h-7 object-contain shrink-0 select-none"
+              draggable={false}
+            />
             {!sidebarCollapsed && (
               <span className="font-bold text-sidebar-foreground text-sm tracking-tight">Stoker</span>
             )}
@@ -304,9 +307,12 @@ export default function HomePage() {
           <aside className="fixed inset-y-0 left-0 z-50 w-72 bg-sidebar border-r border-sidebar-border flex flex-col shadow-2xl lg:hidden">
             <div className="flex items-center justify-between px-4 h-14 border-b border-sidebar-border shrink-0">
               <div className="flex items-center gap-2.5">
-                <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center">
-                  <Warehouse className="h-4 w-4 text-primary-foreground" />
-                </div>
+                <img
+                  src="/stoker-icon.png"
+                  alt="Stoker"
+                  className="w-7 h-7 object-contain select-none"
+                  draggable={false}
+                />
                 <span className="font-bold text-sidebar-foreground text-sm">Stoker</span>
               </div>
               <button
@@ -384,15 +390,23 @@ export default function HomePage() {
             </div>
           ) : (
             /* Logo splash */
-            <div className="flex flex-col items-center justify-center h-full gap-6 animate-fade-in select-none">
-              <img
-                src="/stoker-logo-transparent.png"
-                alt="Stoker WMS"
-                className="w-48 h-48 object-contain drop-shadow-2xl"
-                draggable={false}
-              />
-              <div className="text-center space-y-1.5">
-                <p className="text-sm text-muted-foreground/60">
+            <div className="flex flex-col items-center justify-center h-full gap-5 animate-fade-in select-none px-6">
+              <div className={cn(
+                "relative w-[100px] h-[100px] rounded-[24px] flex items-center justify-center shadow-xl",
+                theme === "dark"
+                  ? "bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 border border-white/5 shadow-[0_0_32px_rgba(59,130,246,0.15)]"
+                  : "bg-gradient-to-br from-white to-slate-50 border border-slate-200/80"
+              )}>
+                <img
+                  src="/stoker-icon.png"
+                  alt="Stoker WMS"
+                  className="w-[64px] h-[64px] object-contain"
+                  draggable={false}
+                />
+              </div>
+              <div className="text-center space-y-1">
+                <p className="text-sm font-semibold text-foreground/60">Bem-vindo ao Stoker</p>
+                <p className="text-xs text-muted-foreground/40">
                   Selecione um módulo no menu lateral para começar
                 </p>
               </div>
