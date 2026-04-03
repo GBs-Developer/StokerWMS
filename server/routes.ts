@@ -1777,7 +1777,10 @@ export async function registerRoutes(
         if (bx && bx.qty) multiplier = bx.qty;
       }
 
-      const requestedQty = Number(req.body.quantity || 1) * multiplier;
+      const rawQty = req.body.quantity !== undefined && req.body.quantity !== null
+        ? Number(req.body.quantity)
+        : 1;
+      const requestedQty = rawQty === 1 ? multiplier : rawQty;
 
       if (currentQty >= targetQty) {
         return res.json({ 
@@ -1825,7 +1828,7 @@ export async function registerRoutes(
       res.json({
         status: "success",
         product,
-        quantity: 1,
+        quantity: requestedQty,
         workUnit: finalWorkUnit,
       });
     } catch (error) {
@@ -1966,7 +1969,10 @@ export async function registerRoutes(
         if (bx && bx.qty) multiplier = bx.qty;
       }
 
-      const requestedQty = Number(req.body.quantity || 1) * multiplier;
+      const rawQty = req.body.quantity !== undefined && req.body.quantity !== null
+        ? Number(req.body.quantity)
+        : 1;
+      const requestedQty = rawQty === 1 ? multiplier : rawQty;
 
       if (currentQty >= targetQty) {
         await storage.atomicResetItemAndWorkUnit(item.id, req.params.id as string, workUnit.orderId, "separatedQty", "pendente");
@@ -2015,7 +2021,7 @@ export async function registerRoutes(
       res.json({
         status: "success",
         product,
-        quantity: 1,
+        quantity: requestedQty,
         workUnit: updated,
       });
     } catch (error) {
