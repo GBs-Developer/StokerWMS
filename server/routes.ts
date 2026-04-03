@@ -1444,11 +1444,15 @@ export async function registerRoutes(
         if (!workUnit) continue;
         const authWU = authorizeWorkUnit(workUnit, req);
         if (!authWU.allowed) return res.status(403).json({ error: authWU.reason });
+        const lockCheck = assertLockOwnership(workUnit, req);
+        if (!lockCheck.allowed) return res.status(403).json({ error: lockCheck.reason });
+
+        if (workUnit.status === "concluido") continue;
 
         await storage.updateWorkUnit(id, {
           cartQrCode: qrCode,
           status: "em_andamento",
-          startedAt: new Date().toISOString()
+          startedAt: workUnit.startedAt || new Date().toISOString()
         });
 
         if (workUnit.orderId) {
@@ -1458,7 +1462,6 @@ export async function registerRoutes(
         results.push(id);
       }
 
-      // Atualizar status dos pedidos
       for (const orderId of orderIdsToUpdate) {
         const order = await storage.getOrderById(orderId);
         if (order && order.status === "pendente") {
@@ -1497,10 +1500,14 @@ export async function registerRoutes(
         if (!workUnit) continue;
         const authWU = authorizeWorkUnit(workUnit, req);
         if (!authWU.allowed) return res.status(403).json({ error: authWU.reason });
+        const lockCheck = assertLockOwnership(workUnit, req);
+        if (!lockCheck.allowed) return res.status(403).json({ error: lockCheck.reason });
+
+        if (workUnit.status === "concluido") continue;
 
         await storage.updateWorkUnit(id, {
           status: "em_andamento",
-          startedAt: new Date().toISOString()
+          startedAt: workUnit.startedAt || new Date().toISOString()
         });
 
         if (workUnit.orderId) {
@@ -1540,10 +1547,14 @@ export async function registerRoutes(
       const authWU = authorizeWorkUnit(workUnit, req);
       if (!authWU.allowed) return res.status(403).json({ error: authWU.reason });
 
+      if (workUnit.status === "concluido") {
+        return res.status(409).json({ error: "Unidade já foi concluída" });
+      }
+
       await storage.updateWorkUnit(req.params.id as string, {
         cartQrCode: qrCode,
         status: "em_andamento",
-        startedAt: new Date().toISOString()
+        startedAt: workUnit.startedAt || new Date().toISOString()
       });
 
       // Update Order Status to "em_separacao" if it's "pendente"
@@ -1579,7 +1590,11 @@ export async function registerRoutes(
       const authWU = authorizeWorkUnit(workUnit, req);
       if (!authWU.allowed) return res.status(403).json({ error: authWU.reason });
 
-      await storage.updateWorkUnit(req.params.id as string, { palletQrCode: qrCode, status: "em_andamento", startedAt: new Date().toISOString() });
+      if (workUnit.status === "concluido") {
+        return res.status(409).json({ error: "Unidade já foi concluída" });
+      }
+
+      await storage.updateWorkUnit(req.params.id as string, { palletQrCode: qrCode, status: "em_andamento", startedAt: workUnit.startedAt || new Date().toISOString() });
 
       if (workUnit.orderId) {
         const order = await storage.getOrderById(workUnit.orderId);
