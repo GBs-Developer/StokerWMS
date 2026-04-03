@@ -281,6 +281,7 @@ Tables defined in `shared/schema.ts`:
 - **No-op completion removed**: WS `handleScanItem` no longer calls `checkAndCompleteWorkUnit(id, false)` — was wasting 3 DB queries per scan with no effect (autoComplete=false, no finalOrderStatus, return value discarded)
 - **Conferência client target parity**: Client-side `processScanQueue` uses same `separatedQty`-based target as server (`iSep > 0 ? iSep : (iExc > 0 ? 0 : quantity)`), both for unit selection AND over_qty detection
 - **Separação optimistic status**: Over-qty reset now optimistically sets `status: "recontagem"` (matching server's `atomicScanSeparatedQty` behavior)
+- **Quantity authority**: When client sends `quantity` (from ScanQuantityModal accumulated value), server uses it directly — no box multiplier re-applied. When `quantity` is `undefined`/`null` (legacy fallback), server applies box barcode multiplier. This prevents double-counting introduced by ScanQuantityModal migration
 
 ### Transaction & Atomicity Patterns
 - **Atomic increments**: `atomicIncrementSeparatedQty` / `atomicIncrementCheckedQty` use `COALESCE(field, 0) + delta` SQL — used by HTTP scan endpoints (scan-item, check-item, balcao-item)

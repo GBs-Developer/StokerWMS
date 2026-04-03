@@ -157,8 +157,7 @@ async function handleScanItem(client: ScanningClient, msg: any) {
       if (bx && bx.qty) multiplier = bx.qty;
     }
 
-    const rawQty = quantity !== undefined && quantity !== null ? Number(quantity) : 1;
-    const requestedQty = rawQty === 1 ? multiplier : rawQty;
+    const requestedQty = (quantity !== undefined && quantity !== null) ? Number(quantity) : multiplier;
 
     const scanResult = await storage.atomicScanSeparatedQty(
       item.id, requestedQty, adjustedTarget, workUnitId, workUnit.orderId
@@ -255,7 +254,7 @@ async function handleCheckItem(client: ScanningClient, msg: any) {
       if (bx && bx.qty) multiplier = bx.qty;
     }
 
-    const requestedQty = Number(quantity || 1) * multiplier;
+    const requestedQty = (quantity !== undefined && quantity !== null) ? Number(quantity) : multiplier;
 
     const checkResult = await storage.atomicScanCheckedQty(item.id, requestedQty, targetQty);
 
