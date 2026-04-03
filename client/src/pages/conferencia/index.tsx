@@ -7,7 +7,7 @@ import { ScanInput } from "@/components/ui/scan-input";
 import { ResultDialog } from "@/components/ui/result-dialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Checkbox } from "@/components/ui/checkbox";
+
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useSSE } from "@/hooks/use-sse";
@@ -566,9 +566,9 @@ export default function ConferenciaPage() {
     const ids = safeWus.map((wu) => wu.id);
     if (ids.length === 0) return;
     if (checked) {
-      setSelectedWorkUnits((prev) => Array.from(new Set([...prev, ...ids])));
+      setSelectedWorkUnits(ids);
     } else {
-      setSelectedWorkUnits((prev) => prev.filter((id) => !ids.includes(id)));
+      setSelectedWorkUnits([]);
     }
   };
 
@@ -1151,12 +1151,12 @@ export default function ConferenciaPage() {
                         {lockedByOther ? (
                           <Lock className="h-4 w-4 text-muted-foreground shrink-0" />
                         ) : (
-                          <Checkbox
-                            checked={isSelected}
-                            onCheckedChange={(checked) => handleSelectGroup(group, !!checked)}
-                            className="shrink-0"
-                            data-testid={`checkbox-order-${firstWU.orderId}`}
-                          />
+                          <div
+                            className={`h-4 w-4 rounded-full border-2 shrink-0 flex items-center justify-center ${isSelected ? "border-indigo-500 bg-indigo-500" : "border-muted-foreground"}`}
+                            data-testid={`radio-order-${firstWU.orderId}`}
+                          >
+                            {isSelected && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
+                          </div>
                         )}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5">

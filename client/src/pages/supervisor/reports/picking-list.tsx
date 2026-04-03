@@ -391,9 +391,9 @@ export default function PickingListReport() {
     <thead>
         <tr>
             <th style="width:9%">Cód. Produto</th>
+            <th style="width:10%">CODIGOINTERNOFORN</th>
             <th style="width:22%">Descrição do Produto</th>
             <th style="width:12%">Cód. de Barras</th>
-            <th style="width:10%">Cód. Fabricante</th>
             <th style="width:11%">Pedidos</th>
             <th style="width:7%">Lote</th>
             <th style="width:17%">Fornecedor</th>
@@ -475,9 +475,9 @@ export default function PickingListReport() {
                 const ordersList = item.orderIds.join(', ');
                 bodyHtml += `<tr>
                     <td>${item.erpCode}</td>
+                    <td>${item.factoryCode}</td>
                     <td>${item.name}</td>
                     <td>${item.barcode}</td>
-                    <td>${item.factoryCode}</td>
                     <td style="font-size: 9px;">${ordersList}</td>
                     <td></td>
                     <td>${item.manufacturer}</td>

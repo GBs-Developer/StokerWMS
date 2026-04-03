@@ -7,7 +7,7 @@ import { ScanInput } from "@/components/ui/scan-input";
 import { ResultDialog } from "@/components/ui/result-dialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Checkbox } from "@/components/ui/checkbox";
+
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useSSE } from "@/hooks/use-sse";
@@ -553,9 +553,9 @@ export default function BalcaoPage() {
     if (filteredWus.length === 0) return;
     const ids = filteredWus.map((wu) => wu.id);
     if (checked) {
-      setSelectedWorkUnits((prev) => Array.from(new Set([...prev, ...ids])));
+      setSelectedWorkUnits(ids);
     } else {
-      setSelectedWorkUnits((prev) => prev.filter((id) => !ids.includes(id)));
+      setSelectedWorkUnits([]);
     }
   };
 
@@ -1114,12 +1114,12 @@ export default function BalcaoPage() {
                         data-testid={`order-group-${firstWU.orderId}`}
                       >
                         {!lockedByOther ? (
-                          <Checkbox
-                            checked={isSelected}
-                            onCheckedChange={(checked) => handleSelectGroup(group, !!checked)}
-                            className="shrink-0"
-                            data-testid={`checkbox-order-${firstWU.orderId}`}
-                          />
+                          <div
+                            className={`h-4 w-4 rounded-full border-2 shrink-0 flex items-center justify-center ${isSelected ? "border-amber-500 bg-amber-500" : "border-muted-foreground"}`}
+                            data-testid={`radio-order-${firstWU.orderId}`}
+                          >
+                            {isSelected && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
+                          </div>
                         ) : (
                           <Lock className="h-4 w-4 shrink-0 text-amber-500" />
                         )}
