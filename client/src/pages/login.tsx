@@ -63,7 +63,6 @@ export default function LoginPage() {
       const result = await login(data.username, data.password);
       if (result.success) {
         if (result.requireCompanySelection) { navigate("/select-company"); return; }
-        toast({ title: "Acesso autorizado", description: "Bem-vindo ao Stoker!" });
         navigate(getOperatorRoute(result.userRole));
       } else {
         toast({ title: "Acesso negado", description: "Usuário ou senha inválidos.", variant: "destructive" });
