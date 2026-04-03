@@ -3585,13 +3585,20 @@ export async function registerRoutes(
         GROUP BY ov.created_by
       `);
 
-      // 5) Atividade diária de separação (últimos 7 dias dentro do range)
+      // 5) Atividade diária por operador (separação + conferência)
       const dailyRows = await db.execute(drizzleSql`
         SELECT
           wu.locked_by                                               AS user_id,
           LEFT(wu.completed_at, 10)                                  AS dia,
           COUNT(*) FILTER (WHERE wu.type = 'separacao')             AS sep_dia,
-          COUNT(*) FILTER (WHERE wu.type = 'conferencia')           AS conf_dia
+          COUNT(*) FILTER (WHERE wu.type = 'conferencia')           AS conf_dia,
+          ROUND(AVG(
+            CASE WHEN wu.type = 'separacao'
+                      AND wu.started_at IS NOT NULL
+                      AND wu.completed_at IS NOT NULL
+            THEN EXTRACT(EPOCH FROM (wu.completed_at::timestamptz - wu.started_at::timestamptz)) / 60.0
+            END
+          )::numeric, 1)                                            AS tempo_medio_sep_dia
         FROM work_units wu
         WHERE wu.status = 'concluido'
           AND wu.company_id = ${companyId}
@@ -3602,14 +3609,120 @@ export async function registerRoutes(
         ORDER BY dia ASC
       `);
 
+      // 6) Estatísticas de tempo por operador (min, max, mediana)
+      const timeStatsRows = await db.execute(drizzleSql`
+        SELECT
+          wu.locked_by                                               AS user_id,
+          ROUND(MIN(
+            CASE WHEN wu.type = 'separacao' AND wu.started_at IS NOT NULL AND wu.completed_at IS NOT NULL
+            THEN EXTRACT(EPOCH FROM (wu.completed_at::timestamptz - wu.started_at::timestamptz)) / 60.0
+            END
+          )::numeric, 1)                                            AS tempo_min_sep_min,
+          ROUND(MAX(
+            CASE WHEN wu.type = 'separacao' AND wu.started_at IS NOT NULL AND wu.completed_at IS NOT NULL
+            THEN EXTRACT(EPOCH FROM (wu.completed_at::timestamptz - wu.started_at::timestamptz)) / 60.0
+            END
+          )::numeric, 1)                                            AS tempo_max_sep_min,
+          ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY
+            CASE WHEN wu.type = 'separacao' AND wu.started_at IS NOT NULL AND wu.completed_at IS NOT NULL
+            THEN EXTRACT(EPOCH FROM (wu.completed_at::timestamptz - wu.started_at::timestamptz)) / 60.0
+            END
+          )::numeric, 1)                                            AS tempo_p50_sep_min,
+          ROUND(MIN(
+            CASE WHEN wu.type = 'conferencia' AND wu.started_at IS NOT NULL AND wu.completed_at IS NOT NULL
+            THEN EXTRACT(EPOCH FROM (wu.completed_at::timestamptz - wu.started_at::timestamptz)) / 60.0
+            END
+          )::numeric, 1)                                            AS tempo_min_conf_min,
+          ROUND(MAX(
+            CASE WHEN wu.type = 'conferencia' AND wu.started_at IS NOT NULL AND wu.completed_at IS NOT NULL
+            THEN EXTRACT(EPOCH FROM (wu.completed_at::timestamptz - wu.started_at::timestamptz)) / 60.0
+            END
+          )::numeric, 1)                                            AS tempo_max_conf_min
+        FROM work_units wu
+        WHERE wu.status = 'concluido'
+          AND wu.company_id = ${companyId}
+          AND wu.locked_at IS NOT NULL
+          AND wu.locked_at >= ${fromStr}
+          AND wu.locked_at <= ${toStr}
+        GROUP BY wu.locked_by
+      `);
+
+      // 7) Work units individuais com tempo (até 60 mais recentes por operador)
+      const wuDetailRows = await db.execute(drizzleSql`
+        SELECT
+          wu.locked_by                                               AS user_id,
+          wu.order_id,
+          wu.type,
+          wu.section,
+          wu.completed_at,
+          ROUND(
+            EXTRACT(EPOCH FROM (wu.completed_at::timestamptz - wu.started_at::timestamptz)) / 60.0
+          ::numeric, 1)                                             AS duracao_min
+        FROM work_units wu
+        WHERE wu.status = 'concluido'
+          AND wu.type IN ('separacao', 'conferencia')
+          AND wu.started_at IS NOT NULL
+          AND wu.completed_at IS NOT NULL
+          AND wu.company_id = ${companyId}
+          AND wu.locked_at IS NOT NULL
+          AND wu.locked_at >= ${fromStr}
+          AND wu.locked_at <= ${toStr}
+        ORDER BY wu.completed_at DESC
+        LIMIT 600
+      `);
+
+      // 8) Gráfico global diário (todos os operadores agregados)
+      const globalDailyRows = await db.execute(drizzleSql`
+        SELECT
+          LEFT(wu.completed_at, 10)                                  AS dia,
+          COUNT(*) FILTER (WHERE wu.type = 'separacao')             AS sep,
+          COUNT(*) FILTER (WHERE wu.type = 'conferencia')           AS conf,
+          ROUND(AVG(
+            CASE WHEN wu.type = 'separacao' AND wu.started_at IS NOT NULL AND wu.completed_at IS NOT NULL
+            THEN EXTRACT(EPOCH FROM (wu.completed_at::timestamptz - wu.started_at::timestamptz)) / 60.0
+            END
+          )::numeric, 1)                                            AS tempo_medio_sep
+        FROM work_units wu
+        WHERE wu.status = 'concluido'
+          AND wu.completed_at IS NOT NULL
+          AND wu.company_id = ${companyId}
+          AND wu.locked_at IS NOT NULL
+          AND wu.locked_at >= ${fromStr}
+          AND wu.locked_at <= ${toStr}
+        GROUP BY LEFT(wu.completed_at, 10)
+        ORDER BY dia ASC
+      `);
+
       // Merge all data by userId
       const excMap = new Map(excRows.rows.map((r: any) => [r.user_id, r]));
       const itemMap = new Map(itemRows.rows.map((r: any) => [r.user_id, r]));
       const volMap = new Map(volRows.rows.map((r: any) => [r.user_id, r]));
+      const timeStatsMap = new Map(timeStatsRows.rows.map((r: any) => [r.user_id, r]));
       const dailyMap = new Map<string, any[]>();
       for (const r of dailyRows.rows as any[]) {
         if (!dailyMap.has(r.user_id)) dailyMap.set(r.user_id, []);
-        dailyMap.get(r.user_id)!.push({ dia: r.dia, sep: Number(r.sep_dia), conf: Number(r.conf_dia) });
+        dailyMap.get(r.user_id)!.push({
+          dia: r.dia,
+          sep: Number(r.sep_dia),
+          conf: Number(r.conf_dia),
+          tempoMedioSep: r.tempo_medio_sep_dia !== null ? Number(r.tempo_medio_sep_dia) : null,
+        });
+      }
+
+      // Group individual WU details by operator (max 50 per operator)
+      const wuDetailMap = new Map<string, any[]>();
+      for (const r of wuDetailRows.rows as any[]) {
+        if (!wuDetailMap.has(r.user_id)) wuDetailMap.set(r.user_id, []);
+        const arr = wuDetailMap.get(r.user_id)!;
+        if (arr.length < 50) {
+          arr.push({
+            orderId: r.order_id,
+            type: r.type,
+            section: r.section,
+            completedAt: r.completed_at,
+            duracaoMin: r.duracao_min !== null ? Number(r.duracao_min) : null,
+          });
+        }
       }
 
       const operators = (wuRows.rows as any[]).map((wu) => {
@@ -3617,6 +3730,8 @@ export async function registerRoutes(
         const item = itemMap.get(wu.user_id) || {};
         const vol  = volMap.get(wu.user_id)  || {};
         const daily = dailyMap.get(wu.user_id) || [];
+        const ts = timeStatsMap.get(wu.user_id) || {};
+        const wuDetail = wuDetailMap.get(wu.user_id) || [];
 
         const sepConcluidos   = Number(wu.sep_concluidos   ?? 0);
         const confConcluidos  = Number(wu.conf_concluidos  ?? 0);
@@ -3634,9 +3749,14 @@ export async function registerRoutes(
           pedidosSeparados:    sepConcluidos,
           pedidosAndamento:    Number(wu.sep_andamento ?? 0),
           tempoMedioSepMin:    wu.tempo_medio_sep_min !== null ? Number(wu.tempo_medio_sep_min) : null,
+          tempoMinSepMin:      ts.tempo_min_sep_min !== null && ts.tempo_min_sep_min !== undefined ? Number(ts.tempo_min_sep_min) : null,
+          tempoMaxSepMin:      ts.tempo_max_sep_min !== null && ts.tempo_max_sep_min !== undefined ? Number(ts.tempo_max_sep_min) : null,
+          tempoP50SepMin:      ts.tempo_p50_sep_min !== null && ts.tempo_p50_sep_min !== undefined ? Number(ts.tempo_p50_sep_min) : null,
           // Conferência
           pedidosConferidos:   confConcluidos,
           tempoMedioConfMin:   wu.tempo_medio_conf_min !== null ? Number(wu.tempo_medio_conf_min) : null,
+          tempoMinConfMin:     ts.tempo_min_conf_min !== null && ts.tempo_min_conf_min !== undefined ? Number(ts.tempo_min_conf_min) : null,
+          tempoMaxConfMin:     ts.tempo_max_conf_min !== null && ts.tempo_max_conf_min !== undefined ? Number(ts.tempo_max_conf_min) : null,
           // Itens
           totalItens,
           totalQtyPicked,
@@ -3653,13 +3773,22 @@ export async function registerRoutes(
           totalVolumes:        Number(vol.total_volumes ?? 0),
           // Atividade diária
           diario:              daily,
+          // Work units individuais
+          workUnitsDetalhe:    wuDetail,
         };
       });
 
       // Ordenar por pedidos separados desc
       operators.sort((a, b) => b.pedidosSeparados - a.pedidosSeparados);
 
-      res.json({ operators, from, to, companyId });
+      const dailyGlobal = (globalDailyRows.rows as any[]).map((r: any) => ({
+        dia: r.dia,
+        sep: Number(r.sep ?? 0),
+        conf: Number(r.conf ?? 0),
+        tempoMedioSep: r.tempo_medio_sep !== null ? Number(r.tempo_medio_sep) : null,
+      }));
+
+      res.json({ operators, from, to, companyId, dailyGlobal });
     } catch (error) {
       log(`KPI operators error: ${(error as Error).message}`, "error");
       res.status(500).json({ error: "Erro ao gerar KPIs" });
