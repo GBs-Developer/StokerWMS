@@ -22,7 +22,6 @@ import {
   Check,
   AlertTriangle,
   Search,
-  Plus,
   ArrowRight,
   Calendar,
   Truck,
@@ -30,7 +29,7 @@ import {
   PackageOpen,
 } from "lucide-react";
 import { VolumeModal } from "@/components/conferencia/VolumeModal";
-import { Input } from "@/components/ui/input";
+import { ScanQuantityModal } from "@/components/ui/scan-quantity-modal";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { WorkUnitWithDetails, OrderItem, Product, ExceptionType, UserSettings, Exception } from "@shared/schema";
 import { ExceptionDialog } from "@/components/orders/exception-dialog";
@@ -138,22 +137,31 @@ export default function ConferenciaPage() {
   const [tempDateRange, setTempDateRange] = useState<DateRange | undefined>(getCurrentWeekRange());
 
   const [sessionRestored, setSessionRestored] = useState(false);
-  const [multiplierValue, setMultiplierValue] = useState(1);
   const [volumeModalOpen, setVolumeModalOpen] = useState(false);
-
-  const userSettings = (user?.settings as UserSettings) || {};
-  const hasManualQtyPermission = !!userSettings.allowManualQty;
 
   const scanQueueRef = useRef<string[]>([]);
   const scanWorkerRunningRef = useRef(false);
-
-  type IncrementTask = { workUnitId: string; barcode: string; qty: number; itemId: string; apSnapshot: AggregatedProduct };
-  const incrementQueueRef = useRef<IncrementTask[]>([]);
-  const incrementWorkerRunningRef = useRef(false);
   const syncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   type PendingScanCtx = { itemId: string; qty: number; barcode: string; workUnitId: string; apItems: { id: string }[]; productName: string; targetQty: number; exceptionQty: number };
   const pendingScanContextRef = useRef<Map<string, PendingScanCtx>>(new Map());
+
+  interface QtyModalData {
+    productId: string;
+    productName: string;
+    productCode: string;
+    multiplier: number;
+    accumulated: number;
+    itemId: string;
+    workUnitId: string;
+    barcode: string;
+    maxRemaining: number;
+    targetQty: number;
+    exceptionQty: number;
+  }
+  const [qtyModal, setQtyModal] = useState<QtyModalData | null>(null);
+  const qtyModalRef = useRef<QtyModalData | null>(null);
+  qtyModalRef.current = qtyModal;
   const [overQtyModalOpen, setOverQtyModalOpen] = useState(false);
   const overQtyModalOpenRef = useRef(false);
   // Substituindo overQtyProductName por overQtyContext completo
@@ -363,24 +371,6 @@ export default function ConferenciaPage() {
   }, [aggregatedProducts.length, currentProductIndex]);
 
   const productIds = useMemo(() => aggregatedProducts.map(ap => ap.product.id), [aggregatedProducts]);
-
-  const { data: manualQtyRulesMap } = useQuery<Record<string, boolean>>({
-    queryKey: ["manual-qty-rules", productIds],
-    queryFn: async () => {
-      if (productIds.length === 0) return {};
-      const res = await apiRequest("POST", "/api/manual-qty-rules/check", { productIds });
-      return res.json();
-    },
-    enabled: productIds.length > 0,
-  });
-
-  const canUseManualQty = useMemo(() => {
-    if (hasManualQtyPermission) return true;
-    if (currentProduct && manualQtyRulesMap) {
-      return !!manualQtyRulesMap[currentProduct.product.id];
-    }
-    return false;
-  }, [hasManualQtyPermission, currentProduct, manualQtyRulesMap]);
 
   useEffect(() => {
     if (workUnits && user && !sessionRestored) {
@@ -644,7 +634,7 @@ export default function ConferenciaPage() {
 
   const finalizeWorkUnits = async () => {
     scanQueueRef.current = [];
-    incrementQueueRef.current = [];
+    setQtyModal(null);
     pendingScanContextRef.current.clear();
     clearWsQueue();
     try {
@@ -795,6 +785,7 @@ export default function ConferenciaPage() {
         const alreadyComplete = serverChecked + itemDelta >= targetQty;
 
         if (alreadyComplete) {
+          setQtyModal(null);
           if (targetQty <= 0) {
             setScanStatus("warning");
             setScanMessage(`"${matchedItem.product.name}" está totalmente em exceção. Conferência bloqueada.`);
@@ -816,34 +807,70 @@ export default function ConferenciaPage() {
           break;
         }
 
-        let multiplier = 1;
+        let isBoxBarcode = false;
+        let boxQtyVal = 1;
         if (matchedItem.product.barcode !== barcode && matchedItem.product.boxBarcodes && Array.isArray(matchedItem.product.boxBarcodes)) {
           const bx = matchedItem.product.boxBarcodes.find((b: any) => b.code === barcode);
-          if (bx && bx.qty) multiplier = bx.qty;
+          if (bx && bx.qty) {
+            isBoxBarcode = true;
+            boxQtyVal = bx.qty;
+          }
         }
 
-        usePendingDeltaStore.getState().inc("conferencia", matchedItem.id, multiplier);
+        const productId = matchedItem.product.id;
+        const remaining = targetQty - (serverChecked + itemDelta);
+        const currentModal = qtyModalRef.current;
+
+        if (currentModal && currentModal.productId !== productId) {
+          if (currentModal.accumulated > 0) {
+            usePendingDeltaStore.getState().inc("conferencia", currentModal.itemId, currentModal.accumulated);
+            const msgId = generateMsgId();
+            pendingScanContextRef.current.set(msgId, {
+              itemId: currentModal.itemId,
+              qty: currentModal.accumulated,
+              barcode: currentModal.barcode,
+              workUnitId: currentModal.workUnitId,
+              apItems: [{ id: currentModal.itemId }],
+              productName: currentModal.productName,
+              targetQty: currentModal.targetQty,
+              exceptionQty: currentModal.exceptionQty,
+            });
+            sendCheck(currentModal.workUnitId, currentModal.barcode, currentModal.accumulated, msgId);
+          }
+          setQtyModal(null);
+        }
+
+        if (currentModal && currentModal.productId === productId) {
+          const addQty = isBoxBarcode ? boxQtyVal : currentModal.multiplier;
+          const newAccumulated = currentModal.accumulated + addQty;
+          if (newAccumulated > remaining) {
+            setQtyModal(null);
+            toast({ title: "Quantidade excedida", description: `Quantidade informada excede o necessário (${remaining}). Verifique e tente novamente.`, variant: "destructive" });
+          } else {
+            setQtyModal({ ...currentModal, accumulated: newAccumulated, maxRemaining: remaining });
+          }
+        } else {
+          setQtyModal({
+            productId,
+            productName: matchedItem.product.name,
+            productCode: matchedItem.product.erpCode || String(matchedItem.product.id),
+            multiplier: 1,
+            accumulated: 0,
+            itemId: matchedItem.id,
+            workUnitId: finalUnit.id,
+            barcode,
+            maxRemaining: remaining,
+            targetQty,
+            exceptionQty: Number(matchedItem.exceptionQty ?? 0),
+          });
+        }
 
         setScanStatus("idle");
         setScanMessage("");
 
-        const productId = matchedItem.product.id;
         const idx = aggregatedProducts.findIndex(ap => ap.product.id === productId);
         if (idx >= 0) setCurrentProductIndex(idx);
         setCheckingTab("product");
-
-        const msgId = generateMsgId();
-        pendingScanContextRef.current.set(msgId, {
-          itemId: matchedItem.id,
-          qty: multiplier,
-          barcode,
-          workUnitId: finalUnit.id,
-          apItems: [{ id: matchedItem.id }],
-          productName: matchedItem.product.name,
-          targetQty,
-          exceptionQty: Number(matchedItem.exceptionQty ?? 0),
-        });
-        sendCheck(finalUnit.id, barcode, undefined, msgId);
       }
     } finally {
       scanWorkerRunningRef.current = false;
@@ -857,28 +884,6 @@ export default function ConferenciaPage() {
       }
     }, 300);
   }, [queryClient, workUnitsQueryKey, user, aggregatedProducts]);
-
-  const processIncrementQueue = useCallback(() => {
-    while (incrementQueueRef.current.length > 0) {
-      if (overQtyModalOpenRef.current) {
-        incrementQueueRef.current = [];
-        break;
-      }
-      const task = incrementQueueRef.current.shift()!;
-      const msgId = generateMsgId();
-      pendingScanContextRef.current.set(msgId, {
-        itemId: task.itemId,
-        qty: task.qty,
-        barcode: task.barcode,
-        workUnitId: task.workUnitId,
-        apItems: task.apSnapshot.items.map(i => ({ id: i.id })),
-        productName: task.apSnapshot.product.name,
-        targetQty: task.apSnapshot.totalSeparatedQty,
-        exceptionQty: 0,
-      });
-      sendCheck(task.workUnitId, task.barcode, task.qty, msgId);
-    }
-  }, [sendCheck]);
 
   const handleScanItem = useCallback((barcode: string) => {
     if (overQtyModalOpenRef.current) return;
@@ -898,48 +903,54 @@ export default function ConferenciaPage() {
 
   useBarcodeScanner(globalScanHandler, step === "checking");
 
-  const handleIncrementProduct = useCallback((ap: AggregatedProduct, qty: number = 1) => {
-    if (overQtyModalOpenRef.current) return;
-    const remaining = ap.totalSeparatedQty - ap.checkedQty;
-    if (remaining <= 0) return;
+  const handleConfirmQtyModal = useCallback(() => {
+    const modal = qtyModalRef.current;
+    if (!modal || modal.accumulated <= 0) return;
+    usePendingDeltaStore.getState().inc("conferencia", modal.itemId, modal.accumulated);
+    const msgId = generateMsgId();
+    pendingScanContextRef.current.set(msgId, {
+      itemId: modal.itemId,
+      qty: modal.accumulated,
+      barcode: modal.barcode,
+      workUnitId: modal.workUnitId,
+      apItems: [{ id: modal.itemId }],
+      productName: modal.productName,
+      targetQty: modal.targetQty,
+      exceptionQty: modal.exceptionQty,
+    });
+    sendCheck(modal.workUnitId, modal.barcode, modal.accumulated, msgId);
+    setQtyModal(null);
+    if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+    syncTimerRef.current = setTimeout(() => {
+      if (scanQueueRef.current.length === 0 && !scanWorkerRunningRef.current) {
+        queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+      }
+    }, 300);
+  }, [sendCheck, queryClient, workUnitsQueryKey]);
 
-    if (!canUseManualQty) {
-      toast({
-        title: "Permissão Negada",
-        description: "Você não tem permissão para alterar quantidade manual",
-        variant: "destructive"
-      });
+  const handleQtyModalAdd = useCallback(() => {
+    const modal = qtyModalRef.current;
+    if (!modal) return;
+    const newAccumulated = modal.accumulated + modal.multiplier;
+    if (newAccumulated > modal.maxRemaining) {
+      setQtyModal(null);
+      toast({ title: "Quantidade excedida", description: `Quantidade informada excede o necessário (${modal.maxRemaining}). Verifique e tente novamente.`, variant: "destructive" });
       return;
     }
+    setQtyModal({ ...modal, accumulated: newAccumulated });
+  }, [toast]);
 
-    const barcode = ap.product.barcode;
-    if (!barcode) return;
+  const handleQtyModalSubtract = useCallback(() => {
+    const modal = qtyModalRef.current;
+    if (!modal) return;
+    setQtyModal({ ...modal, accumulated: Math.max(0, modal.accumulated - modal.multiplier) });
+  }, []);
 
-    const incompleteItem = ap.items.find(it => {
-      const iExc = Number(it.exceptionQty || 0);
-      const iSep = Number(it.separatedQty);
-      const iTarget = iSep > 0 ? iSep : (iExc > 0 ? 0 : Number(it.quantity));
-      return Number(it.checkedQty) < iTarget;
-    });
-    if (!incompleteItem) return;
-
-    const wu = allMyUnits.find(w => w.items.some(it => it.id === incompleteItem.id));
-    if (!wu) return;
-
-    usePendingDeltaStore.getState().inc("conferencia", incompleteItem.id, qty);
-    setMultiplierValue(1);
-    setScanStatus("idle");
-    setScanMessage("");
-
-    incrementQueueRef.current.push({
-      workUnitId: wu.id,
-      barcode,
-      qty,
-      itemId: incompleteItem.id,
-      apSnapshot: ap,
-    });
-    processIncrementQueue();
-  }, [canUseManualQty, allMyUnits, processIncrementQueue, toast]);
+  const handleQtyModalMultiplierChange = useCallback((val: number) => {
+    const modal = qtyModalRef.current;
+    if (!modal) return;
+    setQtyModal({ ...modal, multiplier: val });
+  }, []);
 
   const handleOverQtyRecount = async () => {
     if (!overQtyContext) return;
@@ -975,7 +986,7 @@ export default function ConferenciaPage() {
 
   const handleCancelChecking = () => {
     scanQueueRef.current = [];
-    incrementQueueRef.current = [];
+    setQtyModal(null);
     if (syncTimerRef.current) {
       clearTimeout(syncTimerRef.current);
       syncTimerRef.current = null;
@@ -1273,38 +1284,8 @@ export default function ConferenciaPage() {
                           )}
                         </p>
                       </div>
-                      <div className="flex items-center gap-2">
-                        {canUseManualQty && (
-                          <>
-                            <div className="flex items-center gap-1">
-                              <span className="text-xs text-muted-foreground">Qtd:</span>
-                              <Input
-                                type="number"
-                                min={1}
-                                max={currentProduct.totalSeparatedQty - currentProduct.checkedQty}
-                                value={multiplierValue}
-                                onChange={(e) => {
-                                  const maxVal = currentProduct.totalSeparatedQty - currentProduct.checkedQty;
-                                  setMultiplierValue(Math.min(Math.max(1, parseInt(e.target.value) || 1), Math.max(1, maxVal)));
-                                }}
-                                onFocus={(e) => e.target.select()}
-                                className="h-10 w-20 text-center text-sm font-bold"
-                              />
-                            </div>
-                            <Button
-                              size="sm"
-                              className="h-10 px-3"
-                              onClick={() => handleIncrementProduct(currentProduct, multiplierValue)}
-                              disabled={
-                                (currentProduct.checkedQty >= currentProduct.totalSeparatedQty) ||
-                                !currentProduct.product.barcode
-                              }
-                            >
-                              <Plus className="h-5 w-5 mr-1" />
-                              Conferir
-                            </Button>
-                          </>
-                        )}
+                      <div className="text-xs text-muted-foreground italic">
+                        Bipe o produto para conferir
                       </div>
                     </div>
                   </div>
@@ -1549,6 +1530,19 @@ export default function ConferenciaPage() {
         open={volumeModalOpen}
         onClose={() => setVolumeModalOpen(false)}
         defaultErpOrderId={myLockedUnits[0]?.order?.erpOrderId ?? null}
+      />
+
+      <ScanQuantityModal
+        open={!!qtyModal}
+        onClose={() => setQtyModal(null)}
+        onConfirm={handleConfirmQtyModal}
+        productName={qtyModal?.productName || ""}
+        productCode={qtyModal?.productCode || ""}
+        multiplier={qtyModal?.multiplier || 1}
+        onMultiplierChange={handleQtyModalMultiplierChange}
+        accumulatedQty={qtyModal?.accumulated || 0}
+        onAdd={handleQtyModalAdd}
+        onSubtract={handleQtyModalSubtract}
       />
 
     </div>

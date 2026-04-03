@@ -22,13 +22,12 @@ import {
   Check,
   AlertTriangle,
   Search,
-  Plus,
   ArrowRight,
   Calendar,
   Timer,
   Lock,
 } from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { ScanQuantityModal } from "@/components/ui/scan-quantity-modal";
 import type { WorkUnitWithDetails, OrderItem, Product, ExceptionType, UserSettings, Exception } from "@shared/schema";
 import { ExceptionDialog } from "@/components/orders/exception-dialog";
 import { ExceptionAuthorizationModal } from "@/components/orders/exception-authorization-modal";
@@ -138,14 +137,27 @@ export default function BalcaoPage() {
   const scanWorkerRunningRef = useRef(false);
   const scanQueueRef = useRef<string[]>([]);
   const activeSessionTokenRef = useRef("");
-
-  type IncrementTask = { workUnitId: string; barcode: string; qty: number; itemId: string; apSnapshot: AggregatedProduct };
-  const incrementQueueRef = useRef<IncrementTask[]>([]);
-  const incrementWorkerRunningRef = useRef(false);
   const syncTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   type PendingScanCtx = { itemId: string; qty: number; barcode: string; workUnitId: string; apItems: { id: string }[]; productName: string; targetQty: number; exceptionQty: number };
   const pendingScanContextRef = useRef<Map<string, PendingScanCtx>>(new Map());
+
+  interface QtyModalData {
+    productId: string;
+    productName: string;
+    productCode: string;
+    multiplier: number;
+    accumulated: number;
+    itemId: string;
+    workUnitId: string;
+    barcode: string;
+    maxRemaining: number;
+    targetQty: number;
+    exceptionQty: number;
+  }
+  const [qtyModal, setQtyModal] = useState<QtyModalData | null>(null);
+  const qtyModalRef = useRef<QtyModalData | null>(null);
+  qtyModalRef.current = qtyModal;
 
   useEffect(() => {
     if (scanStatus !== "idle") {
@@ -167,11 +179,6 @@ export default function BalcaoPage() {
   const [tempDateRange, setTempDateRange] = useState<DateRange | undefined>(getCurrentWeekRange());
 
   const [sessionRestored, setSessionRestored] = useState(false);
-  const [multiplierValue, setMultiplierValue] = useState(1);
-
-
-  const userSettings = (user?.settings as UserSettings) || {};
-  const hasManualQtyPermission = !!userSettings.allowManualQty;
 
 
   const workUnitsQueryKey = useSessionQueryKey(["/api/work-units?type=balcao"]);
@@ -343,26 +350,6 @@ export default function BalcaoPage() {
   const productIds = useMemo(() => aggregatedProducts.map(ap => ap.product.id), [aggregatedProducts]);
   const { data: addressesMap } = useProductAddressesBatch(productIds);
 
-
-  // Buscar regras de quantidade manual para os produtos atuais
-  const { data: manualQtyRulesMap } = useQuery<Record<string, boolean>>({
-    queryKey: ["manual-qty-rules", productIds],
-    queryFn: async () => {
-      if (productIds.length === 0) return {};
-      const res = await apiRequest("POST", "/api/manual-qty-rules/check", { productIds });
-      return res.json();
-    },
-    enabled: productIds.length > 0,
-  });
-
-  // Permissão efetiva: Global do usuário OU Regra específica do produto
-  const canUseManualQty = useMemo(() => {
-    if (hasManualQtyPermission) return true;
-    if (currentProduct && manualQtyRulesMap) {
-      return !!manualQtyRulesMap[currentProduct.product.id];
-    }
-    return false;
-  }, [hasManualQtyPermission, currentProduct, manualQtyRulesMap]);
 
   useEffect(() => {
     if (workUnits && user && !sessionRestored) {
@@ -642,7 +629,7 @@ export default function BalcaoPage() {
 
   const finalizeWorkUnits = async () => {
     scanQueueRef.current = [];
-    incrementQueueRef.current = [];
+    setQtyModal(null);
     pendingScanContextRef.current.clear();
     clearWsQueue();
 
@@ -685,7 +672,6 @@ export default function BalcaoPage() {
         } catch (error: any) {
           // Se falhar porque há itens pendentes (outras seções), fazemos apenas unlock
           if (error.message === "Existem itens pendentes" || error.message?.includes("pendentes")) {
-            console.log(`Unidade ${wu.id} tem itens pendentes de outras seções. Liberando bloqueio.`);
             await unlockMutation.mutateAsync({ ids: [wu.id], reset: false });
             anyUnlock = true;
           } else {
@@ -806,6 +792,7 @@ export default function BalcaoPage() {
         const alreadyComplete = serverSeparated + itemDelta + exceptionQty >= Number(matchedItem.quantity);
 
         if (alreadyComplete) {
+          setQtyModal(null);
           usePendingDeltaStore.getState().clearItem("balcao", matchedItem.id);
           usePendingDeltaStore.getState().resetBaseline("balcao", matchedItem.id);
           const targetQtyOver = Number(matchedItem.quantity) - exceptionQty;
@@ -823,34 +810,70 @@ export default function BalcaoPage() {
           break;
         }
 
-        let multiplier = 1;
+        let isBoxBarcode = false;
+        let boxQtyVal = 1;
         if (matchedItem.product.barcode !== barcode && matchedItem.product.boxBarcodes && Array.isArray(matchedItem.product.boxBarcodes)) {
           const bx = matchedItem.product.boxBarcodes.find((b: any) => b.code === barcode);
-          if (bx && bx.qty) multiplier = bx.qty;
+          if (bx && bx.qty) {
+            isBoxBarcode = true;
+            boxQtyVal = bx.qty;
+          }
         }
 
-        usePendingDeltaStore.getState().inc("balcao", matchedItem.id, multiplier);
+        const productId = matchedItem.product.id;
+        const remaining = Number(matchedItem.quantity) - (serverSeparated + itemDelta) - exceptionQty;
+        const currentModal = qtyModalRef.current;
+
+        if (currentModal && currentModal.productId !== productId) {
+          if (currentModal.accumulated > 0) {
+            usePendingDeltaStore.getState().inc("balcao", currentModal.itemId, currentModal.accumulated);
+            const msgId = generateMsgId();
+            pendingScanContextRef.current.set(msgId, {
+              itemId: currentModal.itemId,
+              qty: currentModal.accumulated,
+              barcode: currentModal.barcode,
+              workUnitId: currentModal.workUnitId,
+              apItems: [{ id: currentModal.itemId }],
+              productName: currentModal.productName,
+              targetQty: currentModal.targetQty,
+              exceptionQty: currentModal.exceptionQty,
+            });
+            sendScan(currentModal.workUnitId, currentModal.barcode, currentModal.accumulated, msgId);
+          }
+          setQtyModal(null);
+        }
+
+        if (currentModal && currentModal.productId === productId) {
+          const addQty = isBoxBarcode ? boxQtyVal : currentModal.multiplier;
+          const newAccumulated = currentModal.accumulated + addQty;
+          if (newAccumulated > remaining) {
+            setQtyModal(null);
+            toast({ title: "Quantidade excedida", description: `Quantidade informada excede o necessário (${remaining}). Verifique e tente novamente.`, variant: "destructive" });
+          } else {
+            setQtyModal({ ...currentModal, accumulated: newAccumulated, maxRemaining: remaining });
+          }
+        } else {
+          setQtyModal({
+            productId,
+            productName: matchedItem.product.name,
+            productCode: matchedItem.product.erpCode || String(matchedItem.product.id),
+            multiplier: 1,
+            accumulated: 0,
+            itemId: matchedItem.id,
+            workUnitId: finalUnit.id,
+            barcode,
+            maxRemaining: remaining,
+            targetQty: Number(matchedItem.quantity) - exceptionQty,
+            exceptionQty,
+          });
+        }
 
         setScanStatus("idle");
         setScanMessage("");
 
-        const productId = matchedItem.product.id;
         const idx = aggregatedProducts.findIndex(ap => ap.product.id === productId);
         if (idx >= 0) setCurrentProductIndex(idx);
         setPickingTab("product");
-
-        const msgId = generateMsgId();
-        pendingScanContextRef.current.set(msgId, {
-          itemId: matchedItem.id,
-          qty: multiplier,
-          barcode,
-          workUnitId: finalUnit.id,
-          apItems: [{ id: matchedItem.id }],
-          productName: matchedItem.product.name,
-          targetQty: Number(matchedItem.quantity) - Number(matchedItem.exceptionQty || 0),
-          exceptionQty: Number(matchedItem.exceptionQty || 0),
-        });
-        sendScan(finalUnit.id, barcode, undefined, msgId);
       }
     } finally {
       scanWorkerRunningRef.current = false;
@@ -865,29 +888,8 @@ export default function BalcaoPage() {
     }, 300);
   }, [queryClient, workUnitsQueryKey, user, aggregatedProducts]);
 
-  const processIncrementQueue = useCallback(() => {
-    while (incrementQueueRef.current.length > 0) {
-      if (overQtyModalOpenRef.current) {
-        incrementQueueRef.current = [];
-        break;
-      }
-      const task = incrementQueueRef.current.shift()!;
-      const msgId = generateMsgId();
-      pendingScanContextRef.current.set(msgId, {
-        itemId: task.itemId,
-        qty: task.qty,
-        barcode: task.barcode,
-        workUnitId: task.workUnitId,
-        apItems: task.apSnapshot.items.map(i => ({ id: i.id })),
-        productName: task.apSnapshot.product.name,
-        targetQty: task.apSnapshot.totalQty - task.apSnapshot.exceptionQty,
-        exceptionQty: task.apSnapshot.exceptionQty,
-      });
-      sendScan(task.workUnitId, task.barcode, task.qty, msgId);
-    }
-  }, [sendScan]);
-
   const handleScanItem = useCallback((barcode: string) => {
+    if (overQtyModalOpenRef.current) return;
     if (syncTimerRef.current) {
       clearTimeout(syncTimerRef.current);
       syncTimerRef.current = null;
@@ -898,45 +900,54 @@ export default function BalcaoPage() {
 
   useBarcodeScanner(handleScanItem, step === "picking");
 
-  const handleIncrementProduct = useCallback((ap: AggregatedProduct, qty: number = 1) => {
-    if (overQtyModalOpenRef.current) return;
-    const remaining = ap.totalQty - ap.separatedQty - ap.exceptionQty;
-    if (remaining <= 0) return;
+  const handleConfirmQtyModal = useCallback(() => {
+    const modal = qtyModalRef.current;
+    if (!modal || modal.accumulated <= 0) return;
+    usePendingDeltaStore.getState().inc("balcao", modal.itemId, modal.accumulated);
+    const msgId = generateMsgId();
+    pendingScanContextRef.current.set(msgId, {
+      itemId: modal.itemId,
+      qty: modal.accumulated,
+      barcode: modal.barcode,
+      workUnitId: modal.workUnitId,
+      apItems: [{ id: modal.itemId }],
+      productName: modal.productName,
+      targetQty: modal.targetQty,
+      exceptionQty: modal.exceptionQty,
+    });
+    sendScan(modal.workUnitId, modal.barcode, modal.accumulated, msgId);
+    setQtyModal(null);
+    if (syncTimerRef.current) clearTimeout(syncTimerRef.current);
+    syncTimerRef.current = setTimeout(() => {
+      if (scanQueueRef.current.length === 0 && !scanWorkerRunningRef.current) {
+        queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+      }
+    }, 300);
+  }, [sendScan, queryClient, workUnitsQueryKey]);
 
-    if (!canUseManualQty) {
-      toast({
-        title: "Permissão Negada",
-        description: "Você não tem permissão para alterar quantidade manual",
-        variant: "destructive"
-      });
+  const handleQtyModalAdd = useCallback(() => {
+    const modal = qtyModalRef.current;
+    if (!modal) return;
+    const newAccumulated = modal.accumulated + modal.multiplier;
+    if (newAccumulated > modal.maxRemaining) {
+      setQtyModal(null);
+      toast({ title: "Quantidade excedida", description: `Quantidade informada excede o necessário (${modal.maxRemaining}). Verifique e tente novamente.`, variant: "destructive" });
       return;
     }
+    setQtyModal({ ...modal, accumulated: newAccumulated });
+  }, [toast]);
 
-    const barcode = ap.product.barcode;
-    if (!barcode) return;
+  const handleQtyModalSubtract = useCallback(() => {
+    const modal = qtyModalRef.current;
+    if (!modal) return;
+    setQtyModal({ ...modal, accumulated: Math.max(0, modal.accumulated - modal.multiplier) });
+  }, []);
 
-    const incompleteItem = ap.items.find(it =>
-      Number(it.separatedQty) + Number(it.exceptionQty || 0) < Number(it.quantity)
-    );
-    if (!incompleteItem) return;
-
-    const wu = allMyUnits.find(w => w.items.some(it => it.id === incompleteItem.id));
-    if (!wu) return;
-
-    usePendingDeltaStore.getState().inc("balcao", incompleteItem.id, qty);
-    setMultiplierValue(1);
-    setScanStatus("idle");
-    setScanMessage("");
-
-    incrementQueueRef.current.push({
-      workUnitId: wu.id,
-      barcode,
-      qty,
-      itemId: incompleteItem.id,
-      apSnapshot: ap,
-    });
-    processIncrementQueue();
-  }, [canUseManualQty, allMyUnits, processIncrementQueue, toast]);
+  const handleQtyModalMultiplierChange = useCallback((val: number) => {
+    const modal = qtyModalRef.current;
+    if (!modal) return;
+    setQtyModal({ ...modal, multiplier: val });
+  }, []);
 
   const handleConfirmOverQty = async () => {
     if (!overQtyContext) return;
@@ -979,7 +990,7 @@ export default function BalcaoPage() {
 
   const handleCancelPicking = () => {
     scanQueueRef.current = [];
-    incrementQueueRef.current = [];
+    setQtyModal(null);
     pendingScanContextRef.current.clear();
     clearWsQueue();
     usePendingDeltaStore.getState().clear("balcao");
@@ -1300,37 +1311,8 @@ export default function BalcaoPage() {
                           )}
                         </p>
                       </div>
-                      <div className="flex items-center gap-2">
-                        {canUseManualQty && (
-                          <>
-                            <div className="flex items-center gap-1">
-                              <span className="text-xs text-muted-foreground">Qtd:</span>
-                              <Input
-                                type="number"
-                                min={1}
-                                max={currentProduct.totalQty - currentProduct.separatedQty - currentProduct.exceptionQty}
-                                value={multiplierValue}
-                                onChange={(e) => {
-                                  const maxVal = currentProduct.totalQty - currentProduct.separatedQty - currentProduct.exceptionQty;
-                                  setMultiplierValue(Math.min(Math.max(1, parseInt(e.target.value) || 1), Math.max(1, maxVal)));
-                                }}
-                                className="h-10 w-20 text-center text-sm font-bold"
-                              />
-                            </div>
-                            <Button
-                              size="sm"
-                              className="h-10 px-3"
-                              onClick={() => handleIncrementProduct(currentProduct, multiplierValue)}
-                              disabled={
-                                (currentProduct.separatedQty + currentProduct.exceptionQty >= currentProduct.totalQty) ||
-                                !currentProduct.product.barcode
-                              }
-                            >
-                              <Plus className="h-5 w-5 mr-1" />
-                              Separar
-                            </Button>
-                          </>
-                        )}
+                      <div className="text-xs text-muted-foreground italic">
+                        Bipe o produto para coletar
                       </div>
                     </div>
                   </div>
@@ -1596,6 +1578,19 @@ export default function BalcaoPage() {
           </AlertDialogContent>
         </AlertDialog>
       )}
+
+      <ScanQuantityModal
+        open={!!qtyModal}
+        onClose={() => setQtyModal(null)}
+        onConfirm={handleConfirmQtyModal}
+        productName={qtyModal?.productName || ""}
+        productCode={qtyModal?.productCode || ""}
+        multiplier={qtyModal?.multiplier || 1}
+        onMultiplierChange={handleQtyModalMultiplierChange}
+        accumulatedQty={qtyModal?.accumulated || 0}
+        onAdd={handleQtyModalAdd}
+        onSubtract={handleQtyModalSubtract}
+      />
 
     </div >
   );
