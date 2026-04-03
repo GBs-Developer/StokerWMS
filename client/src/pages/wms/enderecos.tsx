@@ -161,7 +161,7 @@ export default function EnderecosPage() {
   return (
     <div className="min-h-screen bg-background">
       <GradientHeader title="Endereços WMS" subtitle={companyId ? (companiesData?.find(c => c.id === companyId)?.name || "") : ""}>
-        <Button variant="outline" size="sm" onClick={() => navigate("/")} className="bg-white/10 border-white/20 text-white hover:bg-white/20" data-testid="button-back">
+        <Button variant="outline" size="sm" onClick={() => navigate("/")} className="" data-testid="button-back">
           <ArrowLeft className="h-4 w-4 mr-2" /> Voltar
         </Button>
       </GradientHeader>

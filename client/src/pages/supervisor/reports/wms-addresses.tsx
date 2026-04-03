@@ -98,7 +98,7 @@ export default function WmsAddressesReportPage() {
   return (
     <div className="min-h-screen bg-background">
       <GradientHeader title="Relatório de Endereços" subtitle="Ocupação e status dos endereços WMS">
-        <Button variant="outline" size="sm" onClick={() => navigate("/supervisor/reports")} className="bg-white/10 border-white/20 text-white hover:bg-white/20" data-testid="button-back">
+        <Button variant="outline" size="sm" onClick={() => navigate("/supervisor/reports")} className="" data-testid="button-back">
           <ArrowLeft className="h-4 w-4 mr-2" /> Voltar
         </Button>
       </GradientHeader>

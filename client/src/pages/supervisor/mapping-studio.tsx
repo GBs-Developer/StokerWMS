@@ -198,7 +198,7 @@ export default function MappingStudioPage() {
   return (
     <div className="min-h-screen bg-background">
       <GradientHeader title="Mapping Studio" subtitle="Mapeamento DB2 → Aplicação">
-        <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20" asChild>
+        <Button variant="outline" size="sm" className="" asChild>
           <Link href="/">
             <ArrowLeft className="h-4 w-4 mr-2" />
             Voltar

@@ -20,7 +20,7 @@ Preferred communication style: Simple, everyday language.
 - **Design System**: Premium mobile-first UI with Inter font (Google Fonts), glassmorphism effects, `rounded-2xl` cards, `rounded-xl` inputs/buttons, subtle animations (fade-in, slide-up, scale-in)
 - **Responsive Tables**: All admin/supervisor data tables use progressive column hiding (`hidden sm:table-cell`, `md:`, `lg:`, `xl:`) instead of horizontal scroll. Primary identifiers and actions always visible; secondary metadata hidden at smaller breakpoints. Applied to: orders, users, exceptions, audit, routes, route-orders, permissoes, manual-qty-rules, picking-list, mapping-studio
 - **Layout Pattern**: `max-w-lg mx-auto px-4 py-4 space-y-3 safe-bottom` for WMS operational pages
-- **Header**: `GradientHeader` component with dark gradient (`hsl(222,47%,14%)` → `hsl(199,89%,30%)`) + radial overlays, `compact` prop
+- **Header**: `GradientHeader` component — clean `bg-card border-b border-border/40` topbar, `text-foreground`/`text-muted-foreground`, no gradient. `compact` prop sets fixed `h-14`. Fully theme-aware (light/dark).
 - **Cards**: `rounded-2xl border border-border/50 bg-card` with `divide-y divide-border/30` item lists
 - **CTA Buttons**: `h-14 rounded-xl font-semibold shadow-lg shadow-primary/15 active:scale-[0.98]`
 - **Status Badges**: Named `statusStyles` Record with light/dark border+text+bg Tailwind classes per status

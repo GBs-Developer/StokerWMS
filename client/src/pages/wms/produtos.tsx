@@ -71,7 +71,7 @@ export default function ProdutosPage() {
   return (
     <div className="min-h-[100dvh] bg-background">
       <GradientHeader title="Produtos" subtitle={companyId ? (companiesData?.find(c => c.id === companyId)?.name || "") : ""} compact>
-        <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="text-white/70 hover:text-white hover:bg-white/10 h-9" data-testid="button-back">
+        <Button variant="ghost" size="sm" onClick={() => navigate("/")} className="text-muted-foreground hover:text-foreground hover:bg-muted h-9" data-testid="button-back">
           <ArrowLeft className="h-4 w-4 mr-1.5" /> Voltar
         </Button>
       </GradientHeader>

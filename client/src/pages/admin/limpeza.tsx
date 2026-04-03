@@ -226,7 +226,7 @@ export default function LimpezaPage() {
     <div className="min-h-screen bg-background">
       <GradientHeader title="Limpeza de Dados" subtitle="Remover dados de teste ou resetar módulos">
         <Link href="/">
-          <Button variant="outline" size="sm" className="bg-white/10 border-white/20 text-white hover:bg-white/20" data-testid="button-back">
+          <Button variant="outline" size="sm" className="" data-testid="button-back">
             <ArrowLeft className="h-4 w-4 mr-2" /> Voltar
           </Button>
         </Link>

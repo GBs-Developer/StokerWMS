@@ -143,7 +143,7 @@ export default function ProductAddressesPage() {
         subtitle="Vincule produtos a endereços do armazém por empresa"
       >
         <Link href="/home">
-          <Button variant="ghost" size="sm" className="text-white hover:text-white hover:bg-white/20">
+          <Button variant="ghost" size="sm" className="text-muted-foreground hover:text-foreground hover:bg-muted">
             <ArrowLeft className="h-4 w-4 mr-1" />
             Voltar
           </Button>

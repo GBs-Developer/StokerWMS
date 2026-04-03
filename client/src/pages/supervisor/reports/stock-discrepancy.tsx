@@ -132,14 +132,14 @@ export default function StockDiscrepancyReportPage() {
       <GradientHeader>
         <div className="flex items-center justify-between w-full">
           <div>
-            <h1 className="text-2xl font-bold text-white">Divergências de Estoque</h1>
-            <p className="text-white/70 text-sm">Produtos com diferença entre estoque real e WMS</p>
+            <h1 className="text-2xl font-bold text-foreground">Divergências de Estoque</h1>
+            <p className="text-muted-foreground text-sm">Produtos com diferença entre estoque real e WMS</p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" className="text-white/70 hover:text-white hover:bg-white/10" onClick={printReport} disabled={products.length === 0} data-testid="button-print-report">
+            <Button variant="ghost" className="text-muted-foreground hover:text-foreground hover:bg-muted" onClick={printReport} disabled={products.length === 0} data-testid="button-print-report">
               <Printer className="h-4 w-4 mr-1.5" /> Imprimir
             </Button>
-            <Button variant="ghost" className="text-white/70 hover:text-white hover:bg-white/10" onClick={() => navigate("/supervisor/reports")} data-testid="button-back">
+            <Button variant="ghost" className="text-muted-foreground hover:text-foreground hover:bg-muted" onClick={() => navigate("/supervisor/reports")} data-testid="button-back">
               <ArrowLeft className="h-4 w-4 mr-1.5" /> Voltar
             </Button>
           </div>

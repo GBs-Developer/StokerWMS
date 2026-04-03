@@ -118,11 +118,11 @@ export default function PrintAgentsPage() {
             <GradientHeader>
                 <div className="flex items-center justify-between w-full">
                     <div>
-                        <h1 className="text-3xl font-bold text-white">Agentes de Impressão</h1>
-                        <p className="text-white/80">Mini-servidores nas máquinas com impressoras</p>
+                        <h1 className="text-3xl font-bold text-foreground">Agentes de Impressão</h1>
+                        <p className="text-muted-foreground">Mini-servidores nas máquinas com impressoras</p>
                     </div>
                     <Link href="/">
-                        <Button variant="ghost" className="text-white hover:bg-white/10">
+                        <Button variant="ghost" className="text-muted-foreground hover:text-foreground hover:bg-muted">
                             <ArrowLeft className="h-4 w-4 mr-2" />
                             Voltar
                         </Button>

@@ -177,11 +177,11 @@ export default function OrderVolumesReport() {
             <GradientHeader>
                 <div className="flex items-center justify-between w-full">
                     <div>
-                        <h1 className="text-3xl font-bold text-white">Etiquetas de Volume</h1>
-                        <p className="text-white/80">Visualize e reimprima etiquetas geradas na conferência</p>
+                        <h1 className="text-3xl font-bold text-foreground">Etiquetas de Volume</h1>
+                        <p className="text-muted-foreground">Visualize e reimprima etiquetas geradas na conferência</p>
                     </div>
                     <Link href="/supervisor/reports">
-                        <Button variant="ghost" className="text-white hover:bg-white/10">
+                        <Button variant="ghost" className="text-muted-foreground hover:text-foreground hover:bg-muted">
                             <ArrowLeft className="h-4 w-4 mr-2" />
                             Voltar
                         </Button>

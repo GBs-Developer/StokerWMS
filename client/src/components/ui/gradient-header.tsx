@@ -11,42 +11,35 @@ interface GradientHeaderProps {
 
 export function GradientHeader({ title, subtitle, children, className, compact = false }: GradientHeaderProps) {
   return (
-    <div
+    <header
       className={cn(
-        "relative overflow-hidden bg-sidebar text-sidebar-foreground",
-        compact ? "px-4 py-3" : "px-4 py-4 md:px-6 md:py-5",
+        "bg-card border-b border-border/40 shrink-0",
+        compact ? "h-14 flex items-center px-4" : "px-4 py-4 md:px-6 md:py-5",
         className
       )}
-      style={{
-        background: "linear-gradient(135deg, hsl(var(--sidebar)) 0%, hsl(var(--sidebar-primary) / 0.25) 100%)",
-      }}
     >
-      {/* Accent overlays */}
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_rgba(99,179,237,0.12),_transparent_60%)] pointer-events-none" />
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,_rgba(56,178,172,0.07),_transparent_50%)] pointer-events-none" />
-      {/* Top edge accent */}
-      <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent pointer-events-none" />
-
-      <div className="relative max-w-7xl mx-auto">
+      <div className={cn("max-w-7xl mx-auto w-full", compact ? "flex items-center" : "")}>
         {title ? (
-          <div className="flex items-center justify-between gap-3 min-w-0 overflow-hidden">
+          <div className="flex items-center justify-between gap-3 w-full">
             <div className="min-w-0">
               <h1 className={cn(
-                "font-bold tracking-tight truncate text-sidebar-foreground",
-                compact ? "text-lg" : "text-xl md:text-2xl"
+                "font-bold tracking-tight truncate text-foreground",
+                compact ? "text-base" : "text-xl md:text-2xl"
               )}>
                 {title}
               </h1>
               {subtitle && (
-                <p className="text-sidebar-foreground/50 text-xs truncate mt-0.5">{subtitle}</p>
+                <p className="text-muted-foreground text-xs truncate mt-0.5">{subtitle}</p>
               )}
             </div>
             {children && <div className="flex items-center gap-2 shrink-0">{children}</div>}
           </div>
         ) : (
-          children
+          <div className={cn(compact ? "flex items-center w-full" : "")}>
+            {children}
+          </div>
         )}
       </div>
-    </div>
+    </header>
   );
 }

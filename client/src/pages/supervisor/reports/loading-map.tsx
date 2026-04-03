@@ -172,11 +172,11 @@ td { padding: 2px 5px; font-size: 10px; border-bottom: 1px dashed #ddd; vertical
             <GradientHeader>
                 <div className="flex items-center justify-between w-full">
                     <div>
-                        <h1 className="text-3xl font-bold text-white">Mapa de Carregamento</h1>
-                        <p className="text-white/80">Visualize e imprima a lista de produtos por pacote/carga</p>
+                        <h1 className="text-3xl font-bold text-foreground">Mapa de Carregamento</h1>
+                        <p className="text-muted-foreground">Visualize e imprima a lista de produtos por pacote/carga</p>
                     </div>
                     <Link href="/supervisor/reports">
-                        <Button variant="ghost" className="text-white hover:bg-white/10">
+                        <Button variant="ghost" className="text-muted-foreground hover:text-foreground hover:bg-muted">
                             <ArrowLeft className="h-4 w-4 mr-2" />
                             Voltar
                         </Button>

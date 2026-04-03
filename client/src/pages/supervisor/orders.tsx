@@ -481,16 +481,16 @@ small.dim { color: #888; font-size: 8px; }
       <div className="print:hidden">
         <GradientHeader title="Gerenciamento de Pedidos" subtitle="Painel Supervisor">
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={handlePrint} className="bg-white/10 text-white border-white/20 hover:bg-white/20">
+            <Button variant="outline" size="sm" onClick={handlePrint} className="">
               <Printer className="h-4 w-4 mr-2" />
               Imprimir
             </Button>
-            <Button variant="outline" size="sm" onClick={() => syncMutation.mutate()} disabled={syncMutation.isPending} className="bg-white/10 text-white border-white/20 hover:bg-white/20">
+            <Button variant="outline" size="sm" onClick={() => syncMutation.mutate()} disabled={syncMutation.isPending} className="">
               <RefreshCw className={`h-4 w-4 mr-2 ${syncMutation.isPending ? "animate-spin" : ""}`} />
               {syncMutation.isPending ? "Sync..." : "Sincronizar"}
             </Button>
             <Link href="/">
-              <Button variant="outline" size="sm" className="bg-white/10 text-white border-white/20 hover:bg-white/20">
+              <Button variant="outline" size="sm" className="">
                 <ArrowLeft className="h-4 w-4 mr-2" /> Voltar
               </Button>
             </Link>

@@ -189,7 +189,7 @@ export default function PrintSettingsPage() {
           variant="ghost"
           size="sm"
           onClick={() => navigate("/")}
-          className="text-white/70 hover:text-white hover:bg-white/10 h-9"
+          className="text-muted-foreground hover:text-foreground hover:bg-muted h-9"
         >
           <ArrowLeft className="h-4 w-4 mr-1.5" /> Voltar
         </Button>

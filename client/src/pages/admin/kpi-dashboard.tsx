@@ -353,16 +353,16 @@ export default function KpiDashboardPage() {
     <div className="min-h-[100dvh] bg-background pb-safe">
       <GradientHeader compact>
         <div className="flex items-center gap-3">
-          <button onClick={() => navigate("/")} className="text-white/70 hover:text-white p-1 -ml-1 rounded-lg">
+          <button onClick={() => navigate("/")} className="text-muted-foreground hover:text-foreground p-1 -ml-1 rounded-lg">
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div className="flex-1 min-w-0">
-            <h1 className="font-bold text-white text-base leading-tight">KPIs de Operadores</h1>
-            <p className="text-white/60 text-[11px]">Análise de desempenho</p>
+            <h1 className="font-bold text-foreground text-base leading-tight">KPIs de Operadores</h1>
+            <p className="text-muted-foreground text-[11px]">Análise de desempenho</p>
           </div>
           <button
             onClick={() => refetch()}
-            className="text-white/70 hover:text-white p-2 rounded-lg"
+            className="text-muted-foreground hover:text-foreground p-2 rounded-lg"
             data-testid="btn-kpi-refresh"
           >
             <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />

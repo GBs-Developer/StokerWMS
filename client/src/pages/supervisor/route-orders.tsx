@@ -274,7 +274,7 @@ td.right { text-align: right; text-transform: capitalize; }
                     <Button
                         variant="outline"
                         size="sm"
-                        className="bg-white/10 border-white/20 text-white hover:bg-white/20"
+                        className=""
                     >
                         <ArrowLeft className="h-4 w-4 mr-2" />
                         Voltar
