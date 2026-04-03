@@ -29,6 +29,8 @@ import {
   Lock,
   PackageOpen,
   X,
+  SlidersHorizontal,
+  ChevronDown,
 } from "lucide-react";
 import { VolumeModal } from "@/components/conferencia/VolumeModal";
 import { ScanQuantityModal } from "@/components/ui/scan-quantity-modal";
@@ -137,6 +139,7 @@ export default function ConferenciaPage() {
   const [filterRoute, setFilterRoute] = useState<string>("");
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
   const [tempDateRange, setTempDateRange] = useState<DateRange | undefined>(getCurrentWeekRange());
+  const [showFilters, setShowFilters] = useState(false);
 
   const [sessionRestored, setSessionRestored] = useState(false);
   const [volumeModalOpen, setVolumeModalOpen] = useState(false);
@@ -1087,43 +1090,63 @@ export default function ConferenciaPage() {
 
       {step === "select" && (
         <div className="flex-1 flex flex-col min-h-0 px-3 py-3 gap-3 overflow-hidden">
-          <div className="space-y-2 p-2.5 bg-muted/30 rounded-lg border border-border shrink-0">
-            <div className="flex items-center gap-2">
-              <Search className="h-4 w-4 text-muted-foreground shrink-0" />
-              <Input
-                placeholder="N° Pedido"
-                value={filterOrderId}
-                onChange={(e) => setFilterOrderId(e.target.value)}
-                className="h-10 text-sm"
-              />
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
-              <div className="flex-1 min-w-0">
-                <DatePickerWithRange
-                  date={tempDateRange}
-                  onDateChange={setTempDateRange}
-                  className="text-sm h-10 w-full"
-                />
+          <div className="shrink-0">
+            {(() => {
+              const activeCount = [filterOrderId, filterRoute, dateRange].filter(Boolean).length;
+              return (
+                <button
+                  onClick={() => setShowFilters(v => !v)}
+                  className="w-full flex items-center gap-2 px-3 h-9 rounded-lg border border-border bg-card hover:bg-muted/50 transition-colors text-sm text-muted-foreground"
+                >
+                  <SlidersHorizontal className="h-3.5 w-3.5 shrink-0" />
+                  <span className="flex-1 text-left font-medium">Filtros</span>
+                  {activeCount > 0 && (
+                    <span className="text-[10px] font-semibold bg-primary text-primary-foreground rounded-full w-4 h-4 flex items-center justify-center">{activeCount}</span>
+                  )}
+                  <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${showFilters ? "rotate-180" : ""}`} />
+                </button>
+              );
+            })()}
+            {showFilters && (
+              <div className="space-y-2 p-2.5 mt-1.5 bg-muted/30 rounded-lg border border-border">
+                <div className="flex items-center gap-2">
+                  <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <Input
+                    placeholder="N° Pedido"
+                    value={filterOrderId}
+                    onChange={(e) => setFilterOrderId(e.target.value)}
+                    className="h-9 text-sm"
+                  />
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <DatePickerWithRange
+                      date={tempDateRange}
+                      onDateChange={setTempDateRange}
+                      className="text-sm h-9 w-full"
+                    />
+                  </div>
+                  <Button size="sm" className="h-9 px-4 text-sm shrink-0" onClick={handleApplyDateFilter}>
+                    <Search className="h-4 w-4" />
+                  </Button>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Truck className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <Select value={filterRoute} onValueChange={(val) => setFilterRoute(val === "__all__" ? "" : val)}>
+                    <SelectTrigger className="h-9 text-sm flex-1">
+                      <SelectValue placeholder="Todas as rotas" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__all__">Todas as rotas</SelectItem>
+                      {routes?.map(route => (
+                        <SelectItem key={route.id} value={route.id}>{route.code} - {route.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-              <Button size="sm" className="h-10 px-4 text-sm shrink-0" onClick={handleApplyDateFilter}>
-                <Search className="h-4 w-4" />
-              </Button>
-            </div>
-            <div className="flex items-center gap-2">
-              <Truck className="h-4 w-4 text-muted-foreground shrink-0" />
-              <Select value={filterRoute} onValueChange={(val) => setFilterRoute(val === "__all__" ? "" : val)}>
-                <SelectTrigger className="h-10 text-sm flex-1">
-                  <SelectValue placeholder="Todas as rotas" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__all__">Todas as rotas</SelectItem>
-                  {routes?.map(route => (
-                    <SelectItem key={route.id} value={route.id}>{route.code} - {route.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            )}
           </div>
 
           {isLoading ? (
