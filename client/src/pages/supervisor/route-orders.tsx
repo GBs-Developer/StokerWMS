@@ -389,10 +389,10 @@ td.right { text-align: right; text-transform: capitalize; }
                                         </TableHead>
                                         <TableHead>Pedido</TableHead>
                                         <TableHead>Cliente</TableHead>
-                                        <TableHead>Data</TableHead>
-                                        <TableHead>Rota Atual</TableHead>
-                                        <TableHead>Valor</TableHead>
-                                        <TableHead>Status Fin.</TableHead>
+                                        <TableHead className="hidden md:table-cell">Data</TableHead>
+                                        <TableHead className="hidden lg:table-cell">Rota Atual</TableHead>
+                                        <TableHead className="hidden lg:table-cell">Valor</TableHead>
+                                        <TableHead className="hidden md:table-cell">Status Fin.</TableHead>
                                         <TableHead>Status</TableHead>
                                     </TableRow>
                                 </TableHeader>
@@ -415,8 +415,8 @@ td.right { text-align: right; text-transform: capitalize; }
                                                 <TableCell className="max-w-[200px] truncate" title={order.customerName}>
                                                     {order.customerName}
                                                 </TableCell>
-                                                <TableCell>{format(new Date(order.createdAt), "dd/MM/yyyy HH:mm")}</TableCell>
-                                                <TableCell>
+                                                <TableCell className="hidden md:table-cell">{format(new Date(order.createdAt), "dd/MM/yyyy HH:mm")}</TableCell>
+                                                <TableCell className="hidden lg:table-cell">
                                                     {route ? (
                                                         <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
                                                             {route.name}
@@ -425,10 +425,10 @@ td.right { text-align: right; text-transform: capitalize; }
                                                         <span className="text-muted-foreground text-sm italic">Sem rota</span>
                                                     )}
                                                 </TableCell>
-                                                <TableCell>
+                                                <TableCell className="hidden lg:table-cell">
                                                     {new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(order.totalValue)}
                                                 </TableCell>
-                                                <TableCell>
+                                                <TableCell className="hidden md:table-cell">
                                                     {order.financialStatus === "faturado" ? (
                                                         <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">
                                                             Liberado

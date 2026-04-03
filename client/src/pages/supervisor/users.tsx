@@ -237,11 +237,11 @@ export default function UsersPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Nome</TableHead>
-                    <TableHead>Usuário</TableHead>
+                    <TableHead className="hidden sm:table-cell">Usuário</TableHead>
                     <TableHead>Perfil</TableHead>
-                    <TableHead>Seções</TableHead>
+                    <TableHead className="hidden md:table-cell">Seções</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead>Permissões</TableHead>
+                    <TableHead className="hidden lg:table-cell">Permissões</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -256,20 +256,23 @@ export default function UsersPage() {
                     return (
                       <TableRow key={user.id} data-testid={`row-user-${user.id}`}>
                         <TableCell>
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                          <div className="flex items-center gap-2 sm:gap-3">
+                            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                               <UserCircle className="h-5 w-5 text-primary" />
                             </div>
-                            <span className="font-medium">{user.name}</span>
+                            <div className="min-w-0">
+                              <span className="font-medium block truncate">{user.name}</span>
+                              <span className="text-xs text-muted-foreground font-mono sm:hidden">{user.username}</span>
+                            </div>
                           </div>
                         </TableCell>
-                        <TableCell className="font-mono">{user.username}</TableCell>
+                        <TableCell className="font-mono hidden sm:table-cell">{user.username}</TableCell>
                         <TableCell>
                           <Badge variant="outline" className={`${roleConfig.color} border-0`}>
                             {roleConfig.label}
                           </Badge>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="hidden md:table-cell">
                           {userSections.length > 0 ? (
                             <div className="flex flex-wrap gap-1">
                               {userSections.slice(0, 3).map((s, i) => {
@@ -301,7 +304,7 @@ export default function UsersPage() {
                             </Badge>
                           )}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="hidden lg:table-cell">
                           {(() => {
                             const settings = (user.settings as UserSettings) || {};
                             const hasBadges = settings.allowMultiplier || settings.canAuthorizeOwnExceptions;

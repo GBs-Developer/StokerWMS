@@ -177,24 +177,29 @@ export default function PermissoesPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Usuário</TableHead>
+                    <TableHead className="hidden sm:table-cell">Usuário</TableHead>
                     <TableHead>Nome</TableHead>
                     <TableHead>Cargo</TableHead>
-                    <TableHead>Módulos</TableHead>
+                    <TableHead className="hidden md:table-cell">Módulos</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {users?.map((u) => (
                     <TableRow key={u.id} data-testid={`row-user-${u.id}`}>
-                      <TableCell className="font-mono text-sm">{u.username}</TableCell>
-                      <TableCell>{u.name}</TableCell>
+                      <TableCell className="font-mono text-sm hidden sm:table-cell">{u.username}</TableCell>
+                      <TableCell>
+                        <div className="min-w-0">
+                          <span className="block">{u.name}</span>
+                          <span className="text-xs text-muted-foreground font-mono sm:hidden">{u.username}</span>
+                        </div>
+                      </TableCell>
                       <TableCell>
                         <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-primary/10 text-primary">
                           {roleLabels[u.role] || u.role}
                         </span>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="hidden md:table-cell">
                         {u.allowedModules ? (
                           <span className="text-sm text-muted-foreground">
                             {u.allowedModules.length} módulo{u.allowedModules.length !== 1 ? "s" : ""}

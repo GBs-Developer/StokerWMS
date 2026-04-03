@@ -896,9 +896,9 @@ export default function PickingListReport() {
                                                 </TableHead>
                                                 <TableHead>Pedido</TableHead>
                                                 <TableHead>Cliente</TableHead>
-                                                <TableHead className="w-16 text-center">Prod.</TableHead>
-                                                <TableHead className="text-right">Valor</TableHead>
-                                                <TableHead className="text-center">Status Fin.</TableHead>
+                                                <TableHead className="w-16 text-center hidden sm:table-cell">Prod.</TableHead>
+                                                <TableHead className="text-right hidden md:table-cell">Valor</TableHead>
+                                                <TableHead className="text-center hidden md:table-cell">Status Fin.</TableHead>
                                                 {user && ["administrador", "supervisor"].includes(user.role) && (
                                                     <TableHead className="text-center w-32">Ações</TableHead>
                                                 )}
@@ -929,17 +929,17 @@ export default function PickingListReport() {
                                                         </TableCell>
                                                         <TableCell className="font-mono font-medium text-primary">{order.erpOrderId}</TableCell>
                                                         <TableCell className="font-medium">{order.customerName}</TableCell>
-                                                        <TableCell className="text-center">
+                                                        <TableCell className="text-center hidden sm:table-cell">
                                                             <Badge variant="outline">
                                                                 {!selectAllPickupPoints && selectedPickupPoints.length > 0 && filteredCounts[order.id] !== undefined 
                                                                     ? filteredCounts[order.id] || 0
                                                                     : order.itemCount || 0}
                                                             </Badge>
                                                         </TableCell>
-                                                        <TableCell className="text-right font-medium">
+                                                        <TableCell className="text-right font-medium hidden md:table-cell">
                                                             {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(order.totalValue || 0))}
                                                         </TableCell>
-                                                        <TableCell className="text-center">
+                                                        <TableCell className="text-center hidden md:table-cell">
                                                             <Badge variant={order.financialStatus === 'faturado' ? 'default' : 'secondary'} className={`shadow-none capitalize ${order.financialStatus === 'faturado' ? 'bg-green-600 hover:bg-green-700' : ''}`}>
                                                                 {order.financialStatus === 'faturado' ? 'Liberado' : (order.financialStatus || 'Pendente')}
                                                             </Badge>

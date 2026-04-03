@@ -381,11 +381,11 @@ export default function MappingStudioPage() {
                     <TableHeader>
                       <TableRow>
                         <TableHead className="w-[180px]">Campo App</TableHead>
-                        <TableHead className="w-[80px]">Tipo</TableHead>
-                        <TableHead className="w-[60px]">Obrig.</TableHead>
+                        <TableHead className="w-[80px] hidden sm:table-cell">Tipo</TableHead>
+                        <TableHead className="w-[60px] hidden sm:table-cell">Obrig.</TableHead>
                         <TableHead className="min-w-[200px]">Expressão DB2 (coluna)</TableHead>
-                        <TableHead className="w-[160px]">Conversão</TableHead>
-                        <TableHead className="w-[140px]">Valor Padrão</TableHead>
+                        <TableHead className="w-[160px] hidden lg:table-cell">Conversão</TableHead>
+                        <TableHead className="w-[140px] hidden lg:table-cell">Valor Padrão</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -401,12 +401,12 @@ export default function MappingStudioPage() {
                                 )}
                               </div>
                             </TableCell>
-                            <TableCell>
+                            <TableCell className="hidden sm:table-cell">
                               <Badge variant="outline" className="font-mono text-xs">
                                 {row.type}
                               </Badge>
                             </TableCell>
-                            <TableCell>
+                            <TableCell className="hidden sm:table-cell">
                               {row.required ? (
                                 <Badge className="bg-red-100 text-red-700 border-red-200">Sim</Badge>
                               ) : (
@@ -436,7 +436,7 @@ export default function MappingStudioPage() {
                                 </SelectContent>
                               </Select>
                             </TableCell>
-                            <TableCell>
+                            <TableCell className="hidden lg:table-cell">
                               <Select
                                 value={row.cast || "_none"}
                                 onValueChange={(val) => updateMappingRow(idx, "cast", val === "_none" ? "" : val)}
@@ -453,7 +453,7 @@ export default function MappingStudioPage() {
                                 </SelectContent>
                               </Select>
                             </TableCell>
-                            <TableCell>
+                            <TableCell className="hidden lg:table-cell">
                               <Input
                                 value={row.defaultValue || ""}
                                 onChange={e => updateMappingRow(idx, "defaultValue", e.target.value)}

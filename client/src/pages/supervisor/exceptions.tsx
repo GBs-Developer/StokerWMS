@@ -290,14 +290,14 @@ td.nowrap { white-space: nowrap; }
                 <TableHeader>
                   <TableRow>
                     <TableHead>Pedido</TableHead>
-                    <TableHead>Data/Hora</TableHead>
-                    <TableHead>Código</TableHead>
-                    <TableHead>Descrição</TableHead>
-                    <TableHead>Quantidade</TableHead>
+                    <TableHead className="hidden lg:table-cell">Data/Hora</TableHead>
+                    <TableHead className="hidden md:table-cell">Código</TableHead>
+                    <TableHead className="hidden lg:table-cell">Descrição</TableHead>
+                    <TableHead>Qtd</TableHead>
                     <TableHead>Motivo</TableHead>
-                    <TableHead>Reportado Por</TableHead>
-                    <TableHead>Observação</TableHead>
-                    <TableHead>Autorizado Por</TableHead>
+                    <TableHead className="hidden md:table-cell">Reportado</TableHead>
+                    <TableHead className="hidden xl:table-cell">Observação</TableHead>
+                    <TableHead className="hidden md:table-cell">Autorizado</TableHead>
                     {isAdmin && <TableHead className="w-[60px]"></TableHead>}
                   </TableRow>
                 </TableHeader>
@@ -309,54 +309,50 @@ td.nowrap { white-space: nowrap; }
                     };
                     return (
                       <TableRow key={exception.id} data-testid={`row-exception-${exception.id}`}>
-                        {/* Pedido */}
                         <TableCell className="font-mono font-medium">
-                          {exception.orderItem?.order?.erpOrderId || "-"}
+                          <div className="flex flex-col">
+                            <span>{exception.orderItem?.order?.erpOrderId || "-"}</span>
+                            <span className="text-[10px] text-muted-foreground font-normal lg:hidden">
+                              {format(new Date(exception.createdAt), "dd/MM HH:mm", { locale: ptBR })}
+                            </span>
+                          </div>
                         </TableCell>
 
-                        {/* Data/Hora */}
-                        <TableCell className="text-sm whitespace-nowrap">
+                        <TableCell className="text-sm whitespace-nowrap hidden lg:table-cell">
                           {format(new Date(exception.createdAt), "dd/MM/yyyy HH:mm", {
                             locale: ptBR,
                           })}
                         </TableCell>
 
-                        {/* Código (Barcode) */}
-                        <TableCell className="font-mono text-xs">
+                        <TableCell className="font-mono text-xs hidden md:table-cell">
                           {exception.orderItem?.product?.barcode || "-"}
                         </TableCell>
 
-                        {/* Descrição */}
-                        <TableCell className="max-w-[250px]">
+                        <TableCell className="max-w-[250px] hidden lg:table-cell">
                           <p className="font-medium truncate" title={exception.orderItem?.product?.name || "-"}>
                             {exception.orderItem?.product?.name || "-"}
                           </p>
                         </TableCell>
 
-                        {/* Quantidade */}
                         <TableCell className="font-medium">
                           {Number(exception.quantity)} {exception.orderItem?.product?.unit || "UN"}
                         </TableCell>
 
-                        {/* Motivo */}
                         <TableCell>
                           <Badge variant="outline" className={`${typeConfig.color} border-0`}>
                             {typeConfig.label}
                           </Badge>
                         </TableCell>
 
-                        {/* Reportado Por */}
-                        <TableCell>{exception.reportedByUser?.name || "-"}</TableCell>
+                        <TableCell className="hidden md:table-cell">{exception.reportedByUser?.name || "-"}</TableCell>
 
-                        {/* Observação */}
-                        <TableCell className="max-w-[200px]">
+                        <TableCell className="max-w-[200px] hidden xl:table-cell">
                           <p className="text-sm text-muted-foreground truncate">
                             {exception.observation || "-"}
                           </p>
                         </TableCell>
 
-                        {/* Autorizado Por */}
-                        <TableCell>
+                        <TableCell className="hidden md:table-cell">
                           {exception.authorizedByName ? (
                             <div className="flex items-center gap-1 text-sm">
                               <span className="text-green-600">✓</span>

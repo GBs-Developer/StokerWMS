@@ -225,7 +225,7 @@ export default function ManualQtyRulesPage() {
                   <TableRow>
                     <TableHead>Tipo</TableHead>
                     <TableHead>Valor</TableHead>
-                    <TableHead>Descrição</TableHead>
+                    <TableHead className="hidden md:table-cell">Descrição</TableHead>
                     <TableHead>Ativo</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
@@ -239,7 +239,7 @@ export default function ManualQtyRulesPage() {
                         </Badge>
                       </TableCell>
                       <TableCell className="font-mono">{rule.value}</TableCell>
-                      <TableCell>
+                      <TableCell className="hidden md:table-cell">
                         {rule.description || <span className="text-muted-foreground text-xs italic">—</span>}
                       </TableCell>
                       <TableCell>

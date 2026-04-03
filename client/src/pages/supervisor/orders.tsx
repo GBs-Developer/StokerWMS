@@ -515,10 +515,10 @@ small.dim { color: #888; font-size: 8px; }
         </div>
 
         {/* FILTERS PANEL */}
-        <div className="bg-card border rounded-lg p-4 shadow-sm space-y-4 print:hidden">
-          <div className="flex flex-wrap gap-4 items-end">
+        <div className="bg-card border rounded-lg p-3 md:p-4 shadow-sm space-y-3 md:space-y-4 print:hidden">
+          <div className="flex flex-wrap gap-3 md:gap-4 items-end">
             {/* 1. Search */}
-            <div className="flex-1 min-w-[200px] space-y-1">
+            <div className="flex-1 min-w-[160px] md:min-w-[200px] space-y-1">
               <label className="text-xs font-medium text-muted-foreground">Busca por Pedido</label>
               <div className="relative">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -566,9 +566,9 @@ small.dim { color: #888; font-size: 8px; }
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-4 items-end pt-2 border-t">
+          <div className="flex flex-wrap gap-3 md:gap-4 items-end pt-2 border-t">
             <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-              <Filter className="h-4 w-4" /> Filtros Estritos:
+              <Filter className="h-4 w-4" /> <span className="hidden sm:inline">Filtros Estritos:</span><span className="sm:hidden">Filtros:</span>
             </div>
 
             {/* 3. Financial */}
@@ -631,10 +631,10 @@ small.dim { color: #888; font-size: 8px; }
 
         {/* BULK ACTIONS */}
         {selectedOrders.length > 0 && (
-          <div className="flex items-center gap-2 p-3 bg-primary/10 border border-primary/20 rounded-lg animate-in fade-in slide-in-from-top-2 print:hidden">
-            <CheckCircle2 className="h-5 w-5 text-primary" />
+          <div className="flex flex-wrap items-center gap-2 p-3 bg-primary/10 border border-primary/20 rounded-lg animate-in fade-in slide-in-from-top-2 print:hidden">
+            <CheckCircle2 className="h-5 w-5 text-primary shrink-0" />
             <span className="text-sm font-medium">{selectedOrders.length} selecionados</span>
-            <div className="h-4 w-px bg-border mx-2" />
+            <div className="h-4 w-px bg-border mx-1 hidden sm:block" />
 
             <Button size="sm" variant="outline" onClick={() => setShowRouteDialog(true)}>
               <RouteIcon className="h-4 w-4 mr-2" /> Atribuir Rota
@@ -715,17 +715,17 @@ small.dim { color: #888; font-size: 8px; }
                   />
                 </TableHead>
                 <TableHead className="font-bold text-primary print:text-black">Nº Pedido</TableHead>
-                <TableHead>Data</TableHead>
+                <TableHead className="hidden lg:table-cell">Data</TableHead>
                 <TableHead>Cliente</TableHead>
-                <TableHead>Valor (R$)</TableHead>
-                <TableHead>Itens</TableHead>
-                <TableHead>Status Fin.</TableHead>
+                <TableHead className="hidden xl:table-cell">Valor (R$)</TableHead>
+                <TableHead className="hidden lg:table-cell">Itens</TableHead>
+                <TableHead className="hidden md:table-cell">Status Fin.</TableHead>
                 <TableHead>Status Sep./Conf.</TableHead>
-                <TableHead>Vol.</TableHead>
-                <TableHead>Pacote</TableHead>
-                <TableHead>Rota</TableHead>
-                <TableHead>Prioridade</TableHead>
-                <TableHead>Lançado</TableHead>
+                <TableHead className="hidden xl:table-cell">Vol.</TableHead>
+                <TableHead className="hidden xl:table-cell">Pacote</TableHead>
+                <TableHead className="hidden lg:table-cell">Rota</TableHead>
+                <TableHead className="hidden xl:table-cell">Prioridade</TableHead>
+                <TableHead className="hidden lg:table-cell">Lançado</TableHead>
                 <TableHead className="w-[50px] print:hidden"></TableHead>
               </TableRow>
             </TableHeader>
@@ -746,18 +746,25 @@ small.dim { color: #888; font-size: 8px; }
                       <TableCell className="print:hidden" onClick={e => e.stopPropagation()}>
                         <Checkbox checked={selectedOrders.includes(order.id)} onCheckedChange={c => handleSelectOrder(order.id, !!c)} />
                       </TableCell>
-                      <TableCell className="font-mono font-bold text-base">{order.erpOrderId}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{format(new Date(order.createdAt), "dd/MM HH:mm")}</TableCell>
+                      <TableCell className="font-mono font-bold text-base">
+                        <div className="flex flex-col">
+                          <span>{order.erpOrderId}</span>
+                          <span className="text-[10px] text-muted-foreground font-normal lg:hidden">
+                            {format(new Date(order.createdAt), "dd/MM HH:mm")}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground hidden lg:table-cell">{format(new Date(order.createdAt), "dd/MM HH:mm")}</TableCell>
                       <TableCell>
                         <div className="flex flex-col">
-                          <span className="font-medium text-sm truncate max-w-[180px]" title={order.customerName}>{order.customerName}</span>
+                          <span className="font-medium text-sm truncate max-w-[120px] md:max-w-[180px]" title={order.customerName}>{order.customerName}</span>
                           <span className="text-[10px] text-muted-foreground">{order.customerCode || '-'}</span>
                         </div>
                       </TableCell>
-                      <TableCell className="font-mono text-sm">
+                      <TableCell className="font-mono text-sm hidden xl:table-cell">
                         {order.totalValue ? `R$ ${order.totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : '-'}
                       </TableCell>
-                      <TableCell className="text-center">
+                      <TableCell className="text-center hidden lg:table-cell">
                         <div className="flex flex-col items-center gap-1">
                           <span className="text-[10px] font-medium text-muted-foreground">
                             {order.pickedItems || 0}/{order.totalItems || 0}
@@ -768,7 +775,7 @@ small.dim { color: #888; font-size: 8px; }
                           />
                         </div>
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="hidden md:table-cell">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase
                                         ${order.financialStatus === 'faturado' ? 'bg-green-100 text-green-700 print:border print:border-green-700' : 'bg-yellow-100 text-yellow-700 print:border print:border-yellow-700'}`}>
                           {order.financialStatus === 'faturado' ? 'Liberado' : order.financialStatus}
@@ -777,8 +784,7 @@ small.dim { color: #888; font-size: 8px; }
                       <TableCell>
                         <StatusBadge status={order.status} hasExceptions={order.hasExceptions} />
                       </TableCell>
-                      {/* Volume */}
-                      <TableCell className="text-center">
+                      <TableCell className="text-center hidden xl:table-cell">
                         {volumeMap.get(order.id) ? (
                           <span className="inline-flex items-center justify-center h-6 min-w-[1.75rem] px-1.5 rounded-full bg-blue-100 text-blue-700 text-xs font-bold">
                             {volumeMap.get(order.id)!.totalVolumes}
@@ -787,21 +793,20 @@ small.dim { color: #888; font-size: 8px; }
                           <span className="text-muted-foreground text-xs">-</span>
                         )}
                       </TableCell>
-                      {/* Pacote */}
-                      <TableCell>
+                      <TableCell className="hidden xl:table-cell">
                         {order.loadCode ? <span className="font-mono text-xs font-bold bg-purple-50 text-purple-700 px-2 py-0.5 rounded print:border print:border-purple-700">{order.loadCode}</span> : <span className="text-muted-foreground text-xs">-</span>}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="hidden lg:table-cell">
                         {route ? (
                           <div className="flex items-center gap-1">
                             <span className="font-mono text-xs bg-blue-50 text-blue-700 px-1 rounded print:border print:border-blue-700">{route.code}</span>
                           </div>
                         ) : <span className="text-muted-foreground text-xs">-</span>}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="hidden xl:table-cell">
                         {order.priority > 0 ? <Badge variant="destructive" className="text-[10px] print:border print:border-red-700">Alta</Badge> : <span className="text-[10px] text-muted-foreground">Normal</span>}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="hidden lg:table-cell">
                         {order.isLaunched ? (
                           <div className="flex flex-col items-center">
                             <CheckCircle2 className="h-4 w-4 text-green-500 mb-0.5" />

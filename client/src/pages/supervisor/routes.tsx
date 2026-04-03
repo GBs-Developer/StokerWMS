@@ -195,7 +195,7 @@ export default function RoutesPage() {
                                     <TableRow>
                                         <TableHead>Código</TableHead>
                                         <TableHead>Nome</TableHead>
-                                        <TableHead>Descrição</TableHead>
+                                        <TableHead className="hidden md:table-cell">Descrição</TableHead>
                                         <TableHead>Status</TableHead>
                                         <TableHead className="text-right">Ações</TableHead>
                                     </TableRow>
@@ -205,7 +205,7 @@ export default function RoutesPage() {
                                         <TableRow key={route.id}>
                                             <TableCell className="font-mono">{route.code}</TableCell>
                                             <TableCell className="font-medium">{route.name}</TableCell>
-                                            <TableCell>{route.description || "-"}</TableCell>
+                                            <TableCell className="hidden md:table-cell">{route.description || "-"}</TableCell>
                                             <TableCell>
                                                 {route.active ? (
                                                     <Badge variant="outline" className="bg-green-100 text-green-700 border-0">

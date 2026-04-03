@@ -18,6 +18,7 @@ Preferred communication style: Simple, everyday language.
 - **State Management**: TanStack React Query for server state with controlled caching per session
 - **UI Components**: shadcn/ui (Radix primitives) with Tailwind CSS and CSS custom properties for theming
 - **Design System**: Premium mobile-first UI with Inter font (Google Fonts), glassmorphism effects, `rounded-2xl` cards, `rounded-xl` inputs/buttons, subtle animations (fade-in, slide-up, scale-in)
+- **Responsive Tables**: All admin/supervisor data tables use progressive column hiding (`hidden sm:table-cell`, `md:`, `lg:`, `xl:`) instead of horizontal scroll. Primary identifiers and actions always visible; secondary metadata hidden at smaller breakpoints. Applied to: orders, users, exceptions, audit, routes, route-orders, permissoes, manual-qty-rules, picking-list, mapping-studio
 - **Layout Pattern**: `max-w-lg mx-auto px-4 py-4 space-y-3 safe-bottom` for WMS operational pages
 - **Header**: `GradientHeader` component with dark gradient (`hsl(222,47%,14%)` → `hsl(199,89%,30%)`) + radial overlays, `compact` prop
 - **Cards**: `rounded-2xl border border-border/50 bg-card` with `divide-y divide-border/30` item lists

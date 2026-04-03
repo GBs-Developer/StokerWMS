@@ -161,9 +161,9 @@ export default function AuditPage() {
                                         <TableHead>Data/Hora</TableHead>
                                         <TableHead>Usuário</TableHead>
                                         <TableHead>Ação</TableHead>
-                                        <TableHead>Módulo</TableHead>
-                                        <TableHead>Detalhes</TableHead>
-                                        <TableHead>IP</TableHead>
+                                        <TableHead className="hidden md:table-cell">Módulo</TableHead>
+                                        <TableHead className="hidden sm:table-cell">Detalhes</TableHead>
+                                        <TableHead className="hidden lg:table-cell">IP</TableHead>
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
@@ -194,20 +194,17 @@ export default function AuditPage() {
                                                     </Badge>
                                                 </TableCell>
 
-                                                {/* Módulo */}
-                                                <TableCell className="text-sm text-muted-foreground">
+                                                <TableCell className="text-sm text-muted-foreground hidden md:table-cell">
                                                     {log.entityType}
                                                 </TableCell>
 
-                                                {/* Detalhes */}
-                                                <TableCell className="max-w-[400px]">
+                                                <TableCell className="max-w-[400px] hidden sm:table-cell">
                                                     <div className="max-h-[100px] overflow-y-auto pr-2 text-sm whitespace-pre-wrap break-words">
                                                         {log.details || "-"}
                                                     </div>
                                                 </TableCell>
 
-                                                {/* IP */}
-                                                <TableCell className="text-xs font-mono text-muted-foreground">
+                                                <TableCell className="text-xs font-mono text-muted-foreground hidden lg:table-cell">
                                                     {log.ipAddress || "-"}
                                                 </TableCell>
                                             </TableRow>
