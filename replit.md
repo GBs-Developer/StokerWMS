@@ -102,7 +102,8 @@ Routes are registered in `server/routes.ts` (legacy + auth) and `server/wms-rout
 ### Concurrency & Data Integrity
 - **Lock ownership enforcement**: `assertLockOwnership()` function verifies that the requesting user is the lock owner before allowing scan-item, check-item, balcao-item, batch-sync, complete, complete-balcao, and complete-conference operations. Supervisors/admins bypass this check.
 - **Terminal state guard**: Completion endpoints (complete, complete-balcao, complete-conference) return idempotent success if work unit is already `concluido`, preventing duplicate audit logs and SSE broadcasts
-- **Atomic quantity increments**: All scan endpoints (scan-item, check-item, balcao-item) and batch-sync use SQL-level `COALESCE(field, 0) + delta` atomic increments via `atomicIncrementSeparatedQty`/`atomicIncrementCheckedQty` methods — prevents race conditions on concurrent quantity updates
+- **Atomic quantity increments with DB-level cap**: All scan endpoints (scan-item, check-item, balcao-item) and batch-sync use SQL-level `LEAST(COALESCE(field, 0) + delta, quantity - COALESCE(exceptionQty, 0))` atomic increments via `atomicIncrementSeparatedQty`/`atomicIncrementCheckedQty` — prevents both race conditions and over-target quantities at the DB level
+- **Duplicate product handling**: All scan endpoints use `filter()` + smart selection (pick item with lowest progress toward target) instead of `find()`, correctly handling orders with the same product on multiple lines
 - **Batch sync exception validation**: Exception quantity validated against item total within the transaction; negative/zero quantities skipped
 - **Completion checks** (`checkAndCompleteWorkUnit`, `checkAndCompleteConference`): Wrapped in database transactions to ensure atomic read-verify-update
 - **Order status transition** (`checkAndUpdateOrderStatus`): Fully transactional — all reads (work units, existing conference check) and writes (status update, conference WU creation) happen within a single `db.transaction()`. Guards against cancelled/finalizado orders to prevent status resurrection
@@ -116,7 +117,9 @@ Routes are registered in `server/routes.ts` (legacy + auth) and `server/wms-rout
 - **Full state cleanup on cancel**: All three modules clear queues, delta stores, selectedAddresses, and reset currentProductIndex on cancel — prevents state contamination between orders
 - **reset-item-check WU status**: Resetting checked items also sets work unit status back to `em_andamento` within the same transaction, preventing inconsistent state where items are reset but WU remains `concluido`
 - **Relaunch company scoping**: `/api/orders/relaunch` now validates order belongs to requesting company before relaunching
-- **Picking session cleanup**: `unlock` endpoint and `relaunchOrder` both delete associated picking sessions to prevent ghost sessions
+- **Picking session cleanup**: `unlock` endpoint deletes picking sessions by `orderId`+`sectionId` (no `workUnitId` column exists); `relaunchOrder` deletes by `orderId`
+- **No scan retry on failure**: Scan queue no longer retries failed requests automatically — this prevents double-increment when the first request succeeded but the response was lost. On failure, pending deltas are cleared and the UI refreshes from server state
+- **Romaneio pickup_point filter**: When specific `orderIds` are selected, item-level `pickup_point` filtering is skipped since order-level selection already scopes correctly
 - **Exception authorization scoping**: `authorizeExceptions` accepts optional `companyId` and validates exception ownership via JOIN to `workUnits.companyId`; also blocks re-authorization of already-authorized exceptions
 - **Failed login auditing**: Failed login attempts logged with IP/UserAgent for security monitoring
 

@@ -572,7 +572,7 @@ export class DatabaseStorage implements IStorage {
   async atomicIncrementSeparatedQty(itemId: string, delta: number, newStatus: string): Promise<OrderItem | undefined> {
     const [updated] = await db.update(orderItems)
       .set({
-        separatedQty: sql`COALESCE(${orderItems.separatedQty}, 0) + ${delta}`,
+        separatedQty: sql`LEAST(COALESCE(${orderItems.separatedQty}, 0) + ${delta}, ${orderItems.quantity} - COALESCE(${orderItems.exceptionQty}, 0))`,
         status: newStatus,
       })
       .where(eq(orderItems.id, itemId))
@@ -583,7 +583,7 @@ export class DatabaseStorage implements IStorage {
   async atomicIncrementCheckedQty(itemId: string, delta: number, newStatus: string): Promise<OrderItem | undefined> {
     const [updated] = await db.update(orderItems)
       .set({
-        checkedQty: sql`COALESCE(${orderItems.checkedQty}, 0) + ${delta}`,
+        checkedQty: sql`LEAST(COALESCE(${orderItems.checkedQty}, 0) + ${delta}, ${orderItems.quantity} - COALESCE(${orderItems.exceptionQty}, 0))`,
         status: newStatus,
       })
       .where(eq(orderItems.id, itemId))
@@ -633,14 +633,9 @@ export class DatabaseStorage implements IStorage {
         );
       }
 
-      const wuIds = await tx.select({ id: workUnits.id })
-        .from(workUnits)
-        .where(eq(workUnits.orderId, orderId));
-      if (wuIds.length > 0) {
-        await tx.delete(pickingSessions).where(
-          inArray(pickingSessions.workUnitId, wuIds.map(w => w.id))
-        );
-      }
+      await tx.delete(pickingSessions).where(
+        eq(pickingSessions.orderId, orderId)
+      );
     });
   }
 
@@ -1305,7 +1300,7 @@ export class DatabaseStorage implements IStorage {
       ppFilters = [];
     }
 
-    if (ppFilters.length > 0) {
+    if (ppFilters.length > 0 && (!filters.orderIds || filters.orderIds.length === 0)) {
       conditions.push(inArray(orderItems.pickupPoint, ppFilters));
     }
 

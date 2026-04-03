@@ -15,7 +15,7 @@ import fs from "fs";
 import { fileURLToPath } from "url";
 import { setupSSE, broadcastSSE } from "./sse";
 import { db } from "./db";
-import { eq, sql as drizzleSql } from "drizzle-orm";
+import { and, eq, sql as drizzleSql } from "drizzle-orm";
 import { getDataContract, getAvailableDatasets } from "./data-contracts";
 import { log } from "./log";
 
@@ -1337,7 +1337,15 @@ export async function registerRoutes(
       await storage.unlockWorkUnits(workUnitIds);
 
       for (const wuId of workUnitIds) {
-        await db.delete(pickingSessions).where(eq(pickingSessions.workUnitId, wuId));
+        const wu = await storage.getWorkUnitById(wuId);
+        if (wu) {
+          await db.delete(pickingSessions).where(
+            and(
+              eq(pickingSessions.orderId, wu.orderId),
+              wu.section ? eq(pickingSessions.sectionId, wu.section) : undefined
+            )
+          );
+        }
       }
 
       if (reset) {
@@ -1380,9 +1388,12 @@ export async function registerRoutes(
       broadcastSSE("work_units_unlocked", { workUnitIds, affectedOrderIds: [...affectedOrderIds] }, (req as any).companyId);
 
       res.json({ success: true });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Unlock work units error:", error);
-      res.status(500).json({ error: "Erro interno" });
+      const detail = error?.code === "LOCK_CONFLICT" ? "Conflito ao desbloquear — unidade já foi desbloqueada por outro operador."
+        : error?.code === "23503" ? "Erro de referência no banco de dados. Contate o suporte."
+        : "Erro interno ao desbloquear unidades. Tente novamente.";
+      res.status(500).json({ error: detail });
     }
   });
 
@@ -1609,17 +1620,23 @@ export async function registerRoutes(
         return res.json({ status: "not_found" });
       }
 
-      const item = workUnit.items.find(i => i.productId === product.id);
-      if (!item) {
+      const matchingItems = workUnit.items.filter(i => i.productId === product.id);
+      if (matchingItems.length === 0) {
         return res.json({ status: "not_found" });
       }
+      const item = matchingItems.length === 1
+        ? matchingItems[0]
+        : matchingItems.find(i => {
+            const sep = Number(i.separatedQty);
+            const tgt = Number(i.quantity) - Number(i.exceptionQty || 0);
+            return sep < tgt;
+          }) || matchingItems[0];
 
       const currentQty = Number(item.separatedQty);
       const targetQty = Number(item.quantity);
       const exceptionQty = Number(item.exceptionQty || 0);
       const adjustedTarget = targetQty - exceptionQty;
 
-      // If trying to scan more than adjusted target (accounting for exceptions)
       if (currentQty >= adjustedTarget) {
         await storage.atomicResetItemAndWorkUnit(item.id, req.params.id as string, workUnit.orderId, "separatedQty", "recontagem");
         const resetWorkUnit = await storage.getWorkUnitById(req.params.id as string);
@@ -1708,9 +1725,12 @@ export async function registerRoutes(
         quantity: requestedQty,
         workUnit: finalWorkUnit,
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Scan item error:", error);
-      res.status(500).json({ error: "Erro interno" });
+      const detail = error?.code === "23505" ? "Conflito de dados. Atualize a tela e tente novamente."
+        : error?.code === "LOCK_CONFLICT" ? "Bloqueio expirado. Reabra a unidade de trabalho."
+        : "Erro interno ao processar leitura. Tente novamente.";
+      res.status(500).json({ error: detail });
     }
   });
 
@@ -1732,10 +1752,17 @@ export async function registerRoutes(
         return res.json({ status: "not_found" });
       }
 
-      const item = workUnit.items.find(i => i.productId === product.id);
-      if (!item) {
+      const matchingItems = workUnit.items.filter(i => i.productId === product.id);
+      if (matchingItems.length === 0) {
         return res.json({ status: "not_found" });
       }
+      const item = matchingItems.length === 1
+        ? matchingItems[0]
+        : matchingItems.find(i => {
+            const chk = Number(i.checkedQty);
+            const tgt = Number(i.quantity) - Number(i.exceptionQty || 0);
+            return chk < tgt;
+          }) || matchingItems[0];
 
       const currentQty = Number(item.checkedQty);
       const separatedQty = Number(item.separatedQty);
@@ -1919,10 +1946,17 @@ export async function registerRoutes(
         return res.json({ status: "not_found" });
       }
 
-      const item = workUnit.items.find(i => i.productId === product.id);
-      if (!item) {
+      const matchingItems = workUnit.items.filter(i => i.productId === product.id);
+      if (matchingItems.length === 0) {
         return res.json({ status: "not_found" });
       }
+      const item = matchingItems.length === 1
+        ? matchingItems[0]
+        : matchingItems.find(i => {
+            const sep = Number(i.separatedQty);
+            const tgt = Number(i.quantity) - Number(i.exceptionQty || 0);
+            return sep < tgt;
+          }) || matchingItems[0];
 
       const currentQty = Number(item.separatedQty);
       const itemExcQty = Number(item.exceptionQty || 0);

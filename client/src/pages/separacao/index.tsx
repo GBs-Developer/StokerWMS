@@ -579,8 +579,9 @@ export default function SeparacaoPage() {
       setScanStatus("idle");
       setScanMessage("");
       queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
-    } catch {
-      toast({ title: "Erro", description: "Falha ao bloquear unidades de trabalho", variant: "destructive" });
+    } catch (err: any) {
+      const detail = err?.message || "Falha ao bloquear unidades de trabalho";
+      toast({ title: "Erro", description: detail, variant: "destructive" });
     }
   };
 
@@ -706,9 +707,10 @@ export default function SeparacaoPage() {
       } else {
         toast({ title: "Concluído", description: "Separação finalizada com sucesso", variant: "default" });
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error completing work units:", error);
-      toast({ title: "Erro", description: "Falha ao finalizar separação", variant: "destructive" });
+      const detail = error?.message || "Falha ao finalizar separação";
+      toast({ title: "Erro", description: detail, variant: "destructive" });
     }
   };
 
@@ -846,43 +848,17 @@ export default function SeparacaoPage() {
             setScanStatus("warning");
             setScanMessage("Produto não encontrado neste pedido");
           }
-        } catch (scanErr) {
-          console.warn("[separacao] Falha ao processar bipe, tentando novamente...", scanErr);
-          await new Promise(r => setTimeout(r, 400));
-          try {
-            const res2 = await apiRequest("POST", `/api/work-units/${finalUnit.id}/scan-item`, { barcode });
-            const result2 = await res2.json();
-            if (result2.status === "over_quantity_with_exception" || result2.status === "over_quantity") {
-              usePendingDeltaStore.getState().dec("separacao", matchedItem.id, multiplier);
-              usePendingDeltaStore.getState().clearItem("separacao", matchedItem.id);
-              usePendingDeltaStore.getState().resetBaseline("separacao", matchedItem.id);
-              const targetQty = Number(matchedItem.quantity) - exceptionQty;
-              setOverQtyContext({
-                productName: matchedItem.product.name,
-                itemIds: [matchedItem.id],
-                workUnitId: finalUnit.id,
-                barcode,
-                targetQty,
-                message: result2.message || `A quantidade de "${matchedItem.product.name}" excedeu o máximo permitido (${targetQty}). A coleta foi reiniciada.`,
-                serverAlreadyReset: true,
-              });
-              setOverQtyModalOpen(true);
-              overQtyModalOpenRef.current = true;
-              queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
-              break;
-            } else if (result2.status === "not_found") {
-              usePendingDeltaStore.getState().dec("separacao", matchedItem.id, multiplier);
-              setScanStatus("warning");
-              setScanMessage("Produto não encontrado neste pedido");
-            }
-          } catch (retryErr) {
-            console.error("[separacao] Retry também falhou:", retryErr);
-            usePendingDeltaStore.getState().clearItem("separacao", matchedItem.id);
-            usePendingDeltaStore.getState().resetBaseline("separacao", matchedItem.id);
-            queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
-            setScanStatus("error");
-            setScanMessage("Erro ao processar leitura");
-          }
+        } catch (scanErr: any) {
+          console.error("[separacao] Falha ao processar bipe:", scanErr);
+          usePendingDeltaStore.getState().clearItem("separacao", matchedItem.id);
+          usePendingDeltaStore.getState().resetBaseline("separacao", matchedItem.id);
+          queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+          setScanStatus("error");
+          const msg = scanErr?.message?.includes("401") ? "Sessão expirada. Faça login novamente."
+            : scanErr?.message?.includes("403") ? "Sem permissão. Verifique o bloqueio."
+            : scanErr?.message?.includes("500") ? "Erro no servidor. Aguarde e tente novamente."
+            : "Falha na comunicação. A tela será atualizada.";
+          setScanMessage(msg);
         }
       }
     } finally {
@@ -948,14 +924,19 @@ export default function SeparacaoPage() {
           } else if (result.status !== "success") {
             usePendingDeltaStore.getState().dec("separacao", task.itemId, task.qty);
             setScanStatus("error");
-            setScanMessage("Erro ao incrementar");
+            setScanMessage(result.error || result.message || `Falha ao incrementar: status "${result.status}"`);
           } else {
             queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
           }
-        } catch {
+        } catch (err: any) {
           usePendingDeltaStore.getState().dec("separacao", task.itemId, task.qty);
           setScanStatus("error");
-          setScanMessage("Erro ao incrementar");
+          const msg = err?.message?.includes("401") ? "Sessão expirada. Faça login novamente."
+            : err?.message?.includes("403") ? "Sem permissão. Verifique o bloqueio da unidade."
+            : err?.message?.includes("409") ? "Conflito de bloqueio. Tente novamente."
+            : err?.message?.includes("500") ? "Erro no servidor. Tente novamente em instantes."
+            : "Falha na comunicação. Verifique sua conexão.";
+          setScanMessage(msg);
         }
       }
     } finally {
