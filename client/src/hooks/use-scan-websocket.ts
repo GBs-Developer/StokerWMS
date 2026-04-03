@@ -14,32 +14,37 @@ export function generateMsgId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-const LS_KEY = "ws_scan_pending_queue";
+const LS_KEY_PREFIX = "ws_scan_pending_queue";
 
-function loadPendingQueue(): PendingMessage[] {
+function getLsKey(ns?: string): string {
+  return ns ? `${LS_KEY_PREFIX}_${ns}` : LS_KEY_PREFIX;
+}
+
+function loadPendingQueue(ns?: string): PendingMessage[] {
   try {
-    const raw = localStorage.getItem(LS_KEY);
+    const raw = localStorage.getItem(getLsKey(ns));
     return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
   }
 }
 
-function savePendingQueue(queue: PendingMessage[]) {
+function savePendingQueue(queue: PendingMessage[], ns?: string) {
   try {
-    localStorage.setItem(LS_KEY, JSON.stringify(queue));
+    localStorage.setItem(getLsKey(ns), JSON.stringify(queue));
   } catch {}
 }
 
-function clearPendingQueue() {
+function clearPendingQueue(ns?: string) {
   try {
-    localStorage.removeItem(LS_KEY);
+    localStorage.removeItem(getLsKey(ns));
   } catch {}
 }
 
 export function useScanWebSocket(
   enabled: boolean,
   onAck?: ScanAckHandler,
+  namespace?: string,
 ) {
   const [status, setStatus] = useState<ConnectionStatus>("disconnected");
   const wsRef = useRef<WebSocket | null>(null);
@@ -47,7 +52,9 @@ export function useScanWebSocket(
   const reconnectAttemptRef = useRef(0);
   const enabledRef = useRef(enabled);
   const onAckRef = useRef(onAck);
-  const pendingQueueRef = useRef<PendingMessage[]>(loadPendingQueue());
+  const nsRef = useRef(namespace);
+  nsRef.current = namespace;
+  const pendingQueueRef = useRef<PendingMessage[]>(loadPendingQueue(namespace));
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
 
@@ -91,7 +98,7 @@ export function useScanWebSocket(
     }
 
     pendingQueueRef.current = [];
-    clearPendingQueue();
+    clearPendingQueue(nsRef.current);
   }, []);
 
   const connect = useCallback(() => {
@@ -142,7 +149,7 @@ export function useScanWebSocket(
                 return parsed.msgId !== msg.msgId;
               } catch { return true; }
             });
-            savePendingQueue(pendingQueueRef.current);
+            savePendingQueue(pendingQueueRef.current, nsRef.current);
           }
           onAckRef.current?.(msg);
         }
@@ -188,13 +195,13 @@ export function useScanWebSocket(
       try {
         ws.send(payload);
         pendingQueueRef.current.push({ id: msgId, data: payload, timestamp: Date.now() });
-        savePendingQueue(pendingQueueRef.current);
+        savePendingQueue(pendingQueueRef.current, nsRef.current);
         return msgId;
       } catch {}
     }
 
     pendingQueueRef.current.push({ id: msgId, data: payload, timestamp: Date.now() });
-    savePendingQueue(pendingQueueRef.current);
+    savePendingQueue(pendingQueueRef.current, nsRef.current);
     return msgId;
   }, []);
 
@@ -213,13 +220,13 @@ export function useScanWebSocket(
       try {
         ws.send(payload);
         pendingQueueRef.current.push({ id: msgId, data: payload, timestamp: Date.now() });
-        savePendingQueue(pendingQueueRef.current);
+        savePendingQueue(pendingQueueRef.current, nsRef.current);
         return msgId;
       } catch {}
     }
 
     pendingQueueRef.current.push({ id: msgId, data: payload, timestamp: Date.now() });
-    savePendingQueue(pendingQueueRef.current);
+    savePendingQueue(pendingQueueRef.current, nsRef.current);
     return msgId;
   }, []);
 

@@ -632,6 +632,7 @@ export default function BalcaoPage() {
   const finalizeWorkUnits = async () => {
     scanQueueRef.current = [];
     incrementQueueRef.current = [];
+    pendingScanContextRef.current.clear();
 
     // Enviar deduções de endereço para os produtos com endereço selecionado
     const deductions = aggregatedProducts
@@ -735,7 +736,7 @@ export default function BalcaoPage() {
     }
   }, [queryClient, workUnitsQueryKey]);
 
-  const { status: wsStatus, sendScan, isConnected: wsConnected } = useScanWebSocket(step === "picking", handleWsScanAck);
+  const { status: wsStatus, sendScan, isConnected: wsConnected } = useScanWebSocket(step === "picking", handleWsScanAck, "balcao");
 
   const processScanQueue = useCallback(async () => {
     if (scanWorkerRunningRef.current) return;
@@ -967,6 +968,7 @@ export default function BalcaoPage() {
   const handleCancelPicking = () => {
     scanQueueRef.current = [];
     incrementQueueRef.current = [];
+    pendingScanContextRef.current.clear();
     usePendingDeltaStore.getState().clear("balcao");
     setSelectedAddresses({});
     setCurrentProductIndex(0);

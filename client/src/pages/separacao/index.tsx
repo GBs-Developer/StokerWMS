@@ -654,6 +654,7 @@ export default function SeparacaoPage() {
   const finalizeWorkUnits = async () => {
     scanQueueRef.current = [];
     incrementQueueRef.current = [];
+    pendingScanContextRef.current.clear();
 
     // Enviar deduções de endereço para os produtos que tiveram endereço selecionado
     const deductions = aggregatedProducts
@@ -759,7 +760,7 @@ export default function SeparacaoPage() {
     }
   }, [queryClient, workUnitsQueryKey]);
 
-  const { status: wsStatus, sendScan, isConnected: wsConnected } = useScanWebSocket(step === "picking", handleWsScanAck);
+  const { status: wsStatus, sendScan, isConnected: wsConnected } = useScanWebSocket(step === "picking", handleWsScanAck, "separacao");
 
   const processScanQueue = useCallback(async () => {
     if (scanWorkerRunningRef.current) return;
@@ -1008,6 +1009,7 @@ export default function SeparacaoPage() {
   const handleCancelPicking = () => {
     scanQueueRef.current = [];
     incrementQueueRef.current = [];
+    pendingScanContextRef.current.clear();
     usePendingDeltaStore.getState().clear("separacao");
     setSelectedAddresses({});
     setCurrentProductIndex(0);

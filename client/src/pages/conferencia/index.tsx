@@ -645,6 +645,8 @@ export default function ConferenciaPage() {
 
   const finalizeWorkUnits = async () => {
     scanQueueRef.current = [];
+    incrementQueueRef.current = [];
+    pendingScanContextRef.current.clear();
     try {
       let anyUnlock = false;
       const completedIds: string[] = []; // Track successfully completed units
@@ -733,7 +735,7 @@ export default function ConferenciaPage() {
     }
   }, [queryClient, workUnitsQueryKey]);
 
-  const { status: wsStatus, sendCheck, isConnected: wsConnected } = useScanWebSocket(step === "checking", handleWsCheckAck);
+  const { status: wsStatus, sendCheck, isConnected: wsConnected } = useScanWebSocket(step === "checking", handleWsCheckAck, "conferencia");
 
   const processScanQueue = useCallback(async () => {
     if (scanWorkerRunningRef.current) return;
@@ -971,12 +973,14 @@ export default function ConferenciaPage() {
 
   const handleCancelChecking = () => {
     usePendingDeltaStore.getState().clear("conferencia");
+    pendingScanContextRef.current.clear();
     const ids = allMyUnits.map(wu => wu.id);
     if (ids.length > 0) {
       unlockMutation.mutate({ ids, reset: true });
     } else {
       clearSession();
       scanQueueRef.current = [];
+      incrementQueueRef.current = [];
       setExceptionItem(null);
       setOverQtyContext(null);
       setStep("select");

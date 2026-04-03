@@ -261,6 +261,9 @@ Tables defined in `shared/schema.ts`:
 - **Race-safe pattern**: All modules generate `msgId` via `generateMsgId()`, set `pendingScanContextRef` context BEFORE calling `sendScan`/`sendCheck`, ensuring ack handlers always find their context
 - **Connection indicator**: `client/src/components/connection-status.tsx` — green/yellow/red dot with animation, shown in scanning header of all three modules
 - **Module integration**: Separação and Balcão use `sendScan`; Conferência uses `sendCheck`. Both `processScanQueue` and `processIncrementQueue` in all modules now fire-and-forget via WebSocket instead of awaiting HTTP
+- **Namespace isolation**: Each module passes a unique namespace (`separacao`, `conferencia`, `balcao`) to the hook, so localStorage pending queues are isolated per module
+- **Context cleanup**: `pendingScanContextRef.current.clear()` is called on cancel, finalize, and context-switch in all modules, preventing stale acks from previous sessions
+- **Server-side dedup**: `processedMsgIds` map caches responses by `msgId` for 5 minutes; replayed messages return the cached response instead of re-executing DB mutations
 
 ### Transaction & Atomicity Patterns
 - **Atomic increments**: `atomicIncrementSeparatedQty` / `atomicIncrementCheckedQty` use `COALESCE(field, 0) + delta` SQL — used by all scan endpoints (scan-item, check-item, balcao-item)

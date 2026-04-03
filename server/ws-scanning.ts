@@ -18,12 +18,33 @@ interface ScanningClient {
 
 const clients = new Map<WebSocket, ScanningClient>();
 
+const processedMsgIds = new Map<string, { timestamp: number; response: object }>();
+const MSG_DEDUP_TTL = 5 * 60 * 1000;
+
+function cleanupProcessedMsgIds() {
+  const now = Date.now();
+  for (const [id, entry] of processedMsgIds) {
+    if (now - entry.timestamp > MSG_DEDUP_TTL) {
+      processedMsgIds.delete(id);
+    }
+  }
+}
+
+setInterval(cleanupProcessedMsgIds, 60_000);
+
 function sendMsg(ws: WebSocket, msg: object) {
   try {
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(msg));
     }
   } catch {}
+}
+
+function sendAndCache(ws: WebSocket, msg: any) {
+  sendMsg(ws, msg);
+  if (msg.msgId) {
+    processedMsgIds.set(msg.msgId, { timestamp: Date.now(), response: msg });
+  }
 }
 
 async function authenticateWS(request: IncomingMessage): Promise<{ userId: string; companyId?: number; role: string; name: string; sections: string[] } | null> {
@@ -84,6 +105,15 @@ function assertLockOwnershipWS(wu: { lockedBy: string | null; lockExpiresAt: str
 
 async function handleScanItem(client: ScanningClient, msg: any) {
   const { msgId, workUnitId, barcode, quantity } = msg;
+
+  if (msgId) {
+    const cached = processedMsgIds.get(msgId);
+    if (cached) {
+      sendMsg(client.ws, cached.response);
+      return;
+    }
+  }
+
   try {
     const workUnit = await storage.getWorkUnitById(workUnitId);
     if (!workUnit) {
@@ -138,7 +168,7 @@ async function handleScanItem(client: ScanningClient, msg: any) {
       const msgText = exceptionQty > 0
         ? `Item com ${exceptionQty} exceção(ões). Máx: ${scanResult.adjustedTarget}. Separação reiniciada.`
         : `Quantidade excedida (${scanResult.adjustedTarget}). Separação reiniciada.`;
-      return sendMsg(client.ws, {
+      return sendAndCache(client.ws, {
         type: "scan_ack",
         msgId,
         status: exceptionQty > 0 ? "over_quantity_with_exception" : "over_quantity",
@@ -154,7 +184,7 @@ async function handleScanItem(client: ScanningClient, msg: any) {
     await storage.checkAndCompleteWorkUnit(workUnitId, false);
     const finalWorkUnit = await storage.getWorkUnitById(workUnitId);
 
-    sendMsg(client.ws, {
+    sendAndCache(client.ws, {
       type: "scan_ack",
       msgId,
       status: "success",
@@ -173,6 +203,15 @@ async function handleScanItem(client: ScanningClient, msg: any) {
 
 async function handleCheckItem(client: ScanningClient, msg: any) {
   const { msgId, workUnitId, barcode, quantity } = msg;
+
+  if (msgId) {
+    const cached = processedMsgIds.get(msgId);
+    if (cached) {
+      sendMsg(client.ws, cached.response);
+      return;
+    }
+  }
+
   try {
     const workUnit = await storage.getWorkUnitById(workUnitId);
     if (!workUnit) {
@@ -258,7 +297,7 @@ async function handleCheckItem(client: ScanningClient, msg: any) {
 
     const finalWorkUnit = await storage.getWorkUnitById(workUnitId);
 
-    sendMsg(client.ws, {
+    sendAndCache(client.ws, {
       type: "check_ack",
       msgId,
       status: "success",
