@@ -12,6 +12,8 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useSSE } from "@/hooks/use-sse";
 import { useBarcodeScanner } from "@/hooks/use-barcode-scanner";
+import { useScanWebSocket, generateMsgId } from "@/hooks/use-scan-websocket";
+import { ConnectionStatusIndicator } from "@/components/connection-status";
 import {
   Store,
   Package,
@@ -141,6 +143,9 @@ export default function BalcaoPage() {
   const incrementQueueRef = useRef<IncrementTask[]>([]);
   const incrementWorkerRunningRef = useRef(false);
   const syncTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  type PendingScanCtx = { itemId: string; qty: number; barcode: string; workUnitId: string; apItems: { id: string }[]; productName: string; targetQty: number; exceptionQty: number };
+  const pendingScanContextRef = useRef<Map<string, PendingScanCtx>>(new Map());
 
   useEffect(() => {
     if (scanStatus !== "idle") {
@@ -695,6 +700,43 @@ export default function BalcaoPage() {
     await finalizeWorkUnits();
   };
 
+  const handleWsScanAck = useCallback((ack: any) => {
+    const ctx = pendingScanContextRef.current.get(ack.msgId);
+    if (!ctx) return;
+    pendingScanContextRef.current.delete(ack.msgId);
+
+    if (ack.status === "success") {
+      queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+    } else if (ack.status === "over_quantity" || ack.status === "over_quantity_with_exception") {
+      ctx.apItems.forEach(item => {
+        usePendingDeltaStore.getState().clearItem("balcao", item.id);
+        usePendingDeltaStore.getState().resetBaseline("balcao", item.id);
+      });
+      queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+      setOverQtyContext({
+        productName: ctx.productName,
+        itemIds: ctx.apItems.map(i => i.id),
+        workUnitId: ctx.workUnitId,
+        barcode: ctx.barcode,
+        targetQty: ctx.targetQty,
+        message: ack.message || `Quantidade de "${ctx.productName}" excedeu o máximo (${ctx.targetQty}). A coleta foi reiniciada.`,
+        serverAlreadyReset: true,
+      });
+      setOverQtyModalOpen(true);
+      overQtyModalOpenRef.current = true;
+    } else if (ack.status === "not_found") {
+      usePendingDeltaStore.getState().dec("balcao", ctx.itemId, ctx.qty);
+      setScanStatus("warning");
+      setScanMessage("Produto não encontrado neste pedido");
+    } else if (ack.status === "error") {
+      usePendingDeltaStore.getState().dec("balcao", ctx.itemId, ctx.qty);
+      setScanStatus("error");
+      setScanMessage(ack.message || "Erro ao processar leitura");
+    }
+  }, [queryClient, workUnitsQueryKey]);
+
+  const { status: wsStatus, sendScan, isConnected: wsConnected } = useScanWebSocket(step === "picking", handleWsScanAck);
+
   const processScanQueue = useCallback(async () => {
     if (scanWorkerRunningRef.current) return;
     scanWorkerRunningRef.current = true;
@@ -784,72 +826,18 @@ export default function BalcaoPage() {
         if (idx >= 0) setCurrentProductIndex(idx);
         setPickingTab("product");
 
-        try {
-          const res = await apiRequest("POST", `/api/work-units/${finalUnit.id}/scan-item`, { barcode });
-          const result = await res.json();
-
-          if (result.status === "success") {
-          } else if (result.status === "over_quantity_with_exception" || result.status === "over_quantity") {
-            usePendingDeltaStore.getState().dec("balcao", matchedItem.id, multiplier);
-            usePendingDeltaStore.getState().clearItem("balcao", matchedItem.id);
-            usePendingDeltaStore.getState().resetBaseline("balcao", matchedItem.id);
-            const tQty = Number(matchedItem.quantity) - Number(matchedItem.exceptionQty || 0);
-            setOverQtyContext({
-              productName: matchedItem.product.name,
-              itemIds: [matchedItem.id],
-              workUnitId: finalUnit.id,
-              barcode,
-              targetQty: tQty,
-              message: result.message || `A quantidade de "${matchedItem.product.name}" excedeu o máximo permitido (${tQty}). A coleta foi reiniciada.`,
-              serverAlreadyReset: true,
-            });
-            setOverQtyModalOpen(true);
-            overQtyModalOpenRef.current = true;
-            queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
-            break;
-          } else if (result.status === "not_found") {
-            usePendingDeltaStore.getState().dec("balcao", matchedItem.id, multiplier);
-            setScanStatus("warning");
-            setScanMessage("Produto não encontrado neste pedido");
-          }
-        } catch (scanErr) {
-          console.warn("[balcao] Falha ao processar bipe, tentando novamente...", scanErr);
-          await new Promise(r => setTimeout(r, 400));
-          try {
-            const res2 = await apiRequest("POST", `/api/work-units/${finalUnit.id}/scan-item`, { barcode });
-            const result2 = await res2.json();
-            if (result2.status === "over_quantity_with_exception" || result2.status === "over_quantity") {
-              usePendingDeltaStore.getState().dec("balcao", matchedItem.id, multiplier);
-              usePendingDeltaStore.getState().clearItem("balcao", matchedItem.id);
-              usePendingDeltaStore.getState().resetBaseline("balcao", matchedItem.id);
-              const tQty = Number(matchedItem.quantity) - Number(matchedItem.exceptionQty || 0);
-              setOverQtyContext({
-                productName: matchedItem.product.name,
-                itemIds: [matchedItem.id],
-                workUnitId: finalUnit.id,
-                barcode,
-                targetQty: tQty,
-                message: result2.message || `A quantidade de "${matchedItem.product.name}" excedeu o máximo permitido (${tQty}). A coleta foi reiniciada.`,
-                serverAlreadyReset: true,
-              });
-              setOverQtyModalOpen(true);
-              overQtyModalOpenRef.current = true;
-              queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
-              break;
-            } else if (result2.status === "not_found") {
-              usePendingDeltaStore.getState().dec("balcao", matchedItem.id, multiplier);
-              setScanStatus("warning");
-              setScanMessage("Produto não encontrado neste pedido");
-            }
-          } catch (retryErr) {
-            console.error("[balcao] Retry também falhou:", retryErr);
-            usePendingDeltaStore.getState().clearItem("balcao", matchedItem.id);
-            usePendingDeltaStore.getState().resetBaseline("balcao", matchedItem.id);
-            queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
-            setScanStatus("error");
-            setScanMessage("Erro ao processar leitura");
-          }
-        }
+        const msgId = generateMsgId();
+        pendingScanContextRef.current.set(msgId, {
+          itemId: matchedItem.id,
+          qty: multiplier,
+          barcode,
+          workUnitId: finalUnit.id,
+          apItems: [{ id: matchedItem.id }],
+          productName: matchedItem.product.name,
+          targetQty: Number(matchedItem.quantity) - Number(matchedItem.exceptionQty || 0),
+          exceptionQty: Number(matchedItem.exceptionQty || 0),
+        });
+        sendScan(finalUnit.id, barcode, undefined, msgId);
       }
     } finally {
       scanWorkerRunningRef.current = false;
@@ -864,70 +852,27 @@ export default function BalcaoPage() {
     }, 300);
   }, [queryClient, workUnitsQueryKey, user, aggregatedProducts]);
 
-  const processIncrementQueue = useCallback(async () => {
-    if (incrementWorkerRunningRef.current) return;
-    incrementWorkerRunningRef.current = true;
-    const sessionTokenAtStart = activeSessionTokenRef.current;
-    try {
-      while (incrementQueueRef.current.length > 0) {
-        if (overQtyModalOpenRef.current) {
-          incrementQueueRef.current = [];
-          break;
-        }
-        if (activeSessionTokenRef.current !== sessionTokenAtStart) {
-          console.warn("[balcao] Stale increment worker — contexto alterado, descartando fila.");
-          incrementQueueRef.current = [];
-          break;
-        }
-        const task = incrementQueueRef.current.shift()!;
-        try {
-          const currentToken = activeSessionTokenRef.current;
-          const res = await apiRequest("POST", `/api/work-units/${task.workUnitId}/scan-item`, {
-            barcode: task.barcode,
-            quantity: task.qty,
-          });
-          const result = await res.json();
-          if (activeSessionTokenRef.current !== currentToken) {
-            console.warn("[balcao] Stale response descartada (contexto alterado).");
-            break;
-          }
-          if (result.status === "over_quantity" || result.status === "over_quantity_with_exception") {
-            incrementQueueRef.current = [];
-            task.apSnapshot.items.forEach(item => {
-              usePendingDeltaStore.getState().clearItem("balcao", item.id);
-              usePendingDeltaStore.getState().resetBaseline("balcao", item.id);
-            });
-            queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
-            const tQtyManual = task.apSnapshot.totalQty - task.apSnapshot.exceptionQty;
-            setOverQtyContext({
-              productName: task.apSnapshot.product.name,
-              itemIds: task.apSnapshot.items.map(i => i.id),
-              workUnitId: task.workUnitId,
-              barcode: task.barcode,
-              targetQty: tQtyManual,
-              message: result.message || `A quantidade de "${task.apSnapshot.product.name}" excedeu o máximo permitido (${tQtyManual}). A coleta foi reiniciada.`,
-              serverAlreadyReset: true,
-            });
-            setOverQtyModalOpen(true);
-            overQtyModalOpenRef.current = true;
-            break;
-          } else if (result.status !== "success") {
-            usePendingDeltaStore.getState().dec("balcao", task.itemId, task.qty);
-            setScanStatus("error");
-            setScanMessage("Erro ao incrementar");
-          } else {
-            queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
-          }
-        } catch {
-          usePendingDeltaStore.getState().dec("balcao", task.itemId, task.qty);
-          setScanStatus("error");
-          setScanMessage("Erro ao incrementar");
-        }
+  const processIncrementQueue = useCallback(() => {
+    while (incrementQueueRef.current.length > 0) {
+      if (overQtyModalOpenRef.current) {
+        incrementQueueRef.current = [];
+        break;
       }
-    } finally {
-      incrementWorkerRunningRef.current = false;
+      const task = incrementQueueRef.current.shift()!;
+      const msgId = generateMsgId();
+      pendingScanContextRef.current.set(msgId, {
+        itemId: task.itemId,
+        qty: task.qty,
+        barcode: task.barcode,
+        workUnitId: task.workUnitId,
+        apItems: task.apSnapshot.items.map(i => ({ id: i.id })),
+        productName: task.apSnapshot.product.name,
+        targetQty: task.apSnapshot.totalQty - task.apSnapshot.exceptionQty,
+        exceptionQty: task.apSnapshot.exceptionQty,
+      });
+      sendScan(task.workUnitId, task.barcode, task.qty, msgId);
     }
-  }, [queryClient, workUnitsQueryKey]);
+  }, [sendScan]);
 
   const handleScanItem = useCallback((barcode: string) => {
     if (syncTimerRef.current) {
@@ -1228,6 +1173,7 @@ export default function BalcaoPage() {
               <span className="text-xs text-muted-foreground truncate">
                 {allMyUnits.map(wu => wu.order.erpOrderId).filter((v, i, a) => a.indexOf(v) === i).join(", ")}
               </span>
+              <ConnectionStatusIndicator status={wsStatus} />
             </div>
             <ScanInput
               placeholder="Leia o código de barras..."

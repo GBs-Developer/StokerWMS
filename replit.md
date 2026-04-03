@@ -253,6 +253,15 @@ Tables defined in `shared/schema.ts`:
 - WMS events: `pallet_created`, `pallet_allocated`, `pallet_transferred`, `pallet_cancelled`
 - All SSE broadcasts include `companyId` parameter for tenant isolation
 
+### WebSocket Scanning (`/ws/scanning`)
+- **Server**: `server/ws-scanning.ts` — handles `scan` (separação/balcão → `atomicScanSeparatedQty`) and `check` (conferência → `atomicIncrementCheckedQty`) messages
+- **Auth**: cookie `authToken` or query param `token`; validates lock ownership and company access per message
+- **Protocol**: client sends `{type: "scan"|"check", msgId, workUnitId, barcode, quantity?}` → server replies `{type: "scan_ack"|"check_ack", msgId, status, message?}`
+- **Client hook**: `client/src/hooks/use-scan-websocket.ts` — auto-reconnect with exponential backoff, localStorage queue persistence for offline resilience, `sendScan`/`sendCheck` with external `msgId` support
+- **Race-safe pattern**: All modules generate `msgId` via `generateMsgId()`, set `pendingScanContextRef` context BEFORE calling `sendScan`/`sendCheck`, ensuring ack handlers always find their context
+- **Connection indicator**: `client/src/components/connection-status.tsx` — green/yellow/red dot with animation, shown in scanning header of all three modules
+- **Module integration**: Separação and Balcão use `sendScan`; Conferência uses `sendCheck`. Both `processScanQueue` and `processIncrementQueue` in all modules now fire-and-forget via WebSocket instead of awaiting HTTP
+
 ### Transaction & Atomicity Patterns
 - **Atomic increments**: `atomicIncrementSeparatedQty` / `atomicIncrementCheckedQty` use `COALESCE(field, 0) + delta` SQL — used by all scan endpoints (scan-item, check-item, balcao-item)
 - **Atomic resets**: `atomicResetItemAndWorkUnit` wraps item qty reset + work unit status reset + order status rollback in a single transaction — used by all over-quantity reset paths

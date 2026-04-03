@@ -12,6 +12,8 @@ import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { useSSE } from "@/hooks/use-sse";
 import { useBarcodeScanner } from "@/hooks/use-barcode-scanner";
+import { useScanWebSocket, generateMsgId } from "@/hooks/use-scan-websocket";
+import { ConnectionStatusIndicator } from "@/components/connection-status";
 import {
   Package,
   List,
@@ -165,6 +167,9 @@ export default function SeparacaoPage() {
   type IncrementTask = { workUnitId: string; barcode: string; qty: number; itemId: string; apSnapshot: AggregatedProduct };
   const incrementQueueRef = useRef<IncrementTask[]>([]);
   const incrementWorkerRunningRef = useRef(false);
+
+  type PendingScanCtx = { itemId: string; qty: number; barcode: string; workUnitId: string; apItems: { id: string }[]; productName: string; targetQty: number; exceptionQty: number };
+  const pendingScanContextRef = useRef<Map<string, PendingScanCtx>>(new Map());
 
   const workUnitsQueryKey = useSessionQueryKey(["/api/work-units?type=separacao"]);
   const routesQueryKey = useSessionQueryKey(["/api/routes"]);
@@ -719,6 +724,43 @@ export default function SeparacaoPage() {
     await finalizeWorkUnits();
   };
 
+  const handleWsScanAck = useCallback((ack: any) => {
+    const ctx = pendingScanContextRef.current.get(ack.msgId);
+    if (!ctx) return;
+    pendingScanContextRef.current.delete(ack.msgId);
+
+    if (ack.status === "success") {
+      queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+    } else if (ack.status === "over_quantity" || ack.status === "over_quantity_with_exception") {
+      ctx.apItems.forEach(item => {
+        usePendingDeltaStore.getState().clearItem("separacao", item.id);
+        usePendingDeltaStore.getState().resetBaseline("separacao", item.id);
+      });
+      queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+      setOverQtyContext({
+        productName: ctx.productName,
+        itemIds: ctx.apItems.map(i => i.id),
+        workUnitId: ctx.workUnitId,
+        barcode: ctx.barcode,
+        targetQty: ctx.targetQty,
+        message: ack.message || `Quantidade de "${ctx.productName}" excedeu o máximo (${ctx.targetQty}). Separação reiniciada.`,
+        serverAlreadyReset: true,
+      });
+      setOverQtyModalOpen(true);
+      overQtyModalOpenRef.current = true;
+    } else if (ack.status === "not_found") {
+      usePendingDeltaStore.getState().dec("separacao", ctx.itemId, ctx.qty);
+      setScanStatus("warning");
+      setScanMessage("Produto não encontrado neste pedido");
+    } else if (ack.status === "error") {
+      usePendingDeltaStore.getState().dec("separacao", ctx.itemId, ctx.qty);
+      setScanStatus("error");
+      setScanMessage(ack.message || "Erro ao processar scan");
+    }
+  }, [queryClient, workUnitsQueryKey]);
+
+  const { status: wsStatus, sendScan, isConnected: wsConnected } = useScanWebSocket(step === "picking", handleWsScanAck);
+
   const processScanQueue = useCallback(async () => {
     if (scanWorkerRunningRef.current) return;
     scanWorkerRunningRef.current = true;
@@ -819,47 +861,18 @@ export default function SeparacaoPage() {
         if (idx >= 0) setCurrentProductIndex(idx);
         setPickingTab("product");
 
-        try {
-          const body = { barcode };
-          const res = await apiRequest("POST", `/api/work-units/${finalUnit.id}/scan-item`, body);
-          const result = await res.json();
-
-          if (result.status === "success") {
-          } else if (result.status === "over_quantity_with_exception" || result.status === "over_quantity") {
-            usePendingDeltaStore.getState().dec("separacao", matchedItem.id, multiplier);
-            usePendingDeltaStore.getState().clearItem("separacao", matchedItem.id);
-            usePendingDeltaStore.getState().resetBaseline("separacao", matchedItem.id);
-            const targetQty = Number(matchedItem.quantity) - exceptionQty;
-            setOverQtyContext({
-              productName: matchedItem.product.name,
-              itemIds: [matchedItem.id],
-              workUnitId: finalUnit.id,
-              barcode,
-              targetQty,
-              message: result.message || `A quantidade de "${matchedItem.product.name}" excedeu o máximo permitido (${targetQty}). A coleta foi reiniciada.`,
-              serverAlreadyReset: true,
-            });
-            setOverQtyModalOpen(true);
-            overQtyModalOpenRef.current = true;
-            queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
-            break;
-          } else if (result.status === "not_found") {
-            usePendingDeltaStore.getState().dec("separacao", matchedItem.id, multiplier);
-            setScanStatus("warning");
-            setScanMessage("Produto não encontrado neste pedido");
-          }
-        } catch (scanErr: any) {
-          console.error("[separacao] Falha ao processar bipe:", scanErr);
-          usePendingDeltaStore.getState().clearItem("separacao", matchedItem.id);
-          usePendingDeltaStore.getState().resetBaseline("separacao", matchedItem.id);
-          queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
-          setScanStatus("error");
-          const msg = scanErr?.message?.includes("401") ? "Sessão expirada. Faça login novamente."
-            : scanErr?.message?.includes("403") ? "Sem permissão. Verifique o bloqueio."
-            : scanErr?.message?.includes("500") ? "Erro no servidor. Aguarde e tente novamente."
-            : "Falha na comunicação. A tela será atualizada.";
-          setScanMessage(msg);
-        }
+        const msgId = generateMsgId();
+        pendingScanContextRef.current.set(msgId, {
+          itemId: matchedItem.id,
+          qty: multiplier,
+          barcode,
+          workUnitId: finalUnit.id,
+          apItems: [{ id: matchedItem.id }],
+          productName: matchedItem.product.name,
+          targetQty: Number(matchedItem.quantity) - exceptionQty,
+          exceptionQty,
+        });
+        sendScan(finalUnit.id, barcode, undefined, msgId);
       }
     } finally {
       scanWorkerRunningRef.current = false;
@@ -874,75 +887,27 @@ export default function SeparacaoPage() {
     }, 300);
   }, [queryClient, workUnitsQueryKey, user, filteredAggregatedProducts]);
 
-  const processIncrementQueue = useCallback(async () => {
-    if (incrementWorkerRunningRef.current) return;
-    incrementWorkerRunningRef.current = true;
-    const sessionTokenAtStart = activeSessionTokenRef.current;
-    try {
-      while (incrementQueueRef.current.length > 0) {
-        if (overQtyModalOpenRef.current) {
-          incrementQueueRef.current = [];
-          break;
-        }
-        if (activeSessionTokenRef.current !== sessionTokenAtStart) {
-          console.warn("[separacao] Stale increment worker — contexto alterado, descartando fila.");
-          incrementQueueRef.current = [];
-          break;
-        }
-        const task = incrementQueueRef.current.shift()!;
-        try {
-          const currentToken = activeSessionTokenRef.current;
-          const res = await apiRequest("POST", `/api/work-units/${task.workUnitId}/scan-item`, {
-            barcode: task.barcode,
-            quantity: task.qty,
-          });
-          const result = await res.json();
-          if (activeSessionTokenRef.current !== currentToken) {
-            console.warn("[separacao] Stale response descartada (contexto alterado).");
-            break;
-          }
-          if (result.status === "over_quantity" || result.status === "over_quantity_with_exception") {
-            incrementQueueRef.current = [];
-            task.apSnapshot.items.forEach(item => {
-              usePendingDeltaStore.getState().clearItem("separacao", item.id);
-              usePendingDeltaStore.getState().resetBaseline("separacao", item.id);
-            });
-            queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
-            const targetQty = task.apSnapshot.totalQty - task.apSnapshot.exceptionQty;
-            setOverQtyContext({
-              productName: task.apSnapshot.product.name,
-              itemIds: task.apSnapshot.items.map(i => i.id),
-              workUnitId: task.workUnitId,
-              barcode: task.barcode,
-              targetQty,
-              message: result.message || `A quantidade de "${task.apSnapshot.product.name}" excedeu o máximo permitido (${targetQty}). A coleta foi reiniciada.`,
-              serverAlreadyReset: true,
-            });
-            setOverQtyModalOpen(true);
-            overQtyModalOpenRef.current = true;
-            break;
-          } else if (result.status !== "success") {
-            usePendingDeltaStore.getState().dec("separacao", task.itemId, task.qty);
-            setScanStatus("error");
-            setScanMessage(result.error || result.message || `Falha ao incrementar: status "${result.status}"`);
-          } else {
-            queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
-          }
-        } catch (err: any) {
-          usePendingDeltaStore.getState().dec("separacao", task.itemId, task.qty);
-          setScanStatus("error");
-          const msg = err?.message?.includes("401") ? "Sessão expirada. Faça login novamente."
-            : err?.message?.includes("403") ? "Sem permissão. Verifique o bloqueio da unidade."
-            : err?.message?.includes("409") ? "Conflito de bloqueio. Tente novamente."
-            : err?.message?.includes("500") ? "Erro no servidor. Tente novamente em instantes."
-            : "Falha na comunicação. Verifique sua conexão.";
-          setScanMessage(msg);
-        }
+  const processIncrementQueue = useCallback(() => {
+    while (incrementQueueRef.current.length > 0) {
+      if (overQtyModalOpenRef.current) {
+        incrementQueueRef.current = [];
+        break;
       }
-    } finally {
-      incrementWorkerRunningRef.current = false;
+      const task = incrementQueueRef.current.shift()!;
+      const msgId = generateMsgId();
+      pendingScanContextRef.current.set(msgId, {
+        itemId: task.itemId,
+        qty: task.qty,
+        barcode: task.barcode,
+        workUnitId: task.workUnitId,
+        apItems: task.apSnapshot.items.map(i => ({ id: i.id })),
+        productName: task.apSnapshot.product.name,
+        targetQty: task.apSnapshot.totalQty - task.apSnapshot.exceptionQty,
+        exceptionQty: task.apSnapshot.exceptionQty,
+      });
+      sendScan(task.workUnitId, task.barcode, task.qty, msgId);
     }
-  }, [queryClient, workUnitsQueryKey]);
+  }, [sendScan]);
 
   const handleScanItem = useCallback((barcode: string) => {
     if (overQtyModalOpenRef.current) return;
@@ -1244,6 +1209,7 @@ export default function SeparacaoPage() {
               <span className="text-xs text-muted-foreground truncate">
                 {allMyUnits.map(wu => wu.order.erpOrderId).filter((v, i, a) => a.indexOf(v) === i).join(", ")}
               </span>
+              <ConnectionStatusIndicator status={wsStatus} />
             </div>
             <ScanInput
               placeholder="Leia o código de barras..."

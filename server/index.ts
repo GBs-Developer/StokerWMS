@@ -9,6 +9,7 @@ import { seedDatabase } from "./seed";
 import { sql } from "drizzle-orm";
 import { db } from "./db";
 import { setupPrintAgentWS } from "./print-agent";
+import { setupScanningWS } from "./ws-scanning";
 
 // ── Guardas globais contra crashes ────────────────────────────────────────────
 // Impede que erros em subsistemas (ex: agente de impressão WebSocket)
@@ -320,11 +321,16 @@ async function runSafeMigrations() {
 
   await registerRoutes(httpServer, app);
 
-  // Inicia WebSocket para agentes de impressão (nunca lança exceção)
   try {
     setupPrintAgentWS(httpServer);
   } catch (e: any) {
     log(`[agent] Falha ao iniciar WebSocket (não crítico): ${e.message}`, "print");
+  }
+
+  try {
+    setupScanningWS(httpServer);
+  } catch (e: any) {
+    log(`[scanning-ws] Falha ao iniciar WebSocket (não crítico): ${e.message}`, "express");
   }
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
