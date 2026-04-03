@@ -748,6 +748,7 @@ export default function ConferenciaPage() {
         const currentCache = queryClient.getQueryData<any[]>(workUnitsQueryKey) || [];
         const units = currentCache.filter((wu: any) =>
           wu.lockedBy === user?.id && wu.status !== "concluido"
+          && (selectedWorkUnits.length === 0 || selectedWorkUnits.includes(wu.id))
         );
         if (units.length === 0) continue;
 
@@ -897,7 +898,7 @@ export default function ConferenciaPage() {
         pendingInvalidateRef.current = false;
       }
     }, 300);
-  }, [queryClient, workUnitsQueryKey, user, aggregatedProducts]);
+  }, [queryClient, workUnitsQueryKey, user, aggregatedProducts, selectedWorkUnits]);
 
   const handleScanItem = useCallback((barcode: string) => {
     if (overQtyModalOpenRef.current) return;

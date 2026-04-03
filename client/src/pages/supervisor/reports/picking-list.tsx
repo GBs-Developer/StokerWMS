@@ -50,6 +50,11 @@ import { useAuth } from "@/lib/auth";
 type FlowStep = "initial" | "pickup-points" | "select-orders" | "sections" | "summary";
 type SectionMode = "individual" | "group";
 
+function escHtml(str: string | null | undefined): string {
+    if (!str) return "";
+    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
 interface SectionGroup {
     id: string;
     name: string;
@@ -377,10 +382,10 @@ export default function PickingListReport() {
 <script>window.onload = function() { window.print(); }</script>
 </head><body>
 <div class="header">
-    <h1>${titlePrefix}Romaneio de Separação</h1>
+    <h1>${escHtml(titlePrefix)}Romaneio de Separação</h1>
     <div class="params">
-        <span class="label">Pedidos:</span> ${orderIdsLabel}<br/>
-        <span class="label">Local de Estoque:</span> ${sectionFilterLabel}
+        <span class="label">Pedidos:</span> ${escHtml(orderIdsLabel)}<br/>
+        <span class="label">Local de Estoque:</span> ${escHtml(sectionFilterLabel)}
     </div>
 </div>
 <div class="sub-header">
@@ -467,20 +472,20 @@ export default function PickingListReport() {
             const aggregatedItems = Array.from(productMap.values()).sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
 
             bodyHtml += `<tr class="section-row"><td colspan="8" style="text-align:left;">
-                <strong>Seção:</strong> ${sectionName.toUpperCase()}
+                <strong>Seção:</strong> ${escHtml(sectionName.toUpperCase())}
             </td></tr>`;
 
             for (const item of aggregatedItems) {
                 const qtyFormatted = item.totalQty % 1 === 0 ? item.totalQty.toFixed(0) + ",00" : item.totalQty.toFixed(2).replace(".", ",");
-                const ordersList = item.orderIds.join(', ');
+                const ordersList = item.orderIds.map(id => escHtml(id)).join(', ');
                 bodyHtml += `<tr>
-                    <td>${item.erpCode}</td>
-                    <td>${item.factoryCode}</td>
-                    <td>${item.name}</td>
-                    <td>${item.barcode}</td>
+                    <td>${escHtml(item.erpCode)}</td>
+                    <td>${escHtml(item.factoryCode)}</td>
+                    <td>${escHtml(item.name)}</td>
+                    <td>${escHtml(item.barcode)}</td>
                     <td style="font-size: 9px;">${ordersList}</td>
                     <td></td>
-                    <td>${item.manufacturer}</td>
+                    <td>${escHtml(item.manufacturer)}</td>
                     <td style="text-align:right; font-weight:bold">${qtyFormatted}</td>
                 </tr>`;
             }
@@ -542,6 +547,8 @@ export default function PickingListReport() {
                     if (printWindow) {
                         printWindow.document.write(html);
                         printWindow.document.close();
+                    } else {
+                        toast({ title: "Popup bloqueado", description: `Permita popups para imprimir o grupo "${grp.name}".`, variant: "destructive" });
                     }
                 }
 
@@ -559,7 +566,7 @@ export default function PickingListReport() {
                     ? activeSections.map(sid => sections.find((s: any) => String(s.id) === sid)?.name || sid).join("; ")
                     : "Todos";
 
-                const bodyHtml = buildBodyHtml(reportData);
+                const bodyHtml = buildBodyHtml(reportData, activeSections.length > 0 ? activeSections : undefined);
                 const groupName = sectionMode === "group" && selectedGroupIds.length === 1
                     ? groups.find(g => g.id === selectedGroupIds[0])?.name
                     : null;
@@ -573,6 +580,8 @@ export default function PickingListReport() {
                 if (printWindow) {
                     printWindow.document.write(html);
                     printWindow.document.close();
+                } else {
+                    toast({ title: "Popup bloqueado", description: "Permita popups no navegador para imprimir o relatório.", variant: "destructive" });
                 }
 
                 toast({

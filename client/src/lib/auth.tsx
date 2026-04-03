@@ -38,7 +38,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const keysToRemove: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (key?.startsWith("wms:") || key?.startsWith("stoker:")) {
+      if (key?.startsWith("wms:") || key?.startsWith("stoker:") || key?.startsWith("ws_scan_pending_queue")) {
         keysToRemove.push(key);
       }
     }
