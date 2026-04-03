@@ -1,3 +1,4 @@
+import stokerIcon from "@assets/stoker-icon.png";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth, useSessionQueryKey } from "@/lib/auth";
@@ -1068,7 +1069,7 @@ export default function ConferenciaPage() {
     <div className="h-screen bg-background flex flex-col overflow-hidden" data-module="conferencia">
       <header className="flex items-center justify-between px-3 py-2.5 border-b border-border bg-card">
         <div className="flex items-center gap-2 min-w-0">
-          <ClipboardCheck className="h-4 w-4 text-primary shrink-0" />
+          <img src={stokerIcon} alt="Stoker" className="h-6 w-6 shrink-0 grayscale opacity-60 dark:opacity-40" />
           <span className="text-sm font-semibold truncate">{user?.name}</span>
         </div>
         <div className="flex items-center gap-1">
