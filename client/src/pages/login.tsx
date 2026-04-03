@@ -110,7 +110,7 @@ export default function LoginPage() {
       {/* ── Theme toggle ── */}
       <button
         onClick={toggleTheme}
-        className="absolute top-4 right-4 z-10 w-9 h-9 flex items-center justify-center rounded-xl bg-card border border-border/50 text-muted-foreground hover:text-foreground hover:bg-muted transition-all"
+        className="absolute top-4 right-4 z-20 w-9 h-9 flex items-center justify-center rounded-xl bg-card border border-border/50 text-muted-foreground hover:text-foreground hover:bg-muted transition-all"
         title={isDark ? "Tema claro" : "Tema escuro"}
         data-testid="btn-theme-toggle-login"
       >
