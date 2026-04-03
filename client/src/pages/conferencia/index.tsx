@@ -846,11 +846,13 @@ export default function ConferenciaPage() {
           const addQty = isBoxBarcode ? boxQtyVal : currentModal.multiplier;
           const newAccumulated = currentModal.accumulated + addQty;
           if (newAccumulated > remaining) {
-            const capped = Math.min(newAccumulated, remaining);
-            if (capped > currentModal.accumulated) {
-              setQtyModal({ ...currentModal, accumulated: capped, maxRemaining: remaining });
-            }
-            toast({ title: "Quantidade excedida", description: `Máximo disponível: ${remaining}. Confirme o que já coletou.`, variant: "destructive" });
+            setQtyModal(null);
+            usePendingDeltaStore.getState().clearItem("conferencia", currentModal.itemId);
+            usePendingDeltaStore.getState().resetBaseline("conferencia", currentModal.itemId);
+            toast({ title: "Quantidade excedida", description: "Produto zerado para recontagem. Escaneie novamente.", variant: "destructive" });
+            apiRequest("POST", `/api/work-units/${currentModal.workUnitId}/reset-item-check`, { itemIds: [currentModal.itemId] })
+              .catch(err => console.error("Reset error:", err))
+              .finally(() => queryClient.invalidateQueries({ queryKey: workUnitsQueryKey }));
           } else {
             setQtyModal({ ...currentModal, accumulated: newAccumulated, maxRemaining: remaining });
           }
@@ -938,15 +940,17 @@ export default function ConferenciaPage() {
     if (!modal) return;
     const newAccumulated = modal.accumulated + modal.multiplier;
     if (newAccumulated > modal.maxRemaining) {
-      const capped = Math.min(newAccumulated, modal.maxRemaining);
-      if (capped > modal.accumulated) {
-        setQtyModal({ ...modal, accumulated: capped });
-      }
-      toast({ title: "Quantidade excedida", description: `Máximo disponível: ${modal.maxRemaining}. Confirme o que já coletou.`, variant: "destructive" });
+      setQtyModal(null);
+      usePendingDeltaStore.getState().clearItem("conferencia", modal.itemId);
+      usePendingDeltaStore.getState().resetBaseline("conferencia", modal.itemId);
+      toast({ title: "Quantidade excedida", description: "Produto zerado para recontagem. Escaneie novamente.", variant: "destructive" });
+      apiRequest("POST", `/api/work-units/${modal.workUnitId}/reset-item-check`, { itemIds: [modal.itemId] })
+        .catch(err => console.error("Reset error:", err))
+        .finally(() => queryClient.invalidateQueries({ queryKey: workUnitsQueryKey }));
       return;
     }
     setQtyModal({ ...modal, accumulated: newAccumulated });
-  }, [toast]);
+  }, [toast, queryClient, workUnitsQueryKey]);
 
   const handleQtyModalSubtract = useCallback(() => {
     const modal = qtyModalRef.current;

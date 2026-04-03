@@ -849,11 +849,24 @@ export default function BalcaoPage() {
           const addQty = isBoxBarcode ? boxQtyVal : currentModal.multiplier;
           const newAccumulated = currentModal.accumulated + addQty;
           if (newAccumulated > remaining) {
-            const capped = Math.min(newAccumulated, remaining);
-            if (capped > currentModal.accumulated) {
-              setQtyModal({ ...currentModal, accumulated: capped, maxRemaining: remaining });
-            }
-            toast({ title: "Quantidade excedida", description: `Máximo disponível: ${remaining}. Confirme o que já coletou.`, variant: "destructive" });
+            setQtyModal(null);
+            usePendingDeltaStore.getState().clearItem("balcao", currentModal.itemId);
+            usePendingDeltaStore.getState().resetBaseline("balcao", currentModal.itemId);
+            queryClient.setQueryData(workUnitsQueryKey, (old: any) => {
+              if (!old) return old;
+              return old.map((wu: any) => ({
+                ...wu,
+                items: wu.items.map((item: any) =>
+                  item.id === currentModal.itemId
+                    ? { ...item, separatedQty: 0, status: "recontagem" }
+                    : item
+                ),
+              }));
+            });
+            toast({ title: "Quantidade excedida", description: "Produto zerado para recontagem. Escaneie novamente.", variant: "destructive" });
+            apiRequest("POST", `/api/work-units/${currentModal.workUnitId}/reset-item-picking`, { itemIds: [currentModal.itemId] })
+              .catch(err => console.error("Reset error:", err))
+              .finally(() => queryClient.invalidateQueries({ queryKey: workUnitsQueryKey }));
           } else {
             setQtyModal({ ...currentModal, accumulated: newAccumulated, maxRemaining: remaining });
           }
@@ -935,15 +948,28 @@ export default function BalcaoPage() {
     if (!modal) return;
     const newAccumulated = modal.accumulated + modal.multiplier;
     if (newAccumulated > modal.maxRemaining) {
-      const capped = Math.min(newAccumulated, modal.maxRemaining);
-      if (capped > modal.accumulated) {
-        setQtyModal({ ...modal, accumulated: capped });
-      }
-      toast({ title: "Quantidade excedida", description: `Máximo disponível: ${modal.maxRemaining}. Confirme o que já coletou.`, variant: "destructive" });
+      setQtyModal(null);
+      usePendingDeltaStore.getState().clearItem("balcao", modal.itemId);
+      usePendingDeltaStore.getState().resetBaseline("balcao", modal.itemId);
+      queryClient.setQueryData(workUnitsQueryKey, (old: any) => {
+        if (!old) return old;
+        return old.map((wu: any) => ({
+          ...wu,
+          items: wu.items.map((item: any) =>
+            item.id === modal.itemId
+              ? { ...item, separatedQty: 0, status: "recontagem" }
+              : item
+          ),
+        }));
+      });
+      toast({ title: "Quantidade excedida", description: "Produto zerado para recontagem. Escaneie novamente.", variant: "destructive" });
+      apiRequest("POST", `/api/work-units/${modal.workUnitId}/reset-item-picking`, { itemIds: [modal.itemId] })
+        .catch(err => console.error("Reset error:", err))
+        .finally(() => queryClient.invalidateQueries({ queryKey: workUnitsQueryKey }));
       return;
     }
     setQtyModal({ ...modal, accumulated: newAccumulated });
-  }, [toast]);
+  }, [toast, queryClient, workUnitsQueryKey]);
 
   const handleQtyModalSubtract = useCallback(() => {
     const modal = qtyModalRef.current;
