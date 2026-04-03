@@ -28,6 +28,7 @@ import {
   Truck,
   Lock,
   PackageOpen,
+  X,
 } from "lucide-react";
 import { VolumeModal } from "@/components/conferencia/VolumeModal";
 import { ScanQuantityModal } from "@/components/ui/scan-quantity-modal";
@@ -1055,25 +1056,23 @@ export default function ConferenciaPage() {
 
   return (
     <div className="h-screen bg-background flex flex-col overflow-hidden" data-module="conferencia">
-      <header className="flex items-center justify-between px-3 py-2 border-b border-border bg-card">
+      <header className="flex items-center justify-between px-3 py-2.5 border-b border-border bg-card">
         <div className="flex items-center gap-2 min-w-0">
           <ClipboardCheck className="h-4 w-4 text-primary shrink-0" />
-          <span className="text-sm font-medium truncate">{user?.name} — Conferente</span>
+          <span className="text-sm font-semibold truncate">{user?.name}</span>
         </div>
         <div className="flex items-center gap-1">
           <Button
             variant="outline"
-            size="sm"
+            size="icon"
             onClick={() => setVolumeModalOpen(true)}
-            className="h-8 px-2 text-xs border-blue-300 text-blue-700 hover:bg-blue-50 dark:border-blue-700 dark:text-blue-300"
+            className="h-10 w-10 border-blue-300 text-blue-700 hover:bg-blue-50 dark:border-blue-700 dark:text-blue-300"
             title="Gerar Volume"
           >
-            <PackageOpen className="h-3.5 w-3.5 mr-1" />
-            Volume
+            <PackageOpen className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="sm" onClick={logout} className="h-8 px-2 text-xs" data-testid="button-logout">
-            <LogOut className="h-3.5 w-3.5 mr-1" />
-            Sair
+          <Button variant="ghost" size="icon" onClick={logout} className="h-10 w-10" data-testid="button-logout">
+            <LogOut className="h-4 w-4" />
           </Button>
         </div>
       </header>
@@ -1082,31 +1081,31 @@ export default function ConferenciaPage() {
         <div className="flex-1 flex flex-col min-h-0 px-3 py-3 gap-3 overflow-hidden">
           <div className="space-y-2 p-2.5 bg-muted/30 rounded-lg border border-border shrink-0">
             <div className="flex items-center gap-2">
-              <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <Search className="h-4 w-4 text-muted-foreground shrink-0" />
               <Input
-                placeholder="N° Pedido (separe múltiplos por vírgula)"
+                placeholder="N° Pedido"
                 value={filterOrderId}
                 onChange={(e) => setFilterOrderId(e.target.value)}
-                className="h-8 text-xs"
+                className="h-10 text-sm"
               />
             </div>
             <div className="flex items-center gap-2">
-              <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
               <div className="flex-1">
                 <DatePickerWithRange
                   date={tempDateRange}
                   onDateChange={setTempDateRange}
-                  className="text-xs h-8"
+                  className="text-sm h-10"
                 />
               </div>
-              <Button size="sm" className="h-8 px-3 text-xs" onClick={handleApplyDateFilter}>
-                Buscar
+              <Button size="sm" className="h-10 px-4 text-sm" onClick={handleApplyDateFilter}>
+                <Search className="h-4 w-4" />
               </Button>
             </div>
             <div className="flex items-center gap-2">
-              <Truck className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <Truck className="h-4 w-4 text-muted-foreground shrink-0" />
               <Select value={filterRoute} onValueChange={(val) => setFilterRoute(val === "__all__" ? "" : val)}>
-                <SelectTrigger className="h-8 text-xs flex-1">
+                <SelectTrigger className="h-10 text-sm flex-1">
                   <SelectValue placeholder="Todas as rotas" />
                 </SelectTrigger>
                 <SelectContent>
@@ -1152,38 +1151,38 @@ export default function ConferenciaPage() {
                     return (
                       <div
                         key={firstWU.orderId}
-                        className={`flex items-center gap-2.5 p-2.5 rounded-lg border transition-colors ${lockedByOther
-                          ? "opacity-50 cursor-not-allowed border-border"
-                          : isSelected ? "border-indigo-500 bg-indigo-500/5" : "border-border"
+                        className={`flex items-center gap-3 p-3 rounded-lg transition-colors min-h-[56px] ${lockedByOther
+                          ? "opacity-50 cursor-not-allowed border border-border"
+                          : isSelected ? "border-2 border-indigo-500 bg-indigo-500/5" : "border border-border"
                           }`}
                         onClick={() => !lockedByOther && handleSelectGroup(group, !isSelected)}
                         data-testid={`order-group-${firstWU.orderId}`}
                       >
                         {lockedByOther ? (
-                          <Lock className="h-4 w-4 text-muted-foreground shrink-0" />
+                          <Lock className="h-5 w-5 text-muted-foreground shrink-0" />
                         ) : (
                           <div
-                            className={`h-4 w-4 rounded-full border-2 shrink-0 flex items-center justify-center ${isSelected ? "border-indigo-500 bg-indigo-500" : "border-muted-foreground"}`}
+                            className={`h-5 w-5 rounded-full border-2 shrink-0 flex items-center justify-center ${isSelected ? "border-indigo-500 bg-indigo-500" : "border-muted-foreground"}`}
                             data-testid={`radio-order-${firstWU.orderId}`}
                           >
-                            {isSelected && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
+                            {isSelected && <Check className="h-3 w-3 text-white" />}
                           </div>
                         )}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5">
-                            <span className="font-mono text-sm font-semibold">{firstWU.order.erpOrderId}</span>
-                            {routeName && <span className="text-[10px] px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded font-medium">Rota: {routeName}</span>}
+                            <span className="font-mono text-sm font-bold">{firstWU.order.erpOrderId}</span>
+                            {routeName && <span className="text-[10px] px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded font-medium dark:bg-indigo-900/30 dark:text-indigo-300">{routeName}</span>}
                           </div>
                           <p className="text-xs text-muted-foreground truncate">{firstWU.order.customerName}</p>
                           {lockedByOther && (
                             <p className="text-[10px] text-orange-600 font-medium flex items-center gap-1 mt-0.5">
                               <Lock className="h-3 w-3" />
-                              Em conferência por: {lockerName || "outro usuário"}
+                              {lockerName || "outro usuário"}
                             </p>
                           )}
                         </div>
                         <div className="text-right shrink-0">
-                          <p className="text-xs font-medium">{distinctProductCount} produtos</p>
+                          <p className="font-mono text-sm font-bold tabular-nums">{distinctProductCount}</p>
                           <p className="text-[10px] text-muted-foreground">{createdAt}</p>
                         </div>
                       </div>
@@ -1193,12 +1192,12 @@ export default function ConferenciaPage() {
               </div>
 
               <Button
-                className="w-full h-11 text-sm bg-indigo-600 hover:bg-indigo-700 text-white shrink-0"
+                className="w-full h-14 text-base font-bold bg-indigo-600 hover:bg-indigo-700 text-white shrink-0 active:scale-[0.98] transition-transform"
                 onClick={handleStartConferencia}
                 disabled={selectedWorkUnits.length === 0 || lockMutation.isPending}
                 data-testid="button-start-conferencia"
               >
-                <ClipboardCheck className="h-4 w-4 mr-1.5" />
+                <ClipboardCheck className="h-5 w-5 mr-2" />
                 Conferir
                 {selectedWorkUnits.length > 0 && ` (${new Set(
                   workUnits?.filter(wu => selectedWorkUnits.includes(wu.id)).map(wu => wu.orderId)
@@ -1296,37 +1295,44 @@ export default function ConferenciaPage() {
                 <div className="p-3 border-t bg-background mt-auto space-y-2">
                   <div className="flex gap-2">
                     <Button
-                      size="sm"
-                      className="flex-1 h-9 text-xs"
-                      onClick={handleNextProduct}
+                      variant="outline"
+                      className="h-12 px-4"
+                      onClick={() => {
+                        const firstIncompleteItem = currentProduct.items.find(i =>
+                          Number(i.quantity) > Number(i.checkedQty || 0) + Number(i.exceptionQty || 0)
+                        ) || currentProduct.items[0];
+                        setExceptionItem(firstIncompleteItem);
+                        setShowExceptionDialog(true);
+                      }}
                     >
-                      Próximo
-                      <ArrowRight className="h-3.5 w-3.5 ml-1" />
+                      <AlertTriangle className="h-4 w-4" />
                     </Button>
-                  </div>
-
-                  <div className="flex gap-2">
                     <Button
                       variant="outline"
-                      size="sm"
-                      className="flex-1 h-9 text-xs text-destructive border-destructive/30 hover:bg-destructive/10"
+                      className="h-12 px-4 text-destructive border-destructive/30 hover:bg-destructive/10"
                       onClick={handleCancelChecking}
                       disabled={unlockMutation.isPending}
                       data-testid="button-cancel-checking"
                     >
-                      Abandonar
+                      <X className="h-4 w-4" />
                     </Button>
                     <Button
-                      size="sm"
-                      className="flex-1 h-9 text-xs bg-green-600 hover:bg-green-700"
-                      onClick={handleCompleteAll}
-                      disabled={!allItemsComplete || completeWorkUnitMutation.isPending}
-                      data-testid="button-complete-checking"
+                      className="flex-1 h-12 text-sm"
+                      onClick={handleNextProduct}
                     >
-                      <Check className="h-3.5 w-3.5 mr-1" />
-                      Concluir
+                      <ArrowRight className="h-4 w-4 mr-1.5" />
+                      Próximo
                     </Button>
                   </div>
+                  <Button
+                    className="w-full h-14 text-base font-bold bg-green-600 hover:bg-green-700 active:scale-[0.98] transition-transform"
+                    onClick={handleCompleteAll}
+                    disabled={!allItemsComplete || completeWorkUnitMutation.isPending}
+                    data-testid="button-complete-checking"
+                  >
+                    <Check className="h-5 w-5 mr-2" />
+                    Concluir
+                  </Button>
                 </div>
               </div>
             )}
@@ -1414,24 +1420,22 @@ export default function ConferenciaPage() {
                   )}
                 </div>
 
-                <div className="p-3 border-t bg-background mt-auto">
+                <div className="p-3 border-t bg-background mt-auto space-y-2">
                   <div className="flex gap-2">
                     <Button
                       variant="outline"
-                      size="sm"
-                      className="flex-1 h-9 text-xs text-destructive border-destructive/30 hover:bg-destructive/10"
+                      className="h-12 px-4 text-destructive border-destructive/30 hover:bg-destructive/10"
                       onClick={handleCancelChecking}
                       disabled={unlockMutation.isPending}
                     >
-                      Abandonar
+                      <X className="h-4 w-4" />
                     </Button>
                     <Button
-                      size="sm"
-                      className="flex-1 h-9 text-xs bg-green-600 hover:bg-green-700"
+                      className="flex-1 h-14 text-base font-bold bg-green-600 hover:bg-green-700 active:scale-[0.98] transition-transform"
                       onClick={handleCompleteAll}
                       disabled={!allItemsComplete || completeWorkUnitMutation.isPending}
                     >
-                      <Check className="h-3.5 w-3.5 mr-1" />
+                      <Check className="h-5 w-5 mr-2" />
                       Concluir
                     </Button>
                   </div>

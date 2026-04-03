@@ -211,15 +211,14 @@ export default function HomePage() {
         </div>
       </GradientHeader>
 
-      <main className="max-w-2xl mx-auto px-4 py-5 space-y-3 safe-bottom">
+      <main className="max-w-lg mx-auto px-3 py-4 space-y-3 safe-bottom">
         {legacyStandaloneModules.length > 0 && (
-          <div className="grid grid-cols-2 gap-3 animate-slide-up">
+          <div className="grid grid-cols-2 gap-2 animate-slide-up">
             {legacyStandaloneModules.map((module) => (
               <ActionTile
                 key={module.href}
                 icon={module.icon}
                 title={module.title}
-                description={module.description}
                 href={module.href}
               />
             ))}
@@ -233,22 +232,19 @@ export default function HomePage() {
           return (
             <div
               key={section.id}
-              className="rounded-2xl border border-border/50 bg-card overflow-hidden animate-slide-up"
-              style={{ animationDelay: `${sIdx * 80}ms` }}
+              className="rounded-xl border border-border/50 bg-card overflow-hidden animate-slide-up"
+              style={{ animationDelay: `${sIdx * 60}ms` }}
               data-testid={`section-${section.id}`}
             >
               <button
                 onClick={() => toggleSection(section.id)}
-                className="w-full flex items-center gap-3 px-4 py-3.5 active:bg-muted/50 transition-colors"
+                className="w-full flex items-center gap-2.5 px-3 py-3 active:bg-muted/50 transition-colors"
                 data-testid={`button-toggle-${section.id}`}
               >
-                <div className={`w-9 h-9 rounded-xl ${section.iconBg} flex items-center justify-center shrink-0`}>
-                  <SectionIcon className={`h-[18px] w-[18px] ${section.iconColor}`} />
+                <div className={`w-8 h-8 rounded-lg ${section.iconBg} flex items-center justify-center shrink-0`}>
+                  <SectionIcon className={`h-4 w-4 ${section.iconColor}`} />
                 </div>
-                <div className="flex-1 text-left min-w-0">
-                  <h2 className="text-sm font-semibold text-foreground">{section.title}</h2>
-                  <p className="text-[11px] text-muted-foreground">{section.modules.length} módulo{section.modules.length !== 1 ? "s" : ""}</p>
-                </div>
+                <h2 className="flex-1 text-left text-sm font-semibold text-foreground">{section.title}</h2>
                 <div className="text-muted-foreground/50 shrink-0">
                   {isExpanded ? (
                     <ChevronDown className="h-4 w-4" />
@@ -259,14 +255,13 @@ export default function HomePage() {
               </button>
 
               {isExpanded && (
-                <div className="px-3 pb-3">
-                  <div className="grid grid-cols-3 md:grid-cols-4 gap-2">
+                <div className="px-2.5 pb-2.5">
+                  <div className="grid grid-cols-3 gap-2">
                     {section.modules.map((module) => (
                       <ActionTile
                         key={module.href}
                         icon={module.icon}
                         title={module.title}
-                        description={module.description}
                         href={module.href}
                       />
                     ))}

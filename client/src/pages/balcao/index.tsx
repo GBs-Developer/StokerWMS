@@ -27,6 +27,7 @@ import {
   Calendar,
   Timer,
   Lock,
+  X,
 } from "lucide-react";
 import { ScanQuantityModal } from "@/components/ui/scan-quantity-modal";
 import type { WorkUnitWithDetails, OrderItem, Product, ExceptionType, UserSettings, Exception } from "@shared/schema";
@@ -1053,21 +1054,20 @@ export default function BalcaoPage() {
 
   return (
     <div className="h-screen bg-background flex flex-col overflow-hidden" data-module="balcao">
-      <header className="flex items-center justify-between px-3 py-2 border-b border-border bg-card">
+      <header className="flex items-center justify-between px-3 py-2.5 border-b border-border bg-card">
         <div className="flex items-center gap-2 min-w-0">
           <Store className="h-4 w-4 text-amber-500 shrink-0" />
-          <span className="text-sm font-medium truncate">{user?.name} — Balcão</span>
+          <span className="text-sm font-semibold truncate">{user?.name}</span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           {step === "picking" && (
-            <div className="flex items-center gap-1 bg-amber-500/10 px-2 py-1 rounded-full">
+            <div className="flex items-center gap-1 bg-amber-500/10 px-2.5 py-1.5 rounded-full">
               <Timer className="h-3.5 w-3.5 text-amber-500" />
-              <span className="font-mono text-xs font-medium text-amber-600">{formatTime(elapsedTime)}</span>
+              <span className="font-mono text-xs font-bold text-amber-600">{formatTime(elapsedTime)}</span>
             </div>
           )}
-          <Button variant="ghost" size="sm" onClick={logout} className="h-8 px-2 text-xs" data-testid="button-logout">
-            <LogOut className="h-3.5 w-3.5 mr-1" />
-            Sair
+          <Button variant="ghost" size="icon" onClick={logout} className="h-10 w-10" data-testid="button-logout">
+            <LogOut className="h-4 w-4" />
           </Button>
         </div>
       </header>
@@ -1076,25 +1076,25 @@ export default function BalcaoPage() {
         <div className="flex-1 flex flex-col min-h-0 px-3 py-3 gap-3 overflow-hidden">
           <div className="space-y-2 p-2.5 bg-muted/30 rounded-lg border border-border shrink-0">
             <div className="flex items-center gap-2">
-              <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <Search className="h-4 w-4 text-muted-foreground shrink-0" />
               <Input
-                placeholder="N° Pedido (separe múltiplos por vírgula)"
+                placeholder="N° Pedido"
                 value={filterOrderId}
                 onChange={(e) => setFilterOrderId(e.target.value)}
-                className="h-8 text-xs"
+                className="h-10 text-sm"
               />
             </div>
             <div className="flex items-center gap-2">
-              <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
               <div className="flex-1">
                 <DatePickerWithRange
                   date={tempDateRange}
                   onDateChange={setTempDateRange}
-                  className="text-xs h-8"
+                  className="text-sm h-10"
                 />
               </div>
-              <Button size="sm" className="h-8 px-3 text-xs" onClick={handleApplyDateFilter}>
-                Buscar
+              <Button size="sm" className="h-10 px-4 text-sm" onClick={handleApplyDateFilter}>
+                <Search className="h-4 w-4" />
               </Button>
             </div>
           </div>
@@ -1132,33 +1132,33 @@ export default function BalcaoPage() {
                     return (
                       <div
                         key={firstWU.orderId}
-                        className={`flex items-center gap-2.5 p-2.5 rounded-lg border transition-colors ${lockedByOther ? "opacity-50 cursor-not-allowed border-border" : isSelected ? "border-amber-500 bg-amber-500/5" : "border-border"}`}
+                        className={`flex items-center gap-3 p-3 rounded-lg transition-colors min-h-[56px] ${lockedByOther ? "opacity-50 cursor-not-allowed border border-border" : isSelected ? "border-2 border-amber-500 bg-amber-500/5" : "border border-border"}`}
                         onClick={() => !lockedByOther && handleSelectGroup(group, !isSelected)}
                         data-testid={`order-group-${firstWU.orderId}`}
                       >
                         {!lockedByOther ? (
                           <div
-                            className={`h-4 w-4 rounded-full border-2 shrink-0 flex items-center justify-center ${isSelected ? "border-amber-500 bg-amber-500" : "border-muted-foreground"}`}
+                            className={`h-5 w-5 rounded-full border-2 shrink-0 flex items-center justify-center ${isSelected ? "border-amber-500 bg-amber-500" : "border-muted-foreground"}`}
                             data-testid={`radio-order-${firstWU.orderId}`}
                           >
-                            {isSelected && <div className="h-1.5 w-1.5 rounded-full bg-white" />}
+                            {isSelected && <Check className="h-3 w-3 text-white" />}
                           </div>
                         ) : (
-                          <Lock className="h-4 w-4 shrink-0 text-amber-500" />
+                          <Lock className="h-5 w-5 shrink-0 text-amber-500" />
                         )}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5">
-                            <span className="font-mono text-sm font-semibold">{firstWU.order.erpOrderId}</span>
+                            <span className="font-mono text-sm font-bold">{firstWU.order.erpOrderId}</span>
                             {lockedByOther && (
                               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-                                Em balcão por: {lockerName}
+                                {lockerName}
                               </span>
                             )}
                           </div>
                           <p className="text-xs text-muted-foreground truncate">{firstWU.order.customerName}</p>
                         </div>
                         <div className="text-right shrink-0">
-                          <p className="text-xs font-medium">{distinctProductCount} produtos</p>
+                          <p className="font-mono text-sm font-bold tabular-nums">{distinctProductCount}</p>
                           <p className="text-[10px] text-muted-foreground">
                             R$ {totalValue.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                           </p>
@@ -1171,12 +1171,12 @@ export default function BalcaoPage() {
               </div>
 
               <Button
-                className="w-full h-11 text-sm bg-amber-500 hover:bg-amber-600 text-white shrink-0"
+                className="w-full h-14 text-base font-bold bg-amber-500 hover:bg-amber-600 text-white shrink-0 active:scale-[0.98] transition-transform"
                 onClick={handleStartBalcao}
                 disabled={selectedWorkUnits.length === 0 || lockMutation.isPending}
                 data-testid="button-start-balcao"
               >
-                <Store className="h-4 w-4 mr-1.5" />
+                <Store className="h-5 w-5 mr-2" />
                 Atender
                 {selectedWorkUnits.length > 0 && ` (${new Set(
                   workUnits?.filter(wu => selectedWorkUnits.includes(wu.id)).map(wu => wu.orderId)
@@ -1324,8 +1324,7 @@ export default function BalcaoPage() {
                   <div className="flex gap-2">
                     <Button
                       variant="outline"
-                      size="sm"
-                      className="flex-1 h-9 text-xs"
+                      className="h-12 px-4"
                       onClick={() => {
                         const firstIncompleteItem = currentProduct.items.find(i =>
                           Number(i.quantity) > Number(i.separatedQty) + Number(i.exceptionQty || 0)
@@ -1334,41 +1333,34 @@ export default function BalcaoPage() {
                         setShowExceptionDialog(true);
                       }}
                     >
-                      <AlertTriangle className="h-3.5 w-3.5 mr-1" />
-                      Relatar Problema
+                      <AlertTriangle className="h-4 w-4" />
                     </Button>
-                    <Button
-                      size="sm"
-                      className="flex-1 h-9 text-xs"
-                      onClick={handleNextProduct}
-                    >
-                      Próximo
-                      <ArrowRight className="h-3.5 w-3.5 ml-1" />
-                    </Button>
-                  </div>
-
-                  <div className="flex gap-2">
                     <Button
                       variant="outline"
-                      size="sm"
-                      className="flex-1 h-9 text-xs text-destructive border-destructive/30 hover:bg-destructive/10"
+                      className="h-12 px-4 text-destructive border-destructive/30 hover:bg-destructive/10"
                       onClick={handleCancelPicking}
                       disabled={unlockMutation.isPending}
                       data-testid="button-cancel-picking"
                     >
-                      Abandonar
+                      <X className="h-4 w-4" />
                     </Button>
                     <Button
-                      size="sm"
-                      className="flex-1 h-9 text-xs bg-green-600 hover:bg-green-700"
-                      onClick={handleCompleteAll}
-                      disabled={!allItemsComplete || completeWorkUnitMutation.isPending}
-                      data-testid="button-complete-picking"
+                      className="flex-1 h-12 text-sm"
+                      onClick={handleNextProduct}
                     >
-                      <Check className="h-3.5 w-3.5 mr-1" />
-                      Concluir
+                      <ArrowRight className="h-4 w-4 mr-1.5" />
+                      Próximo
                     </Button>
                   </div>
+                  <Button
+                    className="w-full h-14 text-base font-bold bg-green-600 hover:bg-green-700 active:scale-[0.98] transition-transform"
+                    onClick={handleCompleteAll}
+                    disabled={!allItemsComplete || completeWorkUnitMutation.isPending}
+                    data-testid="button-complete-picking"
+                  >
+                    <Check className="h-5 w-5 mr-2" />
+                    Concluir
+                  </Button>
                 </div>
               </div>
             )}
@@ -1464,24 +1456,22 @@ export default function BalcaoPage() {
                   )}
                 </div>
 
-                <div className="p-3 border-t bg-background mt-auto">
+                <div className="p-3 border-t bg-background mt-auto space-y-2">
                   <div className="flex gap-2">
                     <Button
                       variant="outline"
-                      size="sm"
-                      className="flex-1 h-9 text-xs text-destructive border-destructive/30 hover:bg-destructive/10"
+                      className="h-12 px-4 text-destructive border-destructive/30 hover:bg-destructive/10"
                       onClick={handleCancelPicking}
                       disabled={unlockMutation.isPending}
                     >
-                      Abandonar
+                      <X className="h-4 w-4" />
                     </Button>
                     <Button
-                      size="sm"
-                      className="flex-1 h-9 text-xs bg-green-600 hover:bg-green-700"
+                      className="flex-1 h-14 text-base font-bold bg-green-600 hover:bg-green-700 active:scale-[0.98] transition-transform"
                       onClick={handleCompleteAll}
                       disabled={!allItemsComplete || completeWorkUnitMutation.isPending}
                     >
-                      <Check className="h-3.5 w-3.5 mr-1" />
+                      <Check className="h-5 w-5 mr-2" />
                       Concluir
                     </Button>
                   </div>

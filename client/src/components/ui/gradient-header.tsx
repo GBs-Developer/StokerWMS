@@ -15,7 +15,7 @@ export function GradientHeader({ title, subtitle, children, className, compact =
       className={cn(
         "relative overflow-hidden",
         "bg-gradient-to-br from-[hsl(222,47%,14%)] via-[hsl(217,60%,28%)] to-[hsl(199,89%,30%)]",
-        compact ? "px-4 py-4 md:px-6 md:py-5" : "px-4 py-5 md:px-6 md:py-7",
+        compact ? "px-4 py-3" : "px-4 py-4 md:px-6 md:py-5",
         "text-white",
         className
       )}
@@ -25,16 +25,16 @@ export function GradientHeader({ title, subtitle, children, className, compact =
 
       <div className="relative max-w-7xl mx-auto">
         {title ? (
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 min-w-0 overflow-hidden">
+          <div className="flex items-center justify-between gap-3 min-w-0 overflow-hidden">
             <div className="min-w-0">
               <h1 className={cn(
                 "font-bold tracking-tight truncate",
-                compact ? "text-xl md:text-2xl" : "text-2xl md:text-3xl"
+                compact ? "text-lg" : "text-xl md:text-2xl"
               )}>
                 {title}
               </h1>
               {subtitle && (
-                <p className="text-white/70 mt-0.5 text-sm truncate">{subtitle}</p>
+                <p className="text-white/60 text-xs truncate">{subtitle}</p>
               )}
             </div>
             {children && <div className="flex items-center gap-2 shrink-0">{children}</div>}

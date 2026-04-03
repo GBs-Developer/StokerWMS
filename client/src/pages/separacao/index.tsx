@@ -26,6 +26,7 @@ import {
   Calendar,
   Truck,
   CheckCircle2,
+  X,
 } from "lucide-react";
 import { ScanQuantityModal } from "@/components/ui/scan-quantity-modal";
 import {
@@ -1096,14 +1097,13 @@ export default function SeparacaoPage() {
 
   return (
     <div className="h-screen bg-background flex flex-col overflow-hidden" data-module="separacao">
-      <header className="flex items-center justify-between px-3 py-2 border-b border-border bg-card">
+      <header className="flex items-center justify-between px-3 py-2.5 border-b border-border bg-card">
         <div className="flex items-center gap-2 min-w-0">
           <Package className="h-4 w-4 text-primary shrink-0" />
-          <span className="text-sm font-medium truncate">{user?.name} — Separador</span>
+          <span className="text-sm font-semibold truncate">{user?.name}</span>
         </div>
-        <Button variant="ghost" size="sm" onClick={logout} className="h-8 px-2 text-xs" data-testid="button-logout">
-          <LogOut className="h-3.5 w-3.5 mr-1" />
-          Sair
+        <Button variant="ghost" size="icon" onClick={logout} className="h-10 w-10 shrink-0" data-testid="button-logout">
+          <LogOut className="h-4 w-4" />
         </Button>
       </header>
 
@@ -1111,31 +1111,31 @@ export default function SeparacaoPage() {
         <div className="flex-1 flex flex-col min-h-0 px-3 py-3 gap-3 overflow-hidden">
           <div className="space-y-2 p-2.5 bg-muted/30 rounded-lg border border-border shrink-0">
             <div className="flex items-center gap-2">
-              <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <Search className="h-4 w-4 text-muted-foreground shrink-0" />
               <Input
-                placeholder="N° Pedido (separe múltiplos por vírgula)"
+                placeholder="N° Pedido"
                 value={filterOrderId}
                 onChange={(e) => setFilterOrderId(e.target.value)}
-                className="h-8 text-xs"
+                className="h-10 text-sm"
               />
             </div>
             <div className="flex items-center gap-2">
-              <Calendar className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
               <div className="flex-1">
                 <DatePickerWithRange
                   date={tempDateRange}
                   onDateChange={setTempDateRange}
-                  className="text-xs h-8"
+                  className="text-sm h-10"
                 />
               </div>
-              <Button size="sm" className="h-8 px-3 text-xs" onClick={handleApplyDateFilter}>
-                Buscar
+              <Button size="sm" className="h-10 px-4 text-sm" onClick={handleApplyDateFilter}>
+                <Search className="h-4 w-4" />
               </Button>
             </div>
             <div className="flex items-center gap-2">
-              <Truck className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <Truck className="h-4 w-4 text-muted-foreground shrink-0" />
               <Select value={filterRoute} onValueChange={(val) => setFilterRoute(val === "__all__" ? "" : val)}>
-                <SelectTrigger className="h-8 text-xs flex-1">
+                <SelectTrigger className="h-10 text-sm flex-1">
                   <SelectValue placeholder="Todas as rotas" />
                 </SelectTrigger>
                 <SelectContent>
@@ -1211,25 +1211,25 @@ export default function SeparacaoPage() {
                     return (
                       <div
                         key={firstWU.orderId}
-                        className={`flex items-center gap-2.5 p-2.5 rounded-lg border transition-colors ${isSelected ? "border-primary bg-primary/5" : "border-border"}`}
+                        className={`flex items-center gap-3 p-3 rounded-xl transition-colors active:bg-muted/30 min-h-[56px] ${isSelected ? "border-2 border-primary bg-primary/5" : "border border-border"}`}
                         onClick={() => handleSelectGroup(group, !isSelected)}
                         data-testid={`order-group-${firstWU.orderId}`}
                       >
                         <Checkbox
                           checked={isSelected}
                           onCheckedChange={(checked) => handleSelectGroup(group, !!checked)}
-                          className="shrink-0"
+                          className="shrink-0 h-5 w-5"
                           data-testid={`checkbox-order-${firstWU.orderId}`}
                         />
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="font-mono text-sm font-semibold shrink-0">{firstWU.order.erpOrderId}</span>
-                            {routeName && <span className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded font-medium truncate max-w-[100px]">Rota: {routeName}</span>}
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-mono text-sm font-bold">{firstWU.order.erpOrderId}</span>
+                            {routeName && <span className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 rounded font-medium truncate max-w-[90px]">{routeName}</span>}
                           </div>
                           <p className="text-xs text-muted-foreground truncate">{firstWU.order.customerName}</p>
                         </div>
                         <div className="text-right shrink-0">
-                          <p className="text-xs font-medium">{distinctProductCount} produtos</p>
+                          <p className="text-sm font-bold tabular-nums">{distinctProductCount}</p>
                           <p className="text-[10px] text-muted-foreground">{createdAt}</p>
                         </div>
                       </div>
@@ -1392,7 +1392,7 @@ export default function SeparacaoPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      className="flex-1 h-12 text-xs"
+                      className="h-12 px-4"
                       onClick={() => {
                         const firstIncompleteItem = currentProduct.items.find(i =>
                           Number(i.quantity) > Number(i.separatedQty) + Number(i.exceptionQty || 0)
@@ -1401,40 +1401,36 @@ export default function SeparacaoPage() {
                         setShowExceptionDialog(true);
                       }}
                     >
-                      <AlertTriangle className="h-3.5 w-3.5 mr-1" />
-                      {"Relatar Problema"}
+                      <AlertTriangle className="h-4 w-4" />
                     </Button>
-                    <Button
-                      size="sm"
-                      className="flex-1 h-12 text-xs"
-                      onClick={handleNextProduct}
-                    >
-                      {"Próximo"}
-                      <ArrowRight className="h-3.5 w-3.5 ml-1" />
-                    </Button>
-                  </div>
-                  <div className="flex gap-2">
                     <Button
                       variant="outline"
                       size="sm"
-                      className="flex-1 h-12 text-xs text-destructive border-destructive/30 hover:bg-destructive/10"
+                      className="h-12 px-4 text-destructive border-destructive/30 hover:bg-destructive/10"
                       onClick={handleCancelPicking}
                       disabled={unlockMutation.isPending}
                       data-testid="button-cancel-picking"
                     >
-                      {"Abandonar"}
+                      <X className="h-4 w-4" />
                     </Button>
                     <Button
                       size="sm"
-                      className="flex-1 h-12 text-xs bg-green-600 hover:bg-green-700"
-                      onClick={handleCompleteAll}
-                      disabled={!allItemsComplete || completeWorkUnitMutation.isPending}
-                      data-testid="button-complete-picking"
+                      className="flex-1 h-12 text-sm"
+                      onClick={handleNextProduct}
                     >
-                      <Check className="h-3.5 w-3.5 mr-1" />
-                      {"Concluir"}
+                      <ArrowRight className="h-4 w-4 mr-1.5" />
+                      Próximo
                     </Button>
                   </div>
+                  <Button
+                    className="w-full h-14 text-base font-bold bg-green-600 hover:bg-green-700 active:scale-[0.98] transition-transform"
+                    onClick={handleCompleteAll}
+                    disabled={!allItemsComplete || completeWorkUnitMutation.isPending}
+                    data-testid="button-complete-picking"
+                  >
+                    <Check className="h-5 w-5 mr-2" />
+                    Concluir
+                  </Button>
                 </div>
               </div>
             )}
@@ -1543,24 +1539,22 @@ export default function SeparacaoPage() {
                   )}
                 </div>
 
-                <div className="p-3 border-t bg-background mt-auto">
+                <div className="p-3 border-t bg-background mt-auto space-y-2">
                   <div className="flex gap-2">
                     <Button
                       variant="outline"
-                      size="sm"
-                      className="flex-1 h-12 text-xs text-destructive border-destructive/30 hover:bg-destructive/10"
+                      className="h-12 px-4 text-destructive border-destructive/30 hover:bg-destructive/10"
                       onClick={handleCancelPicking}
                       disabled={unlockMutation.isPending}
                     >
-                      Abandonar
+                      <X className="h-4 w-4" />
                     </Button>
                     <Button
-                      size="sm"
-                      className="flex-1 h-12 text-xs bg-green-600 hover:bg-green-700"
+                      className="flex-1 h-14 text-base font-bold bg-green-600 hover:bg-green-700 active:scale-[0.98] transition-transform"
                       onClick={handleCompleteAll}
                       disabled={!allItemsComplete || completeWorkUnitMutation.isPending}
                     >
-                      <Check className="h-3.5 w-3.5 mr-1" />
+                      <Check className="h-5 w-5 mr-2" />
                       Concluir
                     </Button>
                   </div>

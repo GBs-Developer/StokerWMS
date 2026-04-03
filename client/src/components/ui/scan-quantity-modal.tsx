@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Minus, Plus, X } from "lucide-react";
+import { Check, Minus, Plus, X } from "lucide-react";
 import { useEffect, useRef } from "react";
 
 interface ScanQuantityModalProps {
@@ -46,88 +46,78 @@ export function ScanQuantityModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
       data-testid="scan-quantity-modal-overlay"
     >
       <div
-        className="absolute inset-0 bg-black/50"
+        className="absolute inset-0 bg-black/60"
         onClick={onClose}
       />
       <div
-        className="relative bg-background rounded-2xl shadow-xl w-[320px] max-w-[90vw] p-5 space-y-4 animate-in fade-in zoom-in-95 duration-200"
+        className="relative bg-background rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:w-[340px] sm:max-w-[92vw] p-5 pb-6 space-y-4 safe-bottom animate-in fade-in slide-in-from-bottom-4 sm:zoom-in-95 duration-200"
         data-testid="scan-quantity-modal"
         onClick={(e) => e.stopPropagation()}
       >
         <button
-          className="absolute top-3 right-3 text-muted-foreground hover:text-foreground transition-colors"
+          className="absolute top-3 right-3 w-9 h-9 flex items-center justify-center rounded-full bg-muted/60 text-muted-foreground active:bg-muted transition-colors"
           onClick={onClose}
           data-testid="button-close-scan-modal"
         >
           <X className="h-5 w-5" />
         </button>
 
-        <div className="text-center pr-6">
-          <p className="font-semibold text-sm leading-tight" data-testid="text-scan-modal-product">
-            {productCode} - {productName}
+        <div className="pr-10">
+          <p className="font-bold text-sm leading-tight truncate" data-testid="text-scan-modal-product">
+            {productName}
           </p>
+          <p className="text-xs text-muted-foreground font-mono mt-0.5">{productCode}</p>
         </div>
 
-        <div className="space-y-1.5">
-          <label className="text-xs text-muted-foreground text-center block">
-            Diminuir / Somar
-          </label>
-          <div className="flex items-center justify-center gap-3">
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-11 w-11 rounded-full shrink-0"
-              onClick={onSubtract}
-              data-testid="button-subtract-qty"
-            >
-              <Minus className="h-5 w-5" />
-            </Button>
-            <Input
-              ref={multiplierInputRef}
-              type="number"
-              min={1}
-              value={multiplier}
-              onChange={(e) => onMultiplierChange(Math.max(1, parseInt(e.target.value) || 1))}
-              onFocus={(e) => e.target.select()}
-              className="h-11 w-24 text-center font-semibold text-lg border-2 border-green-500 rounded-xl [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-              data-testid="input-multiplier"
-            />
-            <Button
-              variant="outline"
-              size="icon"
-              className="h-11 w-11 rounded-full shrink-0"
-              onClick={onAdd}
-              data-testid="button-add-qty"
-            >
-              <Plus className="h-5 w-5" />
-            </Button>
-          </div>
+        <div className="flex items-center justify-center gap-4">
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-14 w-14 rounded-full shrink-0 text-lg border-2"
+            onClick={onSubtract}
+            data-testid="button-subtract-qty"
+          >
+            <Minus className="h-6 w-6" />
+          </Button>
+          <Input
+            ref={multiplierInputRef}
+            type="number"
+            min={1}
+            value={multiplier}
+            onChange={(e) => onMultiplierChange(Math.max(1, parseInt(e.target.value) || 1))}
+            onFocus={(e) => e.target.select()}
+            className="h-14 w-20 text-center font-bold text-xl border-2 border-primary rounded-xl [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            data-testid="input-multiplier"
+          />
+          <Button
+            variant="outline"
+            size="icon"
+            className="h-14 w-14 rounded-full shrink-0 text-lg border-2"
+            onClick={onAdd}
+            data-testid="button-add-qty"
+          >
+            <Plus className="h-6 w-6" />
+          </Button>
         </div>
 
-        <div className="space-y-1.5">
-          <label className="text-xs text-muted-foreground text-center block">
-            Quantidade Total
-          </label>
-          <div className="relative">
-            <Input
-              readOnly
-              value={accumulatedQty}
-              className="h-11 text-center font-semibold text-lg bg-muted/30 rounded-xl [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-              data-testid="text-accumulated-qty"
-            />
-          </div>
+        <div className="bg-muted/40 rounded-xl p-3 text-center">
+          <p className="text-xs text-muted-foreground mb-1">Total</p>
+          <p className="text-3xl font-bold tabular-nums" data-testid="text-accumulated-qty">
+            {accumulatedQty}
+          </p>
         </div>
 
         <Button
           onClick={onConfirm}
           disabled={accumulatedQty <= 0}
-          className="w-full h-12 bg-green-500 hover:bg-green-600 text-white font-semibold rounded-xl text-base"
+          className="w-full h-14 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl text-base active:scale-[0.98] transition-transform"
           data-testid="button-confirm-scan-modal"
         >
+          <Check className="h-5 w-5 mr-2" />
           Confirmar
         </Button>
       </div>

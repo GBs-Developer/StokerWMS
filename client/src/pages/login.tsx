@@ -132,7 +132,7 @@ export default function LoginPage() {
                           {...field}
                           placeholder="Seu usuario"
                           autoComplete="username"
-                          className="pl-11 h-12 rounded-xl bg-background/60 border-border/40 text-sm placeholder:text-muted-foreground/50 focus:bg-background focus:border-primary/40 transition-all"
+                          className="pl-11 h-14 rounded-xl bg-background/60 border-border/40 text-base placeholder:text-muted-foreground/50 focus:bg-background focus:border-primary/40 transition-all"
                           disabled={isLoading}
                           data-testid="input-username"
                         />
@@ -156,7 +156,7 @@ export default function LoginPage() {
                           type="password"
                           placeholder="Sua senha"
                           autoComplete="current-password"
-                          className="pl-11 h-12 rounded-xl bg-background/60 border-border/40 text-sm placeholder:text-muted-foreground/50 focus:bg-background focus:border-primary/40 transition-all"
+                          className="pl-11 h-14 rounded-xl bg-background/60 border-border/40 text-base placeholder:text-muted-foreground/50 focus:bg-background focus:border-primary/40 transition-all"
                           disabled={isLoading}
                           data-testid="input-password"
                         />
@@ -169,7 +169,7 @@ export default function LoginPage() {
 
               <Button
                 type="submit"
-                className="w-full h-12 text-sm font-semibold rounded-xl shadow-lg shadow-primary/20 transition-all active:scale-[0.98]"
+                className="w-full h-14 text-base font-semibold rounded-xl shadow-lg shadow-primary/20 transition-all active:scale-[0.98]"
                 disabled={isLoading}
                 data-testid="button-login"
               >
