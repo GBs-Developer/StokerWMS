@@ -247,6 +247,13 @@ Tables defined in `shared/schema.ts`:
 - `@tanstack/react-query` - Server state management
 - Full Radix UI primitive suite via shadcn/ui components
 
+### Barcode Scanner Hook (`client/src/hooks/use-barcode-scanner.ts`)
+- Global keydown capture (window, capture phase) — works regardless of focused element
+- Fast input detection (≤80ms gap) identifies scanner vs. human typing
+- During fast input: `preventDefault()` blocks characters from entering focused inputs
+- On Enter with buffer > 2 chars: processes barcode, clears any contaminated input using native value setters (Input/Textarea/contentEditable), wrapped in try-catch
+- Enabled/disabled via second parameter (e.g., `step === "picking"`)
+
 ### Real-Time Updates (SSE)
 - Server-Sent Events via `/api/sse` endpoint
 - Event types include picking, conference, exception, lock, work unit, and pallet events

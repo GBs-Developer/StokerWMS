@@ -464,7 +464,7 @@ export default function PickingListReport() {
                 }
             }
 
-            const aggregatedItems = Array.from(productMap.values()).sort((a, b) => a.erpCode.localeCompare(b.erpCode));
+            const aggregatedItems = Array.from(productMap.values()).sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
 
             bodyHtml += `<tr class="section-row"><td colspan="8" style="text-align:left;">
                 <strong>Seção:</strong> ${sectionName.toUpperCase()}

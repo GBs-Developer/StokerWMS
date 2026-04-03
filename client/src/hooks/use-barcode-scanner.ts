@@ -13,16 +13,11 @@ export function useBarcodeScanner(
     if (!enabled) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement;
-      const isInScanInput = target.getAttribute("data-testid") === "input-scan";
-
-      if (isInScanInput) {
-        return;
-      }
-
       const now = Date.now();
+      const gap = now - lastKeyTimeRef.current;
+      const isFastInput = gap <= 80;
 
-      if (now - lastKeyTimeRef.current > 100) {
+      if (gap > 80) {
         bufferRef.current = "";
       }
       lastKeyTimeRef.current = now;
@@ -34,20 +29,37 @@ export function useBarcodeScanner(
           const barcode = bufferRef.current;
           bufferRef.current = "";
 
-          const isInEditableField =
-            (target.tagName === "INPUT" && (target as HTMLInputElement).type !== "hidden") ||
-            target.tagName === "TEXTAREA" ||
-            target.isContentEditable;
-
-          if (isInEditableField) {
-            (target as HTMLInputElement).value = "";
-            target.dispatchEvent(new Event("input", { bubbles: true }));
-          }
+          const target = e.target as HTMLElement;
+          try {
+            if (target.tagName === "INPUT" && (target as HTMLInputElement).type !== "hidden") {
+              const nativeSetter = Object.getOwnPropertyDescriptor(
+                HTMLInputElement.prototype, "value"
+              )?.set;
+              if (nativeSetter) {
+                nativeSetter.call(target, "");
+                target.dispatchEvent(new Event("input", { bubbles: true }));
+              }
+            } else if (target.tagName === "TEXTAREA") {
+              const nativeSetter = Object.getOwnPropertyDescriptor(
+                HTMLTextAreaElement.prototype, "value"
+              )?.set;
+              if (nativeSetter) {
+                nativeSetter.call(target, "");
+                target.dispatchEvent(new Event("input", { bubbles: true }));
+              }
+            } else if (target.isContentEditable) {
+              target.textContent = "";
+            }
+          } catch (_) {}
 
           onScanRef.current(barcode);
         }
       } else if (e.key && e.key.length === 1) {
         bufferRef.current += e.key;
+        if (isFastInput && bufferRef.current.length >= 2) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
       }
     };
 

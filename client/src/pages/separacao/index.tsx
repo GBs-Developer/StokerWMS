@@ -1132,7 +1132,39 @@ export default function SeparacaoPage() {
             </div>
           ) : groupedWorkUnits.length > 0 ? (
             <>
-              {/* Lista com scroll que ocupa o espaço disponível */}
+              {(() => {
+                const allVisibleIds = groupedWorkUnits.flatMap(g => g.map(wu => wu.id));
+                const allVisibleSelected = allVisibleIds.length > 0 && allVisibleIds.every(id => selectedWorkUnits.includes(id));
+                const someVisibleSelected = allVisibleIds.some(id => selectedWorkUnits.includes(id));
+                return (
+                  <div
+                    className="flex items-center gap-2 px-2 py-1.5 shrink-0 cursor-pointer"
+                    onClick={() => {
+                      if (allVisibleSelected) {
+                        setSelectedWorkUnits(prev => prev.filter(id => !allVisibleIds.includes(id)));
+                      } else {
+                        setSelectedWorkUnits(prev => Array.from(new Set([...prev, ...allVisibleIds])));
+                      }
+                    }}
+                    data-testid="select-all-visible"
+                  >
+                    <Checkbox
+                      checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          setSelectedWorkUnits(prev => Array.from(new Set([...prev, ...allVisibleIds])));
+                        } else {
+                          setSelectedWorkUnits(prev => prev.filter(id => !allVisibleIds.includes(id)));
+                        }
+                      }}
+                      className="shrink-0"
+                    />
+                    <span className="text-xs text-muted-foreground">
+                      Selecionar todos ({groupedWorkUnits.length} pedidos)
+                    </span>
+                  </div>
+                );
+              })()}
               <div className="flex-1 overflow-y-scroll border rounded-lg min-h-0 touch-pan-y overscroll-contain">
                 <div className="space-y-1.5 p-2">
                   {groupedWorkUnits.map((group) => {
