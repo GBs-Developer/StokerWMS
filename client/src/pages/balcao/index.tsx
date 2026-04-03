@@ -849,8 +849,11 @@ export default function BalcaoPage() {
           const addQty = isBoxBarcode ? boxQtyVal : currentModal.multiplier;
           const newAccumulated = currentModal.accumulated + addQty;
           if (newAccumulated > remaining) {
-            setQtyModal(null);
-            toast({ title: "Quantidade excedida", description: `Quantidade informada excede o necessário (${remaining}). Verifique e tente novamente.`, variant: "destructive" });
+            const capped = Math.min(newAccumulated, remaining);
+            if (capped > currentModal.accumulated) {
+              setQtyModal({ ...currentModal, accumulated: capped, maxRemaining: remaining });
+            }
+            toast({ title: "Quantidade excedida", description: `Máximo disponível: ${remaining}. Confirme o que já coletou.`, variant: "destructive" });
           } else {
             setQtyModal({ ...currentModal, accumulated: newAccumulated, maxRemaining: remaining });
           }
@@ -932,8 +935,11 @@ export default function BalcaoPage() {
     if (!modal) return;
     const newAccumulated = modal.accumulated + modal.multiplier;
     if (newAccumulated > modal.maxRemaining) {
-      setQtyModal(null);
-      toast({ title: "Quantidade excedida", description: `Quantidade informada excede o necessário (${modal.maxRemaining}). Verifique e tente novamente.`, variant: "destructive" });
+      const capped = Math.min(newAccumulated, modal.maxRemaining);
+      if (capped > modal.accumulated) {
+        setQtyModal({ ...modal, accumulated: capped });
+      }
+      toast({ title: "Quantidade excedida", description: `Máximo disponível: ${modal.maxRemaining}. Confirme o que já coletou.`, variant: "destructive" });
       return;
     }
     setQtyModal({ ...modal, accumulated: newAccumulated });
