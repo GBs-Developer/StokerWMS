@@ -87,9 +87,9 @@ export default function LoginPage() {
         {/* Logo */}
         <div className="flex flex-col items-center gap-4">
           <img
-            src="/stoker-logo-transparent.png"
+            src="/stoker-icon.png"
             alt="Stoker WMS"
-            className="w-32 h-32 object-contain drop-shadow-2xl select-none"
+            className="w-28 h-28 object-contain drop-shadow-2xl select-none"
             draggable={false}
           />
           <div className="text-center">
