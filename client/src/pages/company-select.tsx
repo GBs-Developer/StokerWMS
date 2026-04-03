@@ -32,12 +32,7 @@ export default function CompanySelectPage() {
     setLoadingId(selectedId);
     try {
       const success = await selectCompany(selectedId);
-      if (success) {
-        toast({
-          title: "Empresa selecionada",
-          description: companiesData.find(c => c.id === selectedId)?.name || `Empresa ${selectedId}`,
-        });
-      } else {
+      if (!success) {
         toast({ title: "Erro", description: "Não foi possível selecionar a empresa", variant: "destructive" });
       }
     } finally {
