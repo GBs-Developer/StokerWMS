@@ -374,9 +374,10 @@ export default function KpiDashboardPage() {
   const [showFilters, setShowFilters] = useState(true);
 
   // Busca por pedido
-  const [orderInput, setOrderInput]         = useState("");
-  const [orderSearchId, setOrderSearchId]   = useState<string | null>(null);
+  const [orderInput, setOrderInput]           = useState("");
+  const [orderSearchId, setOrderSearchId]     = useState<string | null>(null);
   const [showOrderSearch, setShowOrderSearch] = useState(true);
+  const [showSecTimes, setShowSecTimes]       = useState(true);
 
   const kpiUrl      = companyId ? `/api/kpi/operators?companyId=${companyId}&from=${from}&to=${to}` : null;
   const secTimesUrl = companyId ? `/api/kpi/section-times?companyId=${companyId}&from=${from}&to=${to}` : null;
@@ -760,69 +761,78 @@ export default function KpiDashboardPage() {
             </div>
 
             {/* Tempo por Seção */}
-            {secTimesData && secTimesData.sections.length > 0 && (() => {
-              const maxSep  = Math.max(0, ...secTimesData.sections.map(s => s.avgSepMin  ?? 0));
-              const maxConf = Math.max(0, ...secTimesData.sections.map(s => s.avgConfMin ?? 0));
-              return (
-                <div className="rounded-2xl border border-border/50 bg-card overflow-hidden">
-                  <div className="flex items-center gap-2 px-4 py-3 border-b border-border/40">
-                    <Timer className="h-4 w-4 text-amber-500 shrink-0" />
-                    <p className="text-sm font-semibold flex-1">Tempo por Seção</p>
-                    <div className="flex gap-3 text-[10px] text-muted-foreground">
-                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-blue-500 inline-block" />Sep</span>
-                      <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-green-500 inline-block" />Conf</span>
-                    </div>
+            {secTimesData && secTimesData.sections.length > 0 && (
+              <div className="rounded-2xl border border-border/50 bg-card overflow-hidden">
+                {/* Header colapsável */}
+                <button
+                  className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-muted/30 transition-colors"
+                  onClick={() => setShowSecTimes(v => !v)}
+                  data-testid="btn-sec-times-toggle"
+                >
+                  <Timer className="h-4 w-4 text-amber-500 shrink-0" />
+                  <span className="text-sm font-semibold flex-1">Tempo por Seção</span>
+                  <div className="flex gap-3 text-[10px] text-muted-foreground mr-1">
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-blue-500 inline-block" />Sep</span>
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-green-500 inline-block" />Conf</span>
                   </div>
-                  <div className="divide-y divide-border/30">
-                    {secTimesData.sections.map(s => (
-                      <div key={s.section} className="px-4 py-2.5 hover:bg-muted/20 transition-colors">
-                        <div className="flex items-center justify-between mb-1.5">
-                          <span className="text-xs font-bold">{s.section}</span>
-                          <div className="flex gap-2 text-[10px] text-muted-foreground">
-                            {s.sepCount > 0  && <span>{s.sepCount} sep</span>}
-                            {s.confCount > 0 && <span>{s.confCount} conf</span>}
+                  {showSecTimes
+                    ? <ChevronUp className="h-4 w-4 text-muted-foreground shrink-0" />
+                    : <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />}
+                </button>
+
+                {showSecTimes && (() => {
+                  const maxSep  = Math.max(0, ...secTimesData.sections.map(s => s.avgSepMin  ?? 0));
+                  const maxConf = Math.max(0, ...secTimesData.sections.map(s => s.avgConfMin ?? 0));
+                  return (
+                    <div className="divide-y divide-border/30 border-t border-border/40">
+                      {secTimesData.sections.map(s => (
+                        <div key={s.section} className="px-4 py-2.5 hover:bg-muted/20 transition-colors">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-xs font-bold">{s.section}</span>
+                            <div className="flex gap-2 text-[10px] text-muted-foreground">
+                              {s.sepCount > 0  && <span>{s.sepCount} sep</span>}
+                              {s.confCount > 0 && <span>{s.confCount} conf</span>}
+                            </div>
+                          </div>
+                          <div className="space-y-1.5">
+                            {s.sepCount > 0 && (
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] text-blue-600 dark:text-blue-400 w-6 shrink-0">Sep</span>
+                                <div className="flex-1 h-4 bg-muted rounded overflow-hidden relative">
+                                  <div
+                                    className="h-full bg-blue-500/80 rounded"
+                                    style={{ width: maxSep > 0 ? `${((s.avgSepMin ?? 0) / maxSep) * 100}%` : "0%" }}
+                                  />
+                                  <span className="absolute inset-0 flex items-center px-1.5 text-[9px] font-bold text-blue-900 dark:text-blue-100">
+                                    {fmtTime(s.avgSepMin)} méd
+                                    {s.minSepMin !== null && ` · ${fmtTime(s.minSepMin)}–${fmtTime(s.maxSepMin)}`}
+                                  </span>
+                                </div>
+                              </div>
+                            )}
+                            {s.confCount > 0 && (
+                              <div className="flex items-center gap-2">
+                                <span className="text-[10px] text-green-600 dark:text-green-400 w-6 shrink-0">Conf</span>
+                                <div className="flex-1 h-4 bg-muted rounded overflow-hidden relative">
+                                  <div
+                                    className="h-full bg-green-500/80 rounded"
+                                    style={{ width: maxConf > 0 ? `${((s.avgConfMin ?? 0) / maxConf) * 100}%` : "0%" }}
+                                  />
+                                  <span className="absolute inset-0 flex items-center px-1.5 text-[9px] font-bold text-green-900 dark:text-green-100">
+                                    {fmtTime(s.avgConfMin)} méd
+                                    {s.minConfMin !== null && ` · ${fmtTime(s.minConfMin)}–${fmtTime(s.maxConfMin)}`}
+                                  </span>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </div>
-                        <div className="space-y-1.5">
-                          {/* Separação bar */}
-                          {s.sepCount > 0 && (
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] text-blue-600 dark:text-blue-400 w-6 shrink-0">Sep</span>
-                              <div className="flex-1 h-4 bg-muted rounded overflow-hidden relative">
-                                <div
-                                  className="h-full bg-blue-500/80 rounded"
-                                  style={{ width: maxSep > 0 ? `${((s.avgSepMin ?? 0) / maxSep) * 100}%` : "0%" }}
-                                />
-                                <span className="absolute inset-0 flex items-center px-1.5 text-[9px] font-bold text-blue-900 dark:text-blue-100">
-                                  {fmtTime(s.avgSepMin)} méd
-                                  {s.minSepMin !== null && ` · ${fmtTime(s.minSepMin)}–${fmtTime(s.maxSepMin)}`}
-                                </span>
-                              </div>
-                            </div>
-                          )}
-                          {/* Conferência bar */}
-                          {s.confCount > 0 && (
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] text-green-600 dark:text-green-400 w-6 shrink-0">Conf</span>
-                              <div className="flex-1 h-4 bg-muted rounded overflow-hidden relative">
-                                <div
-                                  className="h-full bg-green-500/80 rounded"
-                                  style={{ width: maxConf > 0 ? `${((s.avgConfMin ?? 0) / maxConf) * 100}%` : "0%" }}
-                                />
-                                <span className="absolute inset-0 flex items-center px-1.5 text-[9px] font-bold text-green-900 dark:text-green-100">
-                                  {fmtTime(s.avgConfMin)} méd
-                                  {s.minConfMin !== null && ` · ${fmtTime(s.minConfMin)}–${fmtTime(s.maxConfMin)}`}
-                                </span>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })()}
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
 
             {/* Gráfico diário global */}
             {dailyGlobal.length > 0 && (
