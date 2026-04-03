@@ -41,6 +41,8 @@ function clearPendingQueue(ns?: string) {
   } catch {}
 }
 
+const MAX_PENDING_QUEUE = 100;
+
 export function useScanWebSocket(
   enabled: boolean,
   onAck?: ScanAckHandler,
@@ -90,15 +92,18 @@ export function useScanWebSocket(
     const now = Date.now();
     const maxAge = 5 * 60 * 1000;
     const valid = queue.filter(m => now - m.timestamp < maxAge);
+    const expired = queue.filter(m => now - m.timestamp >= maxAge);
+
+    if (expired.length > 0) {
+      pendingQueueRef.current = pendingQueueRef.current.filter(m => now - m.timestamp < maxAge);
+      savePendingQueue(pendingQueueRef.current, nsRef.current);
+    }
 
     for (const msg of valid) {
       try {
         ws.send(msg.data);
       } catch {}
     }
-
-    pendingQueueRef.current = [];
-    clearPendingQueue(nsRef.current);
   }, []);
 
   const connect = useCallback(() => {
@@ -180,6 +185,14 @@ export function useScanWebSocket(
     ws.onerror = () => {};
   }, [cleanup, flushPendingQueue]);
 
+  const enqueuePending = useCallback((msgId: string, payload: string) => {
+    pendingQueueRef.current.push({ id: msgId, data: payload, timestamp: Date.now() });
+    if (pendingQueueRef.current.length > MAX_PENDING_QUEUE) {
+      pendingQueueRef.current = pendingQueueRef.current.slice(-MAX_PENDING_QUEUE);
+    }
+    savePendingQueue(pendingQueueRef.current, nsRef.current);
+  }, []);
+
   const sendScan = useCallback((workUnitId: string, barcode: string, quantity?: number, externalMsgId?: string) => {
     const msgId = externalMsgId || generateMsgId();
     const payload = JSON.stringify({
@@ -194,16 +207,12 @@ export function useScanWebSocket(
     if (ws && ws.readyState === WebSocket.OPEN) {
       try {
         ws.send(payload);
-        pendingQueueRef.current.push({ id: msgId, data: payload, timestamp: Date.now() });
-        savePendingQueue(pendingQueueRef.current, nsRef.current);
-        return msgId;
       } catch {}
     }
 
-    pendingQueueRef.current.push({ id: msgId, data: payload, timestamp: Date.now() });
-    savePendingQueue(pendingQueueRef.current, nsRef.current);
+    enqueuePending(msgId, payload);
     return msgId;
-  }, []);
+  }, [enqueuePending]);
 
   const sendCheck = useCallback((workUnitId: string, barcode: string, quantity?: number, externalMsgId?: string) => {
     const msgId = externalMsgId || generateMsgId();
@@ -219,15 +228,16 @@ export function useScanWebSocket(
     if (ws && ws.readyState === WebSocket.OPEN) {
       try {
         ws.send(payload);
-        pendingQueueRef.current.push({ id: msgId, data: payload, timestamp: Date.now() });
-        savePendingQueue(pendingQueueRef.current, nsRef.current);
-        return msgId;
       } catch {}
     }
 
-    pendingQueueRef.current.push({ id: msgId, data: payload, timestamp: Date.now() });
-    savePendingQueue(pendingQueueRef.current, nsRef.current);
+    enqueuePending(msgId, payload);
     return msgId;
+  }, [enqueuePending]);
+
+  const clearQueue = useCallback(() => {
+    pendingQueueRef.current = [];
+    clearPendingQueue(nsRef.current);
   }, []);
 
   useEffect(() => {
@@ -248,6 +258,7 @@ export function useScanWebSocket(
     status,
     sendScan,
     sendCheck,
+    clearQueue,
     isConnected: status === "connected",
   };
 }

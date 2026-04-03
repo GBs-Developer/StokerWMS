@@ -262,8 +262,10 @@ Tables defined in `shared/schema.ts`:
 - **Connection indicator**: `client/src/components/connection-status.tsx` — green/yellow/red dot with animation, shown in scanning header of all three modules
 - **Module integration**: Separação and Balcão use `sendScan`; Conferência uses `sendCheck`. Both `processScanQueue` and `processIncrementQueue` in all modules now fire-and-forget via WebSocket instead of awaiting HTTP
 - **Namespace isolation**: Each module passes a unique namespace (`separacao`, `conferencia`, `balcao`) to the hook, so localStorage pending queues are isolated per module
-- **Context cleanup**: `pendingScanContextRef.current.clear()` is called on cancel, finalize, and context-switch in all modules, preventing stale acks from previous sessions
+- **Context cleanup**: `pendingScanContextRef.current.clear()` + `clearWsQueue()` called on cancel, finalize, and context-switch in all modules, preventing stale acks AND stale replay messages
 - **Server-side dedup**: `processedMsgIds` map caches responses by `msgId` for 5 minutes; replayed messages return the cached response instead of re-executing DB mutations
+- **Ack-driven queue removal**: Pending queue messages are removed only when their specific ack arrives (not on flush), preventing message loss on reconnect
+- **Max queue cap**: Pending queue limited to 100 messages to prevent unbounded growth during offline scanning
 - **Per-connection message serialization**: `messageChains` Map chains each scan/check message sequentially per WebSocket connection, preventing same-operator DB lock contention (`FOR UPDATE NOWAIT` errors) and ensuring over_quantity guards see committed data
 
 ### Transaction & Atomicity Patterns

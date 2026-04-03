@@ -1732,7 +1732,9 @@ export async function registerRoutes(
         ? matchingItems[0]
         : matchingItems.find(i => {
             const chk = Number(i.checkedQty);
-            const tgt = Number(i.quantity) - Number(i.exceptionQty || 0);
+            const iSep = Number(i.separatedQty);
+            const iExc = Number(i.exceptionQty || 0);
+            const tgt = iSep > 0 ? iSep : (iExc > 0 ? 0 : Number(i.quantity));
             return chk < tgt;
           }) || matchingItems[0];
 
@@ -1740,10 +1742,7 @@ export async function registerRoutes(
       const separatedQty = Number(item.separatedQty);
       const itemExcQty = Number(item.exceptionQty || 0);
 
-      // targetQty should always be what was fundamentally requested minus what was marked as an exception.
-      // This correctly handles both normal separation (where separatedQty equals quantity - exceptionQty)
-      // and "Separar Total" (where separatedQty might be bypassed and left as 0 or partial).
-      const targetQty = Number(item.quantity) - itemExcQty;
+      const targetQty = separatedQty > 0 ? separatedQty : (itemExcQty > 0 ? 0 : Number(item.quantity));
 
       if (targetQty <= 0) {
         // Item is fully excepted or genuinely empty — skip

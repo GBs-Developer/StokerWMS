@@ -242,12 +242,15 @@ async function handleCheckItem(client: ScanningClient, msg: any) {
       ? matchingItems[0]
       : matchingItems.find(i => {
           const chk = Number(i.checkedQty);
-          const tgt = Number(i.quantity) - Number(i.exceptionQty || 0);
+          const iSep = Number(i.separatedQty);
+          const iExc = Number(i.exceptionQty || 0);
+          const tgt = iSep > 0 ? iSep : (iExc > 0 ? 0 : Number(i.quantity));
           return chk < tgt;
         }) || matchingItems[0];
 
     const itemExcQty = Number(item.exceptionQty || 0);
-    const targetQty = Number(item.quantity) - itemExcQty;
+    const iSep = Number(item.separatedQty);
+    const targetQty = iSep > 0 ? iSep : (itemExcQty > 0 ? 0 : Number(item.quantity));
 
     if (targetQty <= 0) {
       return sendMsg(client.ws, { type: "check_ack", msgId, status: "not_found", message: "Item totalmente em exceção" });
