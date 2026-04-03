@@ -1,12 +1,11 @@
 import { db } from "./db";
 import { eq, and, sql, desc, inArray, isNull, gt, lt, or, like } from "drizzle-orm";
 import {
-  users, orders, orderItems, products, routes, workUnits, exceptions, auditLogs, sessions, sections, sectionGroups, manualQtyRules, db2Mappings, cacheOrcamentos, orderVolumes, systemSettings, nfItems,
+  users, orders, orderItems, products, routes, workUnits, exceptions, auditLogs, sessions, sections, sectionGroups, db2Mappings, cacheOrcamentos, orderVolumes, systemSettings, nfItems,
   type User, type InsertUser, type Order, type InsertOrder, type OrderItem, type InsertOrderItem,
   type Product, type InsertProduct, type Route, type InsertRoute, type WorkUnit, type InsertWorkUnit,
   type Exception, type InsertException, type AuditLog, type InsertAuditLog, type Session,
   type SectionGroup, type InsertSectionGroup, type Section, pickingSessions, type PickingSession, type InsertPickingSession,
-  type ManualQtyRule, type InsertManualQtyRule,
   type Db2Mapping, type MappingField, type BatchSyncPayload,
   type OrderVolume, type InsertOrderVolume, companies, type Company,
   type SystemSettings, type SeparationMode
@@ -147,13 +146,6 @@ export interface IStorage {
   deletePickingSession(orderId: string, sectionId: string): Promise<void>;
   getPickingSessionsByOrder(orderId: string): Promise<PickingSession[]>;
   cancelOrderLaunch(orderId: string): Promise<void>;
-
-  // Manual Quantity Rules
-  getAllManualQtyRules(): Promise<ManualQtyRule[]>;
-  createManualQtyRule(rule: InsertManualQtyRule): Promise<ManualQtyRule>;
-  updateManualQtyRule(id: string, data: Partial<InsertManualQtyRule>): Promise<ManualQtyRule | undefined>;
-  deleteManualQtyRule(id: string): Promise<void>;
-  checkProductManualQty(product: Product): Promise<boolean>;
 
   // DB2 Mappings
   getMappingByDataset(dataset: string): Promise<Db2Mapping | undefined>;
@@ -1556,50 +1548,6 @@ export class DatabaseStorage implements IStorage {
     });
   }
 
-
-  // Manual Quantity Rules
-  async getAllManualQtyRules(): Promise<ManualQtyRule[]> {
-    return await db.select().from(manualQtyRules).orderBy(desc(manualQtyRules.createdAt));
-  }
-
-  async createManualQtyRule(rule: InsertManualQtyRule): Promise<ManualQtyRule> {
-    const [newRule] = await db.insert(manualQtyRules).values(rule as any).returning();
-    return newRule;
-  }
-
-  async updateManualQtyRule(id: string, data: Partial<InsertManualQtyRule>): Promise<ManualQtyRule | undefined> {
-    const [updated] = await db.update(manualQtyRules).set(data as any).where(eq(manualQtyRules.id, id)).returning();
-    return updated;
-  }
-
-  async deleteManualQtyRule(id: string): Promise<void> {
-    await db.delete(manualQtyRules).where(eq(manualQtyRules.id, id));
-  }
-
-  async checkProductManualQty(product: Product): Promise<boolean> {
-    const rules = await db.select().from(manualQtyRules).where(eq(manualQtyRules.active, true));
-
-    for (const rule of rules) {
-      const values = rule.value.split(";").map(v => v.trim()).filter(v => v.length > 0);
-      for (const val of values) {
-        switch (rule.ruleType) {
-          case "product_code":
-            if (product.erpCode === val) return true;
-            break;
-          case "barcode":
-            if (product.barcode === val || product.boxBarcode === val) return true;
-            break;
-          case "description_keyword":
-            if (product.name && product.name.toUpperCase().includes(val.toUpperCase())) return true;
-            break;
-          case "manufacturer":
-            if (product.manufacturer && product.manufacturer.toUpperCase().includes(val.toUpperCase())) return true;
-            break;
-        }
-      }
-    }
-    return false;
-  }
 
   // DB2 Mappings
   async getMappingByDataset(dataset: string): Promise<Db2Mapping | undefined> {

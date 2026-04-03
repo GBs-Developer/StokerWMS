@@ -51,7 +51,6 @@ import OrdersPage from "@/pages/supervisor/orders";
 import ExceptionsPage from "@/pages/supervisor/exceptions";
 import AuditPage from "@/pages/supervisor/audit";
 import UsersPage from "@/pages/supervisor/users";
-import ManualQtyRulesPage from "@/pages/supervisor/manual-qty-rules";
 import RoutesPage from "@/pages/supervisor/routes";
 import RouteOrdersPage from "@/pages/supervisor/route-orders";
 import ReportsPage from "@/pages/supervisor/reports";
@@ -177,12 +176,6 @@ function Router() {
       <Route path="/supervisor/users">
         <ProtectedRoute allowedRoles={["supervisor", "administrador"]}>
           <UsersPage />
-        </ProtectedRoute>
-      </Route>
-
-      <Route path="/supervisor/manual-qty-rules">
-        <ProtectedRoute allowedRoles={["supervisor", "administrador"]}>
-          <ManualQtyRulesPage />
         </ProtectedRoute>
       </Route>
 

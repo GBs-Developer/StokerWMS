@@ -49,8 +49,6 @@ import { ArrowLeft, Users, Plus, UserCircle, Pencil } from "lucide-react";
 import type { User, Section, UserSettings } from "@shared/schema";
 
 const settingsSchema = z.object({
-  allowManualQty: z.boolean().default(false),
-
   canAuthorizeOwnExceptions: z.boolean().default(false),
 });
 
@@ -108,7 +106,7 @@ export default function UsersPage() {
       name: "",
       role: "separacao",
       sections: [],
-      settings: { allowManualQty: false, canAuthorizeOwnExceptions: false },
+      settings: { canAuthorizeOwnExceptions: false },
       active: true,
     },
   });
@@ -121,7 +119,7 @@ export default function UsersPage() {
       name: "",
       role: "separacao",
       sections: [],
-      settings: { allowManualQty: false, canAuthorizeOwnExceptions: false },
+      settings: { canAuthorizeOwnExceptions: false },
       active: true,
     },
   });
@@ -140,8 +138,6 @@ export default function UsersPage() {
         role: editingUser.role as any,
         sections: (editingUser.sections as string[]) || [],
         settings: {
-          allowManualQty: userSettings.allowManualQty ?? false,
-
           canAuthorizeOwnExceptions: userSettings.canAuthorizeOwnExceptions ?? false,
         },
         active: editingUser.active,
@@ -308,14 +304,9 @@ export default function UsersPage() {
                         <TableCell>
                           {(() => {
                             const settings = (user.settings as UserSettings) || {};
-                            const hasBadges = settings.allowManualQty || settings.allowMultiplier || settings.canAuthorizeOwnExceptions;
+                            const hasBadges = settings.allowMultiplier || settings.canAuthorizeOwnExceptions;
                             return hasBadges ? (
                               <div className="flex flex-wrap gap-1">
-                                {settings.allowManualQty && (
-                                  <Badge variant="outline" className="bg-blue-100 text-blue-700 border-0 text-xs">
-                                    Qtd
-                                  </Badge>
-                                )}
                                 {settings.allowMultiplier && (
                                   <Badge variant="outline" className="bg-blue-100 text-blue-700 border-0 text-xs">
                                     Mult
@@ -498,27 +489,6 @@ export default function UsersPage() {
                 <>
                   <FormField
                     control={form.control}
-                    name="settings.allowManualQty"
-                    render={({ field }) => (
-                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
-                        <div className="space-y-0.5">
-                          <FormLabel>Permitir Qtd. Manual</FormLabel>
-                          <FormDescription>
-                            Permite digitar quantidade manualmente
-                          </FormDescription>
-                        </div>
-                        <FormControl>
-                          <Switch
-                            checked={field.value ?? false}
-                            onCheckedChange={field.onChange}
-                          />
-                        </FormControl>
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control} // IMPORTANTE: Mude para editForm.control no formulário de edição!
                     name="settings.canAuthorizeOwnExceptions"
                     render={({ field }) => (
                       <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
@@ -717,27 +687,6 @@ export default function UsersPage() {
                 <>
                   <FormField
                     control={editForm.control}
-                    name="settings.allowManualQty"
-                    render={({ field }) => (
-                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">
-                        <div className="space-y-0.5">
-                          <FormLabel>Permitir Qtd. Manual</FormLabel>
-                          <FormDescription>
-                            Permite digitar quantidade manualmente
-                          </FormDescription>
-                        </div>
-                        <FormControl>
-                          <Switch
-                            checked={field.value ?? false}
-                            onCheckedChange={field.onChange}
-                          />
-                        </FormControl>
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={editForm.control} // IMPORTANTE: Mude para editForm.control no formulário de edição!
                     name="settings.canAuthorizeOwnExceptions"
                     render={({ field }) => (
                       <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm">

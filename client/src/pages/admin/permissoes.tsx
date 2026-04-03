@@ -50,7 +50,6 @@ const ALL_MODULES = [
   { id: "/supervisor/route-orders", label: "Expedição", section: "Logística" },
   { id: "/supervisor/exceptions", label: "Exceções", section: "Logística" },
   { id: "/supervisor/users", label: "Usuários", section: "Administração" },
-  { id: "/supervisor/manual-qty-rules", label: "Regras de Qtd. Manual", section: "Administração" },
   { id: "/supervisor/mapping-studio", label: "Mapping Studio", section: "Administração" },
   { id: "/supervisor/reports", label: "Relatórios", section: "Administração" },
   { id: "/supervisor/audit", label: "Auditoria", section: "Administração" },

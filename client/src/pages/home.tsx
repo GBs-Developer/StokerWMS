@@ -20,7 +20,6 @@ import {
   FileText,
   Users,
   Settings,
-  SlidersHorizontal,
   ShieldCheck,
   Printer,
   ChevronDown,
@@ -106,7 +105,6 @@ export default function HomePage() {
       iconBg: "bg-amber-500/10",
       modules: [
         { icon: Users, title: "Usuários", description: "Gerenciar operadores", href: "/supervisor/users" },
-        { icon: SlidersHorizontal, title: "Regras Qtd Manual", description: "Configurar regras", href: "/supervisor/manual-qty-rules" },
         { icon: MapPin, title: "Endereços Produto", description: "Vincular produtos a endereços", href: "/supervisor/product-addresses" },
         { icon: Settings, title: "Mapping Studio", description: "Mapeamento DB2", href: "/supervisor/mapping-studio" },
         { icon: FileText, title: "Relatórios", description: "Gerar relatórios", href: "/supervisor/reports" },
@@ -124,7 +122,7 @@ export default function HomePage() {
     administrador: [
       "/wms/recebimento", "/wms/checkin", "/wms/transferencia", "/wms/contagem", "/wms/enderecos", "/wms/produtos",
       "/fila-pedidos", "/supervisor/orders", "/supervisor/routes", "/supervisor/route-orders", "/supervisor/exceptions",
-      "/supervisor/users", "/supervisor/manual-qty-rules", "/supervisor/product-addresses", "/supervisor/mapping-studio",
+      "/supervisor/users", "/supervisor/product-addresses", "/supervisor/mapping-studio",
       "/supervisor/reports", "/supervisor/audit", "/admin/permissoes", "/supervisor/separation-settings", "/admin/limpeza",
       "/supervisor/print-settings", "/admin/kpi-operadores",
     ],

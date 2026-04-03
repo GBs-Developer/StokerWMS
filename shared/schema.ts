@@ -50,7 +50,6 @@ export interface PrintConfig {
 }
 
 export interface UserSettings {
-  allowManualQty?: boolean;
   allowMultiplier?: boolean;
   canAuthorizeOwnExceptions?: boolean;
   printConfig?: Record<string, PrintConfig>;
@@ -491,7 +490,6 @@ export const insertPickingSessionSchema = createInsertSchema(pickingSessions).om
 export const insertExceptionSchema = createInsertSchema(exceptions).omit({ id: true, createdAt: true });
 export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({ id: true, createdAt: true });
 export const insertCompanySchema = createInsertSchema(companies);
-export const insertManualQtyRuleSchema = createInsertSchema(manualQtyRules).omit({ id: true, createdAt: true });
 export const insertOrderVolumeSchema = createInsertSchema(orderVolumes).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertWmsAddressSchema = createInsertSchema(wmsAddresses).omit({ id: true, createdAt: true });
 export const insertPalletSchema = createInsertSchema(pallets).omit({ id: true, createdAt: true });
@@ -616,10 +614,6 @@ export interface BatchSyncPayload {
   exceptions: BatchSyncException[];
 }
 export type InsertSectionGroup = typeof sectionGroups.$inferInsert;
-export type ManualQtyRule = typeof manualQtyRules.$inferSelect;
-export type InsertManualQtyRule = z.infer<typeof insertManualQtyRuleSchema>;
-
-
 export const loginSchema = z.object({
   username: z.string().min(1, "Usuário é obrigatório"),
   password: z.string().min(1, "Senha é obrigatória"),
