@@ -49,6 +49,14 @@ export default function LoginPage() {
     defaultValues: { username: "", password: "" },
   });
 
+  function getOperatorRoute(role?: string): string {
+    if (role === "separacao") return "/separacao";
+    if (role === "conferencia") return "/conferencia";
+    if (role === "balcao") return "/balcao";
+    if (role === "fila_pedidos") return "/fila-pedidos";
+    return "/";
+  }
+
   const onSubmit = async (data: LoginInput) => {
     setIsLoading(true);
     try {
@@ -56,7 +64,7 @@ export default function LoginPage() {
       if (result.success) {
         if (result.requireCompanySelection) { navigate("/select-company"); return; }
         toast({ title: "Acesso autorizado", description: "Bem-vindo ao Stoker!" });
-        navigate("/");
+        navigate(getOperatorRoute(result.userRole));
       } else {
         toast({ title: "Acesso negado", description: "Usuário ou senha inválidos.", variant: "destructive" });
       }

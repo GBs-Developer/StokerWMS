@@ -15,8 +15,16 @@ export default function CompanySelectPage() {
 
   const isDark = theme === "dark";
 
+  function getOperatorRoute(role?: string): string {
+    if (role === "separacao") return "/separacao";
+    if (role === "conferencia") return "/conferencia";
+    if (role === "balcao") return "/balcao";
+    if (role === "fila_pedidos") return "/fila-pedidos";
+    return "/";
+  }
+
   useEffect(() => {
-    if (companyId) navigate("/");
+    if (companyId) navigate(getOperatorRoute(user?.role));
   }, [companyId, navigate]);
 
   const handleSelect = async (selectedId: number) => {

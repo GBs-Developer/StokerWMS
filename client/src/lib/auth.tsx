@@ -152,7 +152,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [status, startInactivityMonitor, updateActivity]);
 
-  const login = async (username: string, password: string, selectedCompanyId?: number): Promise<{ success: boolean; requireCompanySelection?: boolean; allowedCompanies?: number[] }> => {
+  const login = async (username: string, password: string, selectedCompanyId?: number): Promise<{ success: boolean; requireCompanySelection?: boolean; allowedCompanies?: number[]; companiesData?: Company[]; userRole?: string }> => {
     try {
       clearSession();
       const res = await fetch("/api/auth/login", {
@@ -172,11 +172,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (data.requireCompanySelection) {
           setStatus("authenticated");
-          return { success: true, requireCompanySelection: true, allowedCompanies: data.allowedCompanies, companiesData: data.companiesData };
+          return { success: true, requireCompanySelection: true, allowedCompanies: data.allowedCompanies, companiesData: data.companiesData, userRole: data.user?.role };
         }
 
         setStatus("authenticated");
-        return { success: true };
+        return { success: true, userRole: data.user?.role };
       }
       return { success: false };
     } catch {
