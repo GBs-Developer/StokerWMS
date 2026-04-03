@@ -1,0 +1,89 @@
+
+> rest-express@1.0.0 dev
+> NODE_ENV=development tsx server/index.ts
+
+[1G[0KSeeding database...
+Checking for existing users...
+Existing users count: [33m13[39m
+Database already seeded
+8:38:38 PM [express] [Routes] Registering routes...
+8:38:38 PM [print] [agent] WebSocket server iniciado em /ws/print-agent
+8:38:38 PM [express] [scanning-ws] WebSocket scanning server iniciado em /ws/scanning
+8:38:38 PM [print] AVISO: não foi possível listar impressoras — Operating System not supported
+8:38:38 PM [express] Servidor iniciado na porta 5000
+
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+8:38:43 PM [express] [Auto-Sync] Triggering DB sync...
+8:38:43 PM [print] AVISO: não foi possível listar impressoras — Operating System not supported
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m8:39:48 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/supervisor/route-orders.tsx, /src/index.css[22m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m8:39:50 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/supervisor/route-orders.tsx, /src/index.css[22m [33m(x2)[39m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m8:39:52 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/supervisor/orders.tsx, /src/index.css[22m

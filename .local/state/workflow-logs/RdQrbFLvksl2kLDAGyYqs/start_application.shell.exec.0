@@ -1,0 +1,49 @@
+
+> rest-express@1.0.0 dev
+> NODE_ENV=development tsx server/index.ts
+
+[1G[0KSeeding database...
+Checking for existing users...
+Existing users count: [33m7[39m
+Database already seeded
+[Routes] Registering routes...
+11:51:59 PM [print] AVISO: não foi possível listar impressoras — Operating System not supported
+11:52:01 PM [express] Servidor iniciado na porta 5000
+[Auto-Sync] Triggering DB sync...
+11:52:07 PM [print] AVISO: não foi possível listar impressoras — Operating System not supported
+
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+[Auto-Sync] Triggering DB sync...
+12:01:59 AM [print] AVISO: não foi possível listar impressoras — Operating System not supported
+[Auto-Sync] Triggering DB sync...
+12:11:59 AM [print] AVISO: não foi possível listar impressoras — Operating System not supported
+[Auto-Sync] Triggering DB sync...
+12:21:59 AM [print] AVISO: não foi possível listar impressoras — Operating System not supported
+[Auto-Sync] Triggering DB sync...
+12:31:59 AM [print] AVISO: não foi possível listar impressoras — Operating System not supported
+[Auto-Sync] Triggering DB sync...
+12:41:59 AM [print] AVISO: não foi possível listar impressoras — Operating System not supported
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m12:43:30 AM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/supervisor/print-settings.tsx, /src/pages/wms/recebimento.tsx, /src/components/conferencia/VolumeModal.tsx, /src/index.css[22m

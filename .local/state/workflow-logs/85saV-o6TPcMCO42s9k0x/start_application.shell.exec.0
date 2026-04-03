@@ -1,0 +1,14 @@
+
+> rest-express@1.0.0 dev
+> NODE_ENV=development tsx server/index.ts
+
+[1G[0KSeeding database...
+Checking for existing users...
+Existing users count: [33m13[39m
+Database already seeded
+12:54:35 AM [express] [Routes] Registering routes...
+12:54:35 AM [print] [agent] WebSocket server iniciado em /ws/print-agent
+12:54:35 AM [print] AVISO: não foi possível listar impressoras — Operating System not supported
+12:54:36 AM [express] Servidor iniciado na porta 5000
+12:54:40 AM [express] [Auto-Sync] Triggering DB sync...
+12:54:40 AM [print] AVISO: não foi possível listar impressoras — Operating System not supported
