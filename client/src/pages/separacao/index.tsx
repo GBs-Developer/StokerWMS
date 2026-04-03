@@ -984,7 +984,7 @@ export default function SeparacaoPage() {
         ...wu,
         items: wu.items.map((item: any) =>
           ctx.itemIds.includes(item.id)
-            ? { ...item, separatedQty: 0, status: "pendente" }
+            ? { ...item, separatedQty: 0, status: "recontagem" }
             : item
         ),
       }));

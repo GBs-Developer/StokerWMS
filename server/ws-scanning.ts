@@ -179,7 +179,6 @@ async function handleScanItem(client: ScanningClient, msg: any) {
     }
 
     broadcastSSE("item_picked", { workUnitId, orderId: workUnit.orderId, productId: product.id, userId: client.userId }, client.companyId);
-    await storage.checkAndCompleteWorkUnit(workUnitId, false);
 
     sendAndCache(client.ws, {
       type: "scan_ack",

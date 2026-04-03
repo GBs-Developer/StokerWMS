@@ -777,7 +777,7 @@ export default function ConferenciaPage() {
           const iSep = Number(item.separatedQty);
           const iExc = Number(item.exceptionQty || 0);
           const iTarget = iSep > 0 ? iSep : (iExc > 0 ? 0 : Number(item.quantity));
-          return serverChecked + delta + iExc < iTarget;
+          return serverChecked + delta < iTarget;
         });
 
         const finalUnit = targetUnit || unitsWithProduct[0];
@@ -791,7 +791,8 @@ export default function ConferenciaPage() {
         const serverChecked = Number(matchedItem.checkedQty);
         const itemDelta = getDelta("conferencia", matchedItem.id);
         const exceptionQty = Number(matchedItem.exceptionQty || 0);
-        const targetQty = Number(matchedItem.quantity) - exceptionQty;
+        const iSep = Number(matchedItem.separatedQty);
+        const targetQty = iSep > 0 ? iSep : (exceptionQty > 0 ? 0 : Number(matchedItem.quantity));
         const alreadyComplete = serverChecked + itemDelta >= targetQty;
 
         if (alreadyComplete) {
