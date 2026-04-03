@@ -195,8 +195,8 @@ export default function ManualQtyRulesPage() {
       </GradientHeader>
 
       <main className="max-w-7xl mx-auto px-4 py-6 space-y-4">
-        <div className="flex items-center justify-between gap-4">
-          <div className="relative flex-1 max-w-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="relative flex-1 min-w-0">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Filtrar por valor ou descrição..."
@@ -205,7 +205,7 @@ export default function ManualQtyRulesPage() {
               className="pl-9"
             />
           </div>
-          <Button onClick={() => setShowCreateDialog(true)}>
+          <Button className="shrink-0" onClick={() => setShowCreateDialog(true)}>
             <Plus className="h-4 w-4 mr-2" />
             Adicionar Regra
           </Button>

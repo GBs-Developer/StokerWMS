@@ -240,10 +240,12 @@ td.nowrap { white-space: nowrap; }
         <div className="bg-card p-4 rounded-lg border shadow-sm space-y-4 print:hidden">
           <div className="flex flex-col md:flex-row gap-4">
             {/* Filtro de Data */}
-            <div className="flex items-center gap-2">
-              <Calendar className="h-4 w-4 text-muted-foreground" />
-              <DatePickerWithRange date={tempDateRange} onDateChange={setTempDateRange} />
-              <Button variant="secondary" onClick={() => setFilterDateRange(tempDateRange)}>
+            <div className="flex flex-wrap items-center gap-2">
+              <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
+              <div className="flex-1 min-w-0">
+                <DatePickerWithRange date={tempDateRange} onDateChange={setTempDateRange} className="w-full" />
+              </div>
+              <Button variant="secondary" className="shrink-0" onClick={() => setFilterDateRange(tempDateRange)}>
                 Buscar
               </Button>
             </div>
@@ -261,7 +263,7 @@ td.nowrap { white-space: nowrap; }
 
             {/* Filtro de Motivo */}
             <Select value={selectedExceptionType} onValueChange={setSelectedExceptionType}>
-              <SelectTrigger className="w-[180px]">
+              <SelectTrigger className="w-full sm:w-[180px]">
                 <SelectValue placeholder="Motivo" />
               </SelectTrigger>
               <SelectContent>

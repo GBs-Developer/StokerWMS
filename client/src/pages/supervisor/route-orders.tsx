@@ -298,7 +298,7 @@ td.right { text-align: right; text-transform: capitalize; }
                         </div>
 
                         {/* Package/Load Code Filter */}
-                        <div className="w-36 space-y-1">
+                        <div className="w-full sm:w-36 space-y-1">
                             <label className="text-xs font-medium text-muted-foreground">Pacote/Carga</label>
                             <div className="relative">
                                 <Package className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -312,10 +312,12 @@ td.right { text-align: right; text-transform: capitalize; }
                         </div>
 
                         {/* Date Range */}
-                        <div className="flex items-center gap-2">
-                            <Calendar className="h-4 w-4 text-muted-foreground" />
-                            <DatePickerWithRange date={tempDateRange} onDateChange={setTempDateRange} />
-                            <Button variant="secondary" onClick={() => setFilterDateRange(tempDateRange)}>
+                        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                            <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
+                            <div className="flex-1 min-w-0">
+                                <DatePickerWithRange date={tempDateRange} onDateChange={setTempDateRange} className="w-full" />
+                            </div>
+                            <Button variant="secondary" className="shrink-0" onClick={() => setFilterDateRange(tempDateRange)}>
                                 Buscar
                             </Button>
                         </div>
@@ -324,7 +326,7 @@ td.right { text-align: right; text-transform: capitalize; }
                     <div className="flex flex-wrap gap-3 items-center justify-between border-t pt-3">
                         <div className="flex flex-wrap gap-2">
                             <Select value={selectedRouteFilter} onValueChange={setSelectedRouteFilter}>
-                                <SelectTrigger className="w-[160px] h-8 text-xs">
+                                <SelectTrigger className="w-full sm:w-[160px] h-8 text-xs">
                                     <SelectValue placeholder="Rota" />
                                 </SelectTrigger>
                                 <SelectContent>
@@ -339,7 +341,7 @@ td.right { text-align: right; text-transform: capitalize; }
                             </Select>
 
                             <Select value={selectedPickupPoint} onValueChange={setSelectedPickupPoint}>
-                                <SelectTrigger className="w-[160px] h-8 text-xs">
+                                <SelectTrigger className="w-full sm:w-[160px] h-8 text-xs">
                                     <SelectValue placeholder="Ponto de Retirada" />
                                 </SelectTrigger>
                                 <SelectContent>

@@ -532,7 +532,7 @@ small.dim { color: #888; font-size: 8px; }
             </div>
 
             {/* 8. Load Code */}
-            <div className="w-[120px] space-y-1">
+            <div className="w-full sm:w-[120px] space-y-1">
               <label className="text-xs font-medium text-muted-foreground">Pacote/Carga</label>
               <Input
                 placeholder="Cód. 4 dígitos"
@@ -542,18 +542,20 @@ small.dim { color: #888; font-size: 8px; }
             </div>
 
             {/* 2. Date Range */}
-            <div className="space-y-1">
+            <div className="space-y-1 min-w-0">
               <label className="text-xs font-medium text-muted-foreground">Período de Importação</label>
-              <div className="flex items-center">
-                <DatePickerWithRange date={tempDateRange} onDateChange={setTempDateRange} className="w-[240px]" />
-                <Button variant="secondary" className="ml-2" onClick={() => { setFilterDateRange(tempDateRange); }}>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex-1 min-w-0">
+                  <DatePickerWithRange date={tempDateRange} onDateChange={setTempDateRange} className="w-full" />
+                </div>
+                <Button variant="secondary" className="shrink-0" onClick={() => { setFilterDateRange(tempDateRange); }}>
                   Buscar
                 </Button>
               </div>
             </div>
 
             {/* 7. Launched */}
-            <div className="w-[120px] space-y-1">
+            <div className="w-full sm:w-[120px] space-y-1">
               <label className="text-xs font-medium text-muted-foreground">Lançado?</label>
               <Select value={launchedFilter} onValueChange={setLaunchedFilter}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
@@ -572,7 +574,7 @@ small.dim { color: #888; font-size: 8px; }
             </div>
 
             {/* 3. Financial */}
-            <div className="w-[140px] space-y-1">
+            <div className="w-full sm:w-[140px] space-y-1">
               <Select value={financialStatusFilter} onValueChange={setFinancialStatusFilter}>
                 <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Financeiro" /></SelectTrigger>
                 <SelectContent>
@@ -585,7 +587,7 @@ small.dim { color: #888; font-size: 8px; }
             </div>
 
             {/* 4. Picking Status - Simplified as Single Select for UI, can swap to MultiSelect component if available */}
-            <div className="w-[180px] space-y-1">
+            <div className="w-full sm:w-[180px] space-y-1">
               <Select value={pickingStatusFilter[0] || "all"} onValueChange={(val) => setPickingStatusFilter(val === "all" ? [] : [val])}>
                 <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Status Separação" /></SelectTrigger>
                 <SelectContent>
@@ -598,7 +600,7 @@ small.dim { color: #888; font-size: 8px; }
             </div>
 
             {/* 5. Route */}
-            <div className="w-[150px] space-y-1">
+            <div className="w-full sm:w-[150px] space-y-1">
               <Select value={routeFilter} onValueChange={setRouteFilter}>
                 <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Rota" /></SelectTrigger>
                 <SelectContent>
@@ -612,7 +614,7 @@ small.dim { color: #888; font-size: 8px; }
             </div>
 
             {/* 6. Priority */}
-            <div className="w-[120px] space-y-1">
+            <div className="w-full sm:w-[120px] space-y-1">
               <Select value={priorityFilter} onValueChange={setPriorityFilter}>
                 <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Prioridade" /></SelectTrigger>
                 <SelectContent>

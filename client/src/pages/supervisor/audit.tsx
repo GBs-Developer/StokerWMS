@@ -118,17 +118,19 @@ export default function AuditPage() {
                 <div className="bg-card p-4 rounded-lg border shadow-sm space-y-4">
                     <div className="flex flex-col md:flex-row gap-4">
                         {/* Filtro de Data */}
-                        <div className="flex items-center gap-2">
-                            <Calendar className="h-4 w-4 text-muted-foreground" />
-                            <DatePickerWithRange date={tempDateRange} onDateChange={setTempDateRange} />
-                            <Button variant="secondary" onClick={() => setFilterDateRange(tempDateRange)}>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
+                            <div className="flex-1 min-w-0">
+                                <DatePickerWithRange date={tempDateRange} onDateChange={setTempDateRange} className="w-full" />
+                            </div>
+                            <Button variant="secondary" className="shrink-0" onClick={() => setFilterDateRange(tempDateRange)}>
                                 Buscar
                             </Button>
                         </div>
 
                         {/* Filtro de Usuário */}
                         <Select value={selectedUserId} onValueChange={setSelectedUserId}>
-                            <SelectTrigger className="w-[200px]">
+                            <SelectTrigger className="w-full sm:w-[200px]">
                                 <SelectValue placeholder="Usuário" />
                             </SelectTrigger>
                             <SelectContent>

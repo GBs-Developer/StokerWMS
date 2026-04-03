@@ -1089,16 +1089,16 @@ export default function ConferenciaPage() {
                 className="h-10 text-sm"
               />
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
-              <div className="flex-1">
+              <div className="flex-1 min-w-0">
                 <DatePickerWithRange
                   date={tempDateRange}
                   onDateChange={setTempDateRange}
-                  className="text-sm h-10"
+                  className="text-sm h-10 w-full"
                 />
               </div>
-              <Button size="sm" className="h-10 px-4 text-sm" onClick={handleApplyDateFilter}>
+              <Button size="sm" className="h-10 px-4 text-sm shrink-0" onClick={handleApplyDateFilter}>
                 <Search className="h-4 w-4" />
               </Button>
             </div>
