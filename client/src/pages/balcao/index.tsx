@@ -411,6 +411,9 @@ export default function BalcaoPage() {
       const res = await apiRequest("POST", "/api/work-units/lock", { workUnitIds });
       return res.json();
     },
+    onError: (error: Error) => {
+      toast({ title: "Erro", description: error.message || "Falha ao bloquear unidades", variant: "destructive" });
+    },
   });
 
   const unlockMutation = useMutation({
@@ -486,6 +489,9 @@ export default function BalcaoPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Erro", description: error.message || "Falha ao concluir atendimento", variant: "destructive" });
     },
   });
 

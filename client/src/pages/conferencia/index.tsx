@@ -423,6 +423,9 @@ export default function ConferenciaPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
     },
+    onError: (error: Error) => {
+      toast({ title: "Erro", description: error.message || "Falha ao bloquear unidades", variant: "destructive" });
+    },
   });
 
   const unlockMutation = useMutation({
@@ -498,6 +501,9 @@ export default function ConferenciaPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Erro", description: error.message || "Falha ao concluir conferência", variant: "destructive" });
     },
   });
 

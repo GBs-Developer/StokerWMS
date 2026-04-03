@@ -166,6 +166,7 @@ export default function OrdersPage() {
       setShowRouteDialog(false);
       toast({ title: "Rota atribuída", description: "Pedidos atualizados." });
     },
+    onError: (e: Error) => toast({ title: "Erro", description: e.message || "Falha ao atribuir rota", variant: "destructive" }),
   });
 
   const setPriorityMutation = useMutation({
@@ -178,6 +179,7 @@ export default function OrdersPage() {
       setSelectedOrders([]);
       toast({ title: "Prioridade atualizada", description: `Prioridade ${variables.priority > 0 ? "Alta" : "Normal"} definida.` });
     },
+    onError: (e: Error) => toast({ title: "Erro", description: e.message || "Falha ao definir prioridade", variant: "destructive" }),
   });
 
   const forceStatusMutation = useMutation({
@@ -231,7 +233,8 @@ export default function OrdersPage() {
       queryClient.invalidateQueries({ queryKey: ordersQueryKey });
       setSelectedOrders([]);
       toast({ title: "Recontagem", description: "Recontagem autorizada." });
-    }
+    },
+    onError: (e: Error) => toast({ title: "Erro", description: e.message || "Falha ao solicitar recontagem", variant: "destructive" }),
   });
 
   const cancelLaunchMutation = useMutation({
