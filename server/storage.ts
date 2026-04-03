@@ -71,6 +71,7 @@ export interface IStorage {
   updateOrderItem(id: string, data: Partial<OrderItem>): Promise<OrderItem | undefined>;
   atomicIncrementSeparatedQty(itemId: string, delta: number, newStatus: string): Promise<OrderItem | undefined>;
   atomicIncrementCheckedQty(itemId: string, delta: number, newStatus: string): Promise<OrderItem | undefined>;
+  atomicScanCheckedQty(itemId: string, delta: number, targetQty: number): Promise<{ result: "success"; updated: OrderItem; appliedQty: number } | { result: "already_complete"; currentQty: number; targetQty: number } | { result: "over_quantity"; currentQty: number; availableQty: number; targetQty: number }>;
   atomicResetItemAndWorkUnit(itemId: string, workUnitId: string, orderId: string, field: "separatedQty" | "checkedQty", itemStatus: string): Promise<void>;
   atomicScanSeparatedQty(itemId: string, delta: number, adjustedTarget: number, workUnitId: string, orderId: string): Promise<{ result: "success"; updated: OrderItem } | { result: "over_limit"; currentQty: number; adjustedTarget: number } | { result: "partial_over"; availableQty: number; adjustedTarget: number }>;
   relaunchOrder(orderId: string): Promise<void>;
@@ -590,6 +591,40 @@ export class DatabaseStorage implements IStorage {
       .where(eq(orderItems.id, itemId))
       .returning();
     return updated;
+  }
+
+  async atomicScanCheckedQty(itemId: string, delta: number, targetQty: number): Promise<
+    { result: "success"; updated: OrderItem; appliedQty: number } |
+    { result: "already_complete"; currentQty: number; targetQty: number } |
+    { result: "over_quantity"; currentQty: number; availableQty: number; targetQty: number }
+  > {
+    return await db.transaction(async (tx) => {
+      const locked = await tx.execute(
+        sql`SELECT id, checked_qty FROM order_items WHERE id = ${itemId} FOR UPDATE`
+      );
+      const rows = (locked as any).rows ?? (locked as any);
+      const row = Array.isArray(rows) ? rows[0] : rows;
+      if (!row) throw new Error("Item not found");
+
+      const currentQty = Number(row.checked_qty ?? 0);
+
+      if (currentQty >= targetQty) {
+        return { result: "already_complete" as const, currentQty, targetQty };
+      }
+
+      const availableQty = targetQty - currentQty;
+      if (delta > availableQty) {
+        return { result: "over_quantity" as const, currentQty, availableQty, targetQty };
+      }
+
+      const newQty = currentQty + delta;
+      const newStatus = newQty >= targetQty ? "conferido" : "separado";
+      const [updated] = await tx.update(orderItems)
+        .set({ checkedQty: newQty, status: newStatus })
+        .where(eq(orderItems.id, itemId))
+        .returning();
+      return { result: "success" as const, updated, appliedQty: delta };
+    });
   }
 
   async atomicScanSeparatedQty(itemId: string, delta: number, adjustedTarget: number, workUnitId: string, orderId: string): Promise<

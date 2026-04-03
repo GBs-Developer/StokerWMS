@@ -254,7 +254,7 @@ Tables defined in `shared/schema.ts`:
 - All SSE broadcasts include `companyId` parameter for tenant isolation
 
 ### WebSocket Scanning (`/ws/scanning`)
-- **Server**: `server/ws-scanning.ts` — handles `scan` (separação/balcão → `atomicScanSeparatedQty`) and `check` (conferência → `atomicIncrementCheckedQty`) messages
+- **Server**: `server/ws-scanning.ts` — handles `scan` (separação/balcão → `atomicScanSeparatedQty`) and `check` (conferência → `atomicScanCheckedQty`) messages
 - **Auth**: cookie `authToken` or query param `token`; validates lock ownership and company access per message
 - **Protocol**: client sends `{type: "scan"|"check", msgId, workUnitId, barcode, quantity?}` → server replies `{type: "scan_ack"|"check_ack", msgId, status, message?}`
 - **Client hook**: `client/src/hooks/use-scan-websocket.ts` — auto-reconnect with exponential backoff, localStorage queue persistence for offline resilience, `sendScan`/`sendCheck` with external `msgId` support
@@ -264,9 +264,11 @@ Tables defined in `shared/schema.ts`:
 - **Namespace isolation**: Each module passes a unique namespace (`separacao`, `conferencia`, `balcao`) to the hook, so localStorage pending queues are isolated per module
 - **Context cleanup**: `pendingScanContextRef.current.clear()` is called on cancel, finalize, and context-switch in all modules, preventing stale acks from previous sessions
 - **Server-side dedup**: `processedMsgIds` map caches responses by `msgId` for 5 minutes; replayed messages return the cached response instead of re-executing DB mutations
+- **Per-connection message serialization**: `messageChains` Map chains each scan/check message sequentially per WebSocket connection, preventing same-operator DB lock contention (`FOR UPDATE NOWAIT` errors) and ensuring over_quantity guards see committed data
 
 ### Transaction & Atomicity Patterns
-- **Atomic increments**: `atomicIncrementSeparatedQty` / `atomicIncrementCheckedQty` use `COALESCE(field, 0) + delta` SQL — used by all scan endpoints (scan-item, check-item, balcao-item)
+- **Atomic increments**: `atomicIncrementSeparatedQty` / `atomicIncrementCheckedQty` use `COALESCE(field, 0) + delta` SQL — used by HTTP scan endpoints (scan-item, check-item, balcao-item)
+- **Atomic scan-check**: `atomicScanCheckedQty` uses `FOR UPDATE` row locking inside a transaction — reads `checked_qty`, validates against target, increments atomically. Prevents race conditions in conferência WS handler
 - **Atomic resets**: `atomicResetItemAndWorkUnit` wraps item qty reset + work unit status reset + order status rollback in a single transaction — used by all over-quantity reset paths
 - **Conference completion**: `checkAndCompleteConference` atomically marks WU as concluído AND updates order to conferido inside one transaction
 - **Balcão completion**: `checkAndCompleteWorkUnit(id, true, "finalizado")` uses optional `finalOrderStatus` param to set order status atomically within the WU completion transaction

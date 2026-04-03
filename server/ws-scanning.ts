@@ -17,6 +17,7 @@ interface ScanningClient {
 }
 
 const clients = new Map<WebSocket, ScanningClient>();
+const messageChains = new Map<WebSocket, Promise<void>>();
 
 const processedMsgIds = new Map<string, { timestamp: number; response: object }>();
 const MSG_DEDUP_TTL = 5 * 60 * 1000;
@@ -245,7 +246,6 @@ async function handleCheckItem(client: ScanningClient, msg: any) {
           return chk < tgt;
         }) || matchingItems[0];
 
-    const currentQty = Number(item.checkedQty);
     const itemExcQty = Number(item.exceptionQty || 0);
     const targetQty = Number(item.quantity) - itemExcQty;
 
@@ -261,7 +261,9 @@ async function handleCheckItem(client: ScanningClient, msg: any) {
 
     const requestedQty = Number(quantity || 1) * multiplier;
 
-    if (currentQty >= targetQty) {
+    const checkResult = await storage.atomicScanCheckedQty(item.id, requestedQty, targetQty);
+
+    if (checkResult.result === "already_complete") {
       return sendMsg(client.ws, {
         type: "check_ack",
         msgId,
@@ -269,16 +271,15 @@ async function handleCheckItem(client: ScanningClient, msg: any) {
         product,
         quantity: requestedQty,
         workUnit,
-        message: `Item já totalmente conferido (${targetQty}/${targetQty}). O extra foi recusado.`,
+        message: `Item já totalmente conferido (${checkResult.targetQty}/${checkResult.targetQty}). O extra foi recusado.`,
       });
     }
 
-    const availableQty = targetQty - currentQty;
-    if (requestedQty > availableQty) {
+    if (checkResult.result === "over_quantity") {
       const statusLabel = itemExcQty > 0 ? "over_quantity_with_exception" : "over_quantity";
       const msgText = itemExcQty > 0
-        ? `Excede o disponível (${availableQty}). ${itemExcQty} exceções. Conferido (${currentQty}) mantido.`
-        : `Excede o disponível (${availableQty}). Quantidade (${currentQty}) mantida.`;
+        ? `Excede o disponível (${checkResult.availableQty}). ${itemExcQty} exceções. Conferido (${checkResult.currentQty}) mantido.`
+        : `Excede o disponível (${checkResult.availableQty}). Quantidade (${checkResult.currentQty}) mantida.`;
       return sendMsg(client.ws, {
         type: "check_ack",
         msgId,
@@ -291,10 +292,6 @@ async function handleCheckItem(client: ScanningClient, msg: any) {
       });
     }
 
-    const newQty = currentQty + requestedQty;
-    const newStatus = newQty >= targetQty ? "conferido" : "separado";
-    await storage.atomicIncrementCheckedQty(item.id, requestedQty, newStatus);
-
     const finalWorkUnit = await storage.getWorkUnitById(workUnitId);
 
     sendAndCache(client.ws, {
@@ -302,7 +299,7 @@ async function handleCheckItem(client: ScanningClient, msg: any) {
       msgId,
       status: "success",
       product,
-      quantity: requestedQty,
+      quantity: checkResult.appliedQty,
       workUnit: finalWorkUnit,
     });
   } catch (error: any) {
@@ -355,43 +352,51 @@ export function setupScanningWS(httpServer: HttpServer): void {
     sendMsg(ws, { type: "auth_ok", userId: authResult.userId });
     log(`[scanning-ws] ${authResult.name} conectado`, "express");
 
-    ws.on("message", async (data: Buffer) => {
+    ws.on("message", (data: Buffer) => {
+      if (data.length > 64 * 1024) return;
+
+      let msg: any;
       try {
-        if (data.length > 64 * 1024) return;
-
-        let msg: any;
-        try {
-          msg = JSON.parse(data.toString());
-        } catch {
-          sendMsg(ws, { type: "error", message: "JSON inválido" });
-          return;
-        }
-
-        switch (msg.type) {
-          case "ping":
-            sendMsg(ws, { type: "pong" });
-            break;
-          case "scan":
-            await handleScanItem(client, msg);
-            break;
-          case "check":
-            await handleCheckItem(client, msg);
-            break;
-          default:
-            sendMsg(ws, { type: "error", message: `Tipo desconhecido: ${msg.type}` });
-        }
-      } catch (err: any) {
-        log(`[scanning-ws] Message handler error: ${err.message}`, "express");
+        msg = JSON.parse(data.toString());
+      } catch {
+        sendMsg(ws, { type: "error", message: "JSON inválido" });
+        return;
       }
+
+      if (msg.type === "ping") {
+        sendMsg(ws, { type: "pong" });
+        return;
+      }
+
+      const prev = messageChains.get(ws) || Promise.resolve();
+      const next = prev.then(async () => {
+        try {
+          switch (msg.type) {
+            case "scan":
+              await handleScanItem(client, msg);
+              break;
+            case "check":
+              await handleCheckItem(client, msg);
+              break;
+            default:
+              sendMsg(ws, { type: "error", message: `Tipo desconhecido: ${msg.type}` });
+          }
+        } catch (err: any) {
+          log(`[scanning-ws] Message handler error: ${err.message}`, "express");
+        }
+      });
+      messageChains.set(ws, next);
     });
 
     ws.on("close", () => {
       clients.delete(ws);
+      messageChains.delete(ws);
       log(`[scanning-ws] ${authResult.name} desconectado`, "express");
     });
 
     ws.on("error", () => {
       clients.delete(ws);
+      messageChains.delete(ws);
     });
   });
 
