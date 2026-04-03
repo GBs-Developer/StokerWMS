@@ -479,19 +479,20 @@ small.dim { color: #888; font-size: 8px; }
   return (
     <div className="min-h-screen bg-background print:bg-white">
       <div className="print:hidden">
-        <GradientHeader title="Gerenciamento de Pedidos" subtitle="Painel Supervisor">
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={handlePrint} className="">
-              <Printer className="h-4 w-4 mr-2" />
-              Imprimir
+        <GradientHeader compact title="Gerenciamento de Pedidos" subtitle="Painel Supervisor">
+          <div className="flex gap-1.5">
+            <Button variant="outline" size="sm" onClick={handlePrint} className="px-2 sm:px-3" title="Imprimir">
+              <Printer className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">Imprimir</span>
             </Button>
-            <Button variant="outline" size="sm" onClick={() => syncMutation.mutate()} disabled={syncMutation.isPending} className="">
-              <RefreshCw className={`h-4 w-4 mr-2 ${syncMutation.isPending ? "animate-spin" : ""}`} />
-              {syncMutation.isPending ? "Sync..." : "Sincronizar"}
+            <Button variant="outline" size="sm" onClick={() => syncMutation.mutate()} disabled={syncMutation.isPending} className="px-2 sm:px-3" title="Sincronizar">
+              <RefreshCw className={`h-4 w-4 sm:mr-2 ${syncMutation.isPending ? "animate-spin" : ""}`} />
+              <span className="hidden sm:inline">{syncMutation.isPending ? "Sync..." : "Sincronizar"}</span>
             </Button>
             <Link href="/">
-              <Button variant="outline" size="sm" className="">
-                <ArrowLeft className="h-4 w-4 mr-2" /> Voltar
+              <Button variant="outline" size="sm" className="px-2 sm:px-3" title="Voltar">
+                <ArrowLeft className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">Voltar</span>
               </Button>
             </Link>
           </div>
@@ -780,28 +781,28 @@ small.dim { color: #888; font-size: 8px; }
 
         {/* ORDER TABLE */}
         <div className="bg-card border rounded-lg shadow-sm overflow-hidden print:border-0 print:shadow-none print:overflow-visible">
-          <Table className="print:w-full">
+          <Table className="print:w-full [&_th]:px-2 [&_th]:py-2 [&_td]:px-2 [&_td]:py-1.5 sm:[&_th]:px-4 sm:[&_th]:py-3 sm:[&_td]:px-4 sm:[&_td]:py-2">
             <TableHeader>
               <TableRow className="bg-muted/50 print:bg-transparent">
-                <TableHead className="w-[40px] print:hidden">
+                <TableHead className="w-[32px] sm:w-[40px] print:hidden">
                   <Checkbox
                     checked={filteredOrders.length > 0 && selectedOrders.length === filteredOrders.length}
                     onCheckedChange={(c) => handleSelectAll(!!c)}
                   />
                 </TableHead>
-                <TableHead className="font-bold text-primary print:text-black">Nº Pedido</TableHead>
+                <TableHead className="font-bold text-primary print:text-black">Pedido</TableHead>
                 <TableHead className="hidden lg:table-cell">Data</TableHead>
                 <TableHead>Cliente</TableHead>
                 <TableHead className="hidden xl:table-cell">Valor (R$)</TableHead>
                 <TableHead className="hidden lg:table-cell">Itens</TableHead>
-                <TableHead className="hidden md:table-cell">Status Fin.</TableHead>
-                <TableHead>Status Sep./Conf.</TableHead>
+                <TableHead className="hidden md:table-cell">Fin.</TableHead>
+                <TableHead><span className="hidden sm:inline">Status Sep./Conf.</span><span className="sm:hidden">Status</span></TableHead>
                 <TableHead className="hidden xl:table-cell">Vol.</TableHead>
                 <TableHead className="hidden xl:table-cell">Pacote</TableHead>
                 <TableHead className="hidden lg:table-cell">Rota</TableHead>
                 <TableHead className="hidden xl:table-cell">Prioridade</TableHead>
                 <TableHead className="hidden lg:table-cell">Lançado</TableHead>
-                <TableHead className="w-[50px] print:hidden"></TableHead>
+                <TableHead className="w-[36px] sm:w-[50px] print:hidden"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -821,7 +822,7 @@ small.dim { color: #888; font-size: 8px; }
                       <TableCell className="print:hidden" onClick={e => e.stopPropagation()}>
                         <Checkbox checked={selectedOrders.includes(order.id)} onCheckedChange={c => handleSelectOrder(order.id, !!c)} />
                       </TableCell>
-                      <TableCell className="font-mono font-bold text-base">
+                      <TableCell className="font-mono font-bold text-xs sm:text-sm">
                         <div className="flex flex-col">
                           <span>{order.erpOrderId}</span>
                           <span className="text-[10px] text-muted-foreground font-normal lg:hidden">
@@ -832,7 +833,7 @@ small.dim { color: #888; font-size: 8px; }
                       <TableCell className="text-xs text-muted-foreground hidden lg:table-cell">{format(new Date(order.createdAt), "dd/MM HH:mm")}</TableCell>
                       <TableCell>
                         <div className="flex flex-col">
-                          <span className="font-medium text-sm truncate max-w-[120px] md:max-w-[180px]" title={order.customerName}>{order.customerName}</span>
+                          <span className="font-medium text-xs sm:text-sm truncate max-w-[90px] sm:max-w-[140px] md:max-w-[180px]" title={order.customerName}>{order.customerName}</span>
                           <span className="text-[10px] text-muted-foreground">{order.customerCode || '-'}</span>
                         </div>
                       </TableCell>
@@ -896,8 +897,8 @@ small.dim { color: #888; font-size: 8px; }
                         )}
                       </TableCell>
                       <TableCell className="print:hidden" onClick={e => e.stopPropagation()}>
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setViewOrderId(order.id)}>
-                          <Eye className="h-4 w-4 text-muted-foreground" />
+                        <Button variant="ghost" size="icon" className="h-7 w-7 sm:h-8 sm:w-8" onClick={() => setViewOrderId(order.id)}>
+                          <Eye className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-muted-foreground" />
                         </Button>
                       </TableCell>
                     </TableRow>
