@@ -9,7 +9,7 @@ import { useAuth } from "@/lib/auth";
 import {
   ArrowLeft, Clock, Package, AlertTriangle, CheckCircle2,
   TrendingUp, BarChart3, Trophy, ChevronDown, ChevronUp,
-  RefreshCw, Boxes, Timer, Zap,
+  RefreshCw, Boxes, Timer, Zap, SlidersHorizontal,
 } from "lucide-react";
 import { format, subDays, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -341,6 +341,7 @@ export default function KpiDashboardPage() {
   const [to, setTo]     = useState(() => format(new Date(), "yyyy-MM-dd"));
   const [fromInput, setFromInput] = useState(from);
   const [toInput, setToInput]     = useState(to);
+  const [showFilters, setShowFilters] = useState(true);
 
   const kpiUrl     = companyId ? `/api/kpi/operators?companyId=${companyId}&from=${from}&to=${to}` : null;
   const secTimesUrl = companyId ? `/api/kpi/section-times?companyId=${companyId}&from=${from}&to=${to}` : null;
@@ -397,51 +398,79 @@ export default function KpiDashboardPage() {
       <div className="max-w-2xl mx-auto px-4 py-4 space-y-3">
 
         {/* Filtro */}
-        <div className="rounded-2xl border border-border/50 bg-card p-4 space-y-3">
-          <div className="flex gap-2 items-end">
-            <div className="flex-1">
-              <p className="text-[11px] text-muted-foreground mb-1">De</p>
-              <input
-                type="date"
-                value={fromInput}
-                onChange={e => setFromInput(e.target.value)}
-                className="w-full h-9 rounded-xl border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                data-testid="input-kpi-from"
-              />
-            </div>
-            <div className="flex-1">
-              <p className="text-[11px] text-muted-foreground mb-1">Até</p>
-              <input
-                type="date"
-                value={toInput}
-                onChange={e => setToInput(e.target.value)}
-                className="w-full h-9 rounded-xl border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                data-testid="input-kpi-to"
-              />
-            </div>
-            <Button
-              onClick={applyFilter}
-              disabled={isFetching}
-              className="h-9 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white shrink-0"
-              data-testid="btn-kpi-filter"
-            >
-              {isFetching ? <RefreshCw className="h-4 w-4 animate-spin" /> : <BarChart3 className="h-4 w-4" />}
-            </Button>
-          </div>
-          <div className="flex gap-2">
-            {PRESET_DAYS.map(({ label, days }) => (
+        <div className="rounded-2xl border border-border/50 bg-card overflow-hidden">
+          {/* Header — sempre visível, clique para colapsar */}
+          <button
+            className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-muted/30 transition-colors"
+            onClick={() => setShowFilters(v => !v)}
+            data-testid="btn-kpi-toggle-filters"
+          >
+            <SlidersHorizontal className="h-4 w-4 text-muted-foreground shrink-0" />
+            <span className="text-sm font-semibold flex-1">Filtros</span>
+            <span className="text-[11px] text-muted-foreground font-mono bg-muted px-2 py-0.5 rounded-lg shrink-0">
+              {from.slice(5).replace("-", "/")} – {to.slice(5).replace("-", "/")}
+            </span>
+            {showFilters
+              ? <ChevronUp className="h-4 w-4 text-muted-foreground shrink-0" />
+              : <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />}
+          </button>
+
+          {/* Conteúdo colapsável */}
+          {showFilters && (
+            <div className="px-4 pb-4 space-y-3 border-t border-border/40">
+              {/* Inputs de data em grid 2 colunas */}
+              <div className="grid grid-cols-2 gap-2 pt-3">
+                <div>
+                  <p className="text-[11px] text-muted-foreground mb-1">De</p>
+                  <input
+                    type="date"
+                    value={fromInput}
+                    onChange={e => setFromInput(e.target.value)}
+                    className="w-full h-9 rounded-xl border border-input bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                    data-testid="input-kpi-from"
+                  />
+                </div>
+                <div>
+                  <p className="text-[11px] text-muted-foreground mb-1">Até</p>
+                  <input
+                    type="date"
+                    value={toInput}
+                    onChange={e => setToInput(e.target.value)}
+                    className="w-full h-9 rounded-xl border border-input bg-background px-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                    data-testid="input-kpi-to"
+                  />
+                </div>
+              </div>
+
+              {/* Botão aplicar — largura total */}
               <Button
-                key={days}
-                variant="outline"
-                size="sm"
-                onClick={() => setPreset(days)}
-                className="h-8 flex-1 rounded-lg text-xs"
-                data-testid={`btn-kpi-preset-${days}`}
+                onClick={applyFilter}
+                disabled={isFetching}
+                className="w-full h-9 rounded-xl bg-blue-600 hover:bg-blue-700 text-white"
+                data-testid="btn-kpi-filter"
               >
-                {label}
+                {isFetching
+                  ? <><RefreshCw className="h-4 w-4 mr-2 animate-spin" />Carregando...</>
+                  : <><BarChart3 className="h-4 w-4 mr-2" />Aplicar</>}
               </Button>
-            ))}
-          </div>
+
+              {/* Atalhos de período */}
+              <div className="flex gap-2">
+                {PRESET_DAYS.map(({ label, days }) => (
+                  <Button
+                    key={days}
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setPreset(days)}
+                    className="h-8 flex-1 rounded-lg text-xs"
+                    data-testid={`btn-kpi-preset-${days}`}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Loading */}
