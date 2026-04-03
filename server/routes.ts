@@ -3891,6 +3891,145 @@ export async function registerRoutes(
     }
   });
 
+  // ── Tempo por Seção (KPI) ────────────────────────────────────────────────
+  app.get("/api/kpi/section-times", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const sessionCompanyId = (req as any).companyId as number | undefined;
+      const queryCompanyId   = req.query.companyId ? parseInt(req.query.companyId as string, 10) : NaN;
+      const companyId        = (!isNaN(queryCompanyId) && queryCompanyId > 0) ? queryCompanyId : (sessionCompanyId ?? 1);
+
+      const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+      const defaultFrom = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const defaultTo   = new Date().toISOString().slice(0, 10);
+      const rawFrom = (req.query.from as string) || defaultFrom;
+      const rawTo   = (req.query.to   as string) || defaultTo;
+      if (!ISO_DATE_RE.test(rawFrom) || !ISO_DATE_RE.test(rawTo)) {
+        return res.status(400).json({ error: "Parâmetros de data inválidos. Use o formato YYYY-MM-DD." });
+      }
+      const from    = rawFrom <= rawTo ? rawFrom : rawTo;
+      const to      = rawFrom <= rawTo ? rawTo   : rawFrom;
+      const fromStr = from + "T00:00:00.000Z";
+      const toStr   = to   + "T23:59:59.999Z";
+
+      const rows = await db.execute(drizzleSql`
+        SELECT
+          COALESCE(wu.section, 'Sem Seção')                          AS section,
+          COUNT(*) FILTER (WHERE wu.type = 'separacao' AND wu.status = 'concluido')  AS sep_count,
+          ROUND(AVG(
+            CASE WHEN wu.type = 'separacao' AND wu.status = 'concluido'
+                      AND wu.started_at IS NOT NULL AND wu.completed_at IS NOT NULL
+            THEN EXTRACT(EPOCH FROM (wu.completed_at::timestamptz - wu.started_at::timestamptz)) / 60.0
+            END
+          )::numeric, 1)                                             AS avg_sep_min,
+          ROUND(MIN(
+            CASE WHEN wu.type = 'separacao' AND wu.status = 'concluido'
+                      AND wu.started_at IS NOT NULL AND wu.completed_at IS NOT NULL
+            THEN EXTRACT(EPOCH FROM (wu.completed_at::timestamptz - wu.started_at::timestamptz)) / 60.0
+            END
+          )::numeric, 1)                                             AS min_sep_min,
+          ROUND(MAX(
+            CASE WHEN wu.type = 'separacao' AND wu.status = 'concluido'
+                      AND wu.started_at IS NOT NULL AND wu.completed_at IS NOT NULL
+            THEN EXTRACT(EPOCH FROM (wu.completed_at::timestamptz - wu.started_at::timestamptz)) / 60.0
+            END
+          )::numeric, 1)                                             AS max_sep_min,
+          COUNT(*) FILTER (WHERE wu.type = 'conferencia' AND wu.status = 'concluido') AS conf_count,
+          ROUND(AVG(
+            CASE WHEN wu.type = 'conferencia' AND wu.status = 'concluido'
+                      AND wu.started_at IS NOT NULL AND wu.completed_at IS NOT NULL
+            THEN EXTRACT(EPOCH FROM (wu.completed_at::timestamptz - wu.started_at::timestamptz)) / 60.0
+            END
+          )::numeric, 1)                                             AS avg_conf_min,
+          ROUND(MIN(
+            CASE WHEN wu.type = 'conferencia' AND wu.status = 'concluido'
+                      AND wu.started_at IS NOT NULL AND wu.completed_at IS NOT NULL
+            THEN EXTRACT(EPOCH FROM (wu.completed_at::timestamptz - wu.started_at::timestamptz)) / 60.0
+            END
+          )::numeric, 1)                                             AS min_conf_min,
+          ROUND(MAX(
+            CASE WHEN wu.type = 'conferencia' AND wu.status = 'concluido'
+                      AND wu.started_at IS NOT NULL AND wu.completed_at IS NOT NULL
+            THEN EXTRACT(EPOCH FROM (wu.completed_at::timestamptz - wu.started_at::timestamptz)) / 60.0
+            END
+          )::numeric, 1)                                             AS max_conf_min
+        FROM work_units wu
+        WHERE wu.company_id = ${companyId}
+          AND wu.completed_at IS NOT NULL
+          AND wu.completed_at >= ${fromStr}
+          AND wu.completed_at <= ${toStr}
+        GROUP BY wu.section
+        ORDER BY wu.section ASC NULLS LAST
+      `);
+
+      const sections = (rows.rows as any[]).map(r => ({
+        section:    r.section,
+        sepCount:   Number(r.sep_count  || 0),
+        avgSepMin:  r.avg_sep_min  !== null ? Number(r.avg_sep_min)  : null,
+        minSepMin:  r.min_sep_min  !== null ? Number(r.min_sep_min)  : null,
+        maxSepMin:  r.max_sep_min  !== null ? Number(r.max_sep_min)  : null,
+        confCount:  Number(r.conf_count || 0),
+        avgConfMin: r.avg_conf_min !== null ? Number(r.avg_conf_min) : null,
+        minConfMin: r.min_conf_min !== null ? Number(r.min_conf_min) : null,
+        maxConfMin: r.max_conf_min !== null ? Number(r.max_conf_min) : null,
+      }));
+
+      res.json({ sections, from, to, companyId });
+    } catch (error) {
+      console.error("KPI section-times error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
+  // ── Work Units de um pedido (para detalhes de tempo) ─────────────────────
+  app.get("/api/orders/:id/work-units", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
+    try {
+      const orderId   = req.params.id as string;
+      const companyId = (req as any).companyId as number;
+
+      const rows = await db.execute(drizzleSql`
+        SELECT
+          wu.id,
+          wu.order_id,
+          wu.type,
+          wu.section,
+          wu.pickup_point,
+          wu.status,
+          wu.started_at,
+          wu.completed_at,
+          wu.locked_by,
+          u.name                                                         AS operator_name,
+          CASE WHEN wu.started_at IS NOT NULL AND wu.completed_at IS NOT NULL
+            THEN ROUND(
+              EXTRACT(EPOCH FROM (wu.completed_at::timestamptz - wu.started_at::timestamptz)) / 60.0
+            ::numeric, 1)
+            ELSE NULL
+          END                                                            AS duracao_min
+        FROM work_units wu
+        LEFT JOIN users u ON wu.locked_by = u.id
+        WHERE wu.order_id = ${orderId}
+          AND wu.company_id = ${companyId}
+        ORDER BY wu.section ASC NULLS LAST, wu.type ASC, wu.created_at ASC
+      `);
+
+      const wus = (rows.rows as any[]).map(r => ({
+        id:           r.id,
+        type:         r.type,
+        section:      r.section,
+        pickupPoint:  r.pickup_point,
+        status:       r.status,
+        startedAt:    r.started_at,
+        completedAt:  r.completed_at,
+        operatorName: r.operator_name || null,
+        duracaoMin:   r.duracao_min !== null ? Number(r.duracao_min) : null,
+      }));
+
+      res.json(wus);
+    } catch (error) {
+      console.error("Order work-units error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
   registerWmsRoutes(app);
   registerPrintRoutes(app);
 
