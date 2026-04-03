@@ -3980,6 +3980,82 @@ export async function registerRoutes(
     }
   });
 
+  // ── Tempo por Seção de um pedido específico (busca por erpOrderId) ──────────
+  app.get("/api/kpi/order-section-times", isAuthenticated, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const erpOrderId       = (req.query.erpOrderId as string | undefined)?.trim();
+      const sessionCompanyId = (req as any).companyId as number | undefined;
+      const queryCompanyId   = req.query.companyId ? parseInt(req.query.companyId as string, 10) : NaN;
+      const companyId        = (!isNaN(queryCompanyId) && queryCompanyId > 0) ? queryCompanyId : (sessionCompanyId ?? 1);
+
+      if (!erpOrderId) return res.status(400).json({ error: "erpOrderId obrigatório" });
+
+      // Busca pedido pelo número do ERP
+      const orderRows = await db.execute(drizzleSql`
+        SELECT id, erp_order_id, customer_name, status
+        FROM orders
+        WHERE erp_order_id = ${erpOrderId}
+          AND company_id = ${companyId}
+        LIMIT 1
+      `);
+
+      if (!orderRows.rows.length) {
+        return res.status(404).json({ error: "Pedido não encontrado" });
+      }
+
+      const order = orderRows.rows[0] as any;
+
+      // Work units desse pedido
+      const wuRows = await db.execute(drizzleSql`
+        SELECT
+          wu.type,
+          wu.section,
+          wu.status,
+          wu.started_at,
+          wu.completed_at,
+          u.name AS operator_name,
+          CASE WHEN wu.started_at IS NOT NULL AND wu.completed_at IS NOT NULL
+            THEN ROUND(
+              EXTRACT(EPOCH FROM (wu.completed_at::timestamptz - wu.started_at::timestamptz)) / 60.0
+            ::numeric, 1)
+            ELSE NULL
+          END AS duracao_min
+        FROM work_units wu
+        LEFT JOIN users u ON wu.locked_by = u.id
+        WHERE wu.order_id = ${order.id}
+          AND wu.company_id = ${companyId}
+        ORDER BY wu.section ASC NULLS LAST, wu.type ASC, wu.created_at ASC
+      `);
+
+      // Agrupa por seção
+      const sectionMap: Record<string, { section: string; wus: any[] }> = {};
+      for (const r of wuRows.rows as any[]) {
+        const key = r.section || "Sem seção";
+        if (!sectionMap[key]) sectionMap[key] = { section: key, wus: [] };
+        sectionMap[key].wus.push({
+          type:         r.type,
+          status:       r.status,
+          operatorName: r.operator_name || null,
+          startedAt:    r.started_at,
+          completedAt:  r.completed_at,
+          duracaoMin:   r.duracao_min !== null ? Number(r.duracao_min) : null,
+        });
+      }
+
+      return res.json({
+        order: {
+          erpOrderId:   order.erp_order_id,
+          customerName: order.customer_name,
+          status:       order.status,
+        },
+        sections: Object.values(sectionMap),
+      });
+    } catch (error) {
+      console.error("KPI order-section-times error:", error);
+      res.status(500).json({ error: "Erro interno" });
+    }
+  });
+
   // ── Work Units de um pedido (para detalhes de tempo) ─────────────────────
   app.get("/api/orders/:id/work-units", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
     try {

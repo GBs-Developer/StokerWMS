@@ -10,6 +10,7 @@ import {
   ArrowLeft, Clock, Package, AlertTriangle, CheckCircle2,
   TrendingUp, BarChart3, Trophy, ChevronDown, ChevronUp,
   RefreshCw, Boxes, Timer, Zap, SlidersHorizontal,
+  Search, X, ChevronsUp,
 } from "lucide-react";
 import { format, subDays, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -87,6 +88,25 @@ interface SectionTimesResponse {
   sections: SectionTimeItem[];
   from: string;
   to: string;
+}
+
+interface OrderSectionWU {
+  type: "separacao" | "conferencia";
+  status: string;
+  operatorName: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  duracaoMin: number | null;
+}
+
+interface OrderSectionGroup {
+  section: string;
+  wus: OrderSectionWU[];
+}
+
+interface OrderSectionTimesResponse {
+  order: { erpOrderId: string; customerName: string; status: string };
+  sections: OrderSectionGroup[];
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -312,6 +332,16 @@ function OperatorCard({ op, rank }: { op: OperatorKPI; rank: number }) {
               )}
             </section>
           )}
+
+          {/* Botão Recolher no final */}
+          <button
+            onClick={() => setExpanded(false)}
+            className="w-full flex items-center justify-center gap-1.5 py-2 text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted/40 rounded-xl transition-colors border border-border/40"
+            data-testid={`btn-kpi-collapse-${op.userId}`}
+          >
+            <ChevronsUp className="h-3.5 w-3.5" />
+            Recolher
+          </button>
         </div>
       )}
     </div>
@@ -343,8 +373,16 @@ export default function KpiDashboardPage() {
   const [toInput, setToInput]     = useState(to);
   const [showFilters, setShowFilters] = useState(true);
 
-  const kpiUrl     = companyId ? `/api/kpi/operators?companyId=${companyId}&from=${from}&to=${to}` : null;
+  // Busca por pedido
+  const [orderInput, setOrderInput]         = useState("");
+  const [orderSearchId, setOrderSearchId]   = useState<string | null>(null);
+  const [showOrderSearch, setShowOrderSearch] = useState(true);
+
+  const kpiUrl      = companyId ? `/api/kpi/operators?companyId=${companyId}&from=${from}&to=${to}` : null;
   const secTimesUrl = companyId ? `/api/kpi/section-times?companyId=${companyId}&from=${from}&to=${to}` : null;
+  const orderTimesUrl = companyId && orderSearchId
+    ? `/api/kpi/order-section-times?companyId=${companyId}&erpOrderId=${encodeURIComponent(orderSearchId)}`
+    : null;
 
   const { data, isLoading, isError, refetch, isFetching } = useQuery<KPIResponse>({
     queryKey: [kpiUrl],
@@ -356,7 +394,19 @@ export default function KpiDashboardPage() {
     enabled: !!secTimesUrl,
   });
 
+  const { data: orderTimesData, isLoading: orderTimesLoading, isError: orderTimesError } =
+    useQuery<OrderSectionTimesResponse>({
+      queryKey: [orderTimesUrl],
+      enabled: !!orderTimesUrl,
+      retry: false,
+    });
+
   const applyFilter = () => { setFrom(fromInput); setTo(toInput); };
+
+  const searchOrder = () => {
+    const trimmed = orderInput.trim();
+    if (trimmed) setOrderSearchId(trimmed);
+  };
 
   const setPreset = (days: number) => {
     const f = format(subDays(new Date(), days - 1), "yyyy-MM-dd");
@@ -556,6 +606,158 @@ export default function KpiDashboardPage() {
                 )}
               </div>
             )}
+
+            {/* Busca por Pedido */}
+            <div className="rounded-2xl border border-border/50 bg-card overflow-hidden">
+              {/* Header colapsável */}
+              <button
+                className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-muted/30 transition-colors"
+                onClick={() => setShowOrderSearch(v => !v)}
+                data-testid="btn-order-search-toggle"
+              >
+                <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+                <span className="text-sm font-semibold flex-1">Tempo por Pedido</span>
+                {orderSearchId && (
+                  <span className="text-[11px] text-muted-foreground font-mono bg-muted px-2 py-0.5 rounded-lg shrink-0">
+                    {orderSearchId}
+                  </span>
+                )}
+                {showOrderSearch
+                  ? <ChevronUp className="h-4 w-4 text-muted-foreground shrink-0" />
+                  : <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />}
+              </button>
+
+              {showOrderSearch && (
+                <div className="px-4 pb-4 space-y-3 border-t border-border/40">
+                  {/* Input de busca */}
+                  <div className="flex gap-2 pt-3">
+                    <div className="relative flex-1">
+                      <input
+                        type="text"
+                        value={orderInput}
+                        onChange={e => setOrderInput(e.target.value)}
+                        onKeyDown={e => e.key === "Enter" && searchOrder()}
+                        placeholder="Número do pedido (ex: 12345)"
+                        className="w-full h-9 rounded-xl border border-input bg-background pl-9 pr-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+                        data-testid="input-order-search"
+                      />
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                    </div>
+                    <Button
+                      onClick={searchOrder}
+                      disabled={!orderInput.trim() || orderTimesLoading}
+                      className="h-9 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white shrink-0"
+                      data-testid="btn-order-search"
+                    >
+                      {orderTimesLoading
+                        ? <RefreshCw className="h-4 w-4 animate-spin" />
+                        : <Search className="h-4 w-4" />}
+                    </Button>
+                    {orderSearchId && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-9 w-9 rounded-xl shrink-0"
+                        onClick={() => { setOrderSearchId(null); setOrderInput(""); }}
+                        data-testid="btn-order-search-clear"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+
+                  {/* Resultado */}
+                  {orderTimesLoading && (
+                    <div className="space-y-2">
+                      {[1,2].map(i => <Skeleton key={i} className="h-14 rounded-xl" />)}
+                    </div>
+                  )}
+
+                  {orderTimesError && !orderTimesLoading && (
+                    <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-center">
+                      <p className="text-sm text-destructive font-medium">Pedido não encontrado</p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">Verifique o número e tente novamente</p>
+                    </div>
+                  )}
+
+                  {orderTimesData && !orderTimesLoading && (
+                    <div className="space-y-2">
+                      {/* Cabeçalho do pedido */}
+                      <div className="flex items-start justify-between gap-2 px-1">
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold truncate">{orderTimesData.order.customerName}</p>
+                          <p className="text-[11px] text-muted-foreground">Pedido #{orderTimesData.order.erpOrderId}</p>
+                        </div>
+                        <Badge
+                          className={`shrink-0 text-[10px] h-5 ${
+                            orderTimesData.order.status === "concluido"
+                              ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300"
+                              : orderTimesData.order.status === "separando"
+                              ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                              : "bg-muted text-muted-foreground"
+                          }`}
+                        >
+                          {orderTimesData.order.status}
+                        </Badge>
+                      </div>
+
+                      {/* Seções */}
+                      {orderTimesData.sections.length === 0 ? (
+                        <p className="text-[12px] text-muted-foreground text-center py-2">Sem registros de execução</p>
+                      ) : (
+                        <div className="rounded-xl overflow-hidden border border-border/40 divide-y divide-border/30">
+                          {orderTimesData.sections.map(sec => {
+                            const total = sec.wus.reduce((s, w) => s + (w.duracaoMin ?? 0), 0);
+                            const done  = sec.wus.filter(w => w.status === "concluido").length;
+                            return (
+                              <div key={sec.section} className="px-3 py-2.5">
+                                <div className="flex items-center justify-between mb-1.5">
+                                  <span className="text-xs font-bold">{sec.section}</span>
+                                  <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                                    <span>{done}/{sec.wus.length} concluídos</span>
+                                    {total > 0 && (
+                                      <span className="font-semibold text-foreground">{fmtTime(total)} total</span>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="space-y-1">
+                                  {sec.wus.map((wu, i) => (
+                                    <div key={i} className="flex items-center gap-2 text-[11px]">
+                                      <span className={`px-1.5 py-0.5 rounded text-[9px] font-semibold shrink-0
+                                        ${wu.type === "separacao"
+                                          ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                                          : "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300"}`}>
+                                        {wu.type === "separacao" ? "Sep" : "Conf"}
+                                      </span>
+                                      <span className="flex-1 truncate text-muted-foreground">
+                                        {wu.operatorName || "—"}
+                                      </span>
+                                      <span className={`font-semibold tabular-nums shrink-0 ${
+                                        wu.duracaoMin === null ? "text-muted-foreground"
+                                          : wu.duracaoMin < 5 ? "text-green-600 dark:text-green-400"
+                                          : wu.duracaoMin > 20 ? "text-red-600 dark:text-red-400"
+                                          : "text-foreground"
+                                      }`}>
+                                        {fmtTime(wu.duracaoMin)}
+                                      </span>
+                                      <span className={`w-2 h-2 rounded-full shrink-0 ${
+                                        wu.status === "concluido" ? "bg-green-500"
+                                          : wu.status === "em_andamento" ? "bg-blue-500"
+                                          : "bg-muted-foreground/30"
+                                      }`} />
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
 
             {/* Tempo por Seção */}
             {secTimesData && secTimesData.sections.length > 0 && (() => {
