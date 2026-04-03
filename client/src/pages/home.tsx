@@ -192,7 +192,7 @@ export default function HomePage() {
           {(!sidebarCollapsed || isMobile) && (
             <button
               onClick={logout}
-              className="p-1.5 rounded-lg text-sidebar-foreground/30 hover:text-red-400 hover:bg-white/5 transition-colors shrink-0"
+              className="p-1.5 rounded-lg text-sidebar-foreground/30 hover:text-red-400 hover:bg-black/5 dark:hover:bg-white/5 transition-colors shrink-0"
               title="Sair"
               data-testid="btn-logout-sidebar"
             >
@@ -217,7 +217,7 @@ export default function HomePage() {
                   sidebarCollapsed && !isMobile ? "justify-center w-auto mx-1.5" : "mx-2",
                   isActive
                     ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                    : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-white/5"
+                    : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-black/5 dark:hover:bg-white/5"
                 )}
                 title={sidebarCollapsed && !isMobile ? group.label : undefined}
                 data-testid={`nav-group-${group.id}`}
@@ -227,7 +227,7 @@ export default function HomePage() {
                   <>
                     <span className="flex-1 text-left text-[13px] font-medium">{group.label}</span>
                     <span className={cn("text-[10px] font-semibold tabular-nums px-1.5 py-0.5 rounded-md",
-                      isActive ? "bg-white/20 text-white" : "bg-white/5 text-sidebar-foreground/40"
+                      isActive ? "bg-white/20 text-white" : "bg-black/5 dark:bg-white/5 text-sidebar-foreground/40"
                     )}>
                       {group.items.length}
                     </span>
@@ -244,14 +244,14 @@ export default function HomePage() {
         <div className="border-t border-sidebar-border px-1.5 py-3 space-y-1">
           <button
             onClick={() => setSidebarCollapsed(false)}
-            className="flex items-center justify-center w-9 h-9 mx-auto rounded-lg text-sidebar-foreground/30 hover:text-sidebar-foreground hover:bg-white/5 transition-colors"
+            className="flex items-center justify-center w-9 h-9 mx-auto rounded-lg text-sidebar-foreground/30 hover:text-sidebar-foreground hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
             title="Expandir menu"
           >
             <PanelLeftOpen className="h-4 w-4" />
           </button>
           <button
             onClick={logout}
-            className="flex items-center justify-center w-9 h-9 mx-auto rounded-lg text-sidebar-foreground/30 hover:text-red-400 hover:bg-white/5 transition-colors"
+            className="flex items-center justify-center w-9 h-9 mx-auto rounded-lg text-sidebar-foreground/30 hover:text-red-400 hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
             title="Sair"
             data-testid="btn-logout-collapsed"
           >
@@ -289,7 +289,7 @@ export default function HomePage() {
           {!sidebarCollapsed && (
             <button
               onClick={() => setSidebarCollapsed(true)}
-              className="p-1.5 rounded-lg text-sidebar-foreground/30 hover:text-sidebar-foreground hover:bg-white/5 transition-colors"
+              className="p-1.5 rounded-lg text-sidebar-foreground/30 hover:text-sidebar-foreground hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
               data-testid="btn-sidebar-collapse"
             >
               <PanelLeftClose className="h-4 w-4" />
@@ -317,7 +317,7 @@ export default function HomePage() {
               </div>
               <button
                 onClick={() => setMobileOpen(false)}
-                className="p-1.5 rounded-lg text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-white/5 transition-colors"
+                className="p-1.5 rounded-lg text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
               >
                 <X className="h-4 w-4" />
               </button>
