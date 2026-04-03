@@ -84,6 +84,7 @@ export default function OrdersPage() {
   const [showRouteDialog, setShowRouteDialog] = useState(false);
   const [selectedRoute, setSelectedRoute] = useState<string>("");
   const [viewOrderId, setViewOrderId] = useState<string | null>(null);
+  const [showExpandedFilters, setShowExpandedFilters] = useState(false);
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -515,121 +516,193 @@ small.dim { color: #888; font-size: 8px; }
         </div>
 
         {/* FILTERS PANEL */}
-        <div className="bg-card border rounded-lg p-3 md:p-4 shadow-sm space-y-3 md:space-y-4 print:hidden">
-          <div className="flex flex-wrap gap-3 md:gap-4 items-end">
-            {/* 1. Search */}
-            <div className="flex-1 min-w-[160px] md:min-w-[200px] space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">Busca por Pedido</label>
-              <div className="relative">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Nº Pedido (separe múltiplos por vírgula)"
-                  value={searchOrderId}
-                  onChange={e => setSearchOrderId(e.target.value)}
-                  className="pl-9"
-                />
-              </div>
-            </div>
+        {(() => {
+          const activeSecondaryCount = [
+            searchLoadCode ? 1 : 0,
+            launchedFilter !== "all" ? 1 : 0,
+            financialStatusFilter !== "all" ? 1 : 0,
+            pickingStatusFilter.length > 0 ? 1 : 0,
+            routeFilter !== "all" ? 1 : 0,
+            priorityFilter !== "all" ? 1 : 0,
+          ].reduce((a, b) => a + b, 0);
 
-            {/* 8. Load Code */}
-            <div className="w-full sm:w-[120px] space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">Pacote/Carga</label>
-              <Input
-                placeholder="Cód. 4 dígitos"
-                value={searchLoadCode}
-                onChange={e => setSearchLoadCode(e.target.value)}
-              />
-            </div>
-
-            {/* 2. Date Range */}
-            <div className="space-y-1 min-w-0">
-              <label className="text-xs font-medium text-muted-foreground">Período de Importação</label>
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="flex-1 min-w-0">
-                  <DatePickerWithRange date={tempDateRange} onDateChange={setTempDateRange} className="w-full" />
+          return (
+            <div className="bg-card border rounded-lg p-3 md:p-4 shadow-sm space-y-3 print:hidden">
+              {/* Primary row — always visible */}
+              <div className="flex gap-2 items-center">
+                <div className="flex-1 relative">
+                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Nº Pedido (separe múltiplos por vírgula)"
+                    value={searchOrderId}
+                    onChange={e => setSearchOrderId(e.target.value)}
+                    className="pl-9"
+                    data-testid="input-search-order"
+                  />
                 </div>
-                <Button variant="secondary" className="shrink-0" onClick={() => { setFilterDateRange(tempDateRange); }}>
-                  Buscar
+
+                {/* On md+: show Pacote/Carga inline */}
+                <div className="hidden md:block w-[130px]">
+                  <Input
+                    placeholder="Pacote/Carga"
+                    value={searchLoadCode}
+                    onChange={e => setSearchLoadCode(e.target.value)}
+                    data-testid="input-search-load-code"
+                  />
+                </div>
+
+                {/* On md+: show Date Range inline */}
+                <div className="hidden md:flex items-center gap-2">
+                  <DatePickerWithRange date={tempDateRange} onDateChange={setTempDateRange} />
+                  <Button variant="secondary" size="sm" onClick={() => setFilterDateRange(tempDateRange)}>
+                    Buscar
+                  </Button>
+                </div>
+
+                {/* Filter toggle button — shown on mobile only, hidden on md+ */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="md:hidden shrink-0 relative"
+                  onClick={() => setShowExpandedFilters(v => !v)}
+                  data-testid="button-toggle-filters"
+                >
+                  <SlidersHorizontal className="h-4 w-4" />
+                  {activeSecondaryCount > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 w-4 h-4 flex items-center justify-center bg-primary text-primary-foreground text-[9px] font-bold rounded-full">
+                      {activeSecondaryCount}
+                    </span>
+                  )}
                 </Button>
+
+                <span className="hidden md:inline text-xs text-muted-foreground shrink-0 ml-1">{filteredOrders.length} pedidos</span>
+              </div>
+
+              {/* Secondary filters — on mobile: collapsible; on md+: always visible */}
+              <div className={`${showExpandedFilters ? "block" : "hidden"} md:block space-y-3`}>
+                {/* Mobile-only: Pacote/Carga + Date Range */}
+                <div className="flex flex-wrap gap-2 items-end md:hidden">
+                  <div className="flex-1 min-w-[120px] space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Pacote/Carga</label>
+                    <Input
+                      placeholder="Cód. 4 dígitos"
+                      value={searchLoadCode}
+                      onChange={e => setSearchLoadCode(e.target.value)}
+                    />
+                  </div>
+                  <div className="w-full space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Período de Importação</label>
+                    <div className="flex items-center gap-2">
+                      <DatePickerWithRange date={tempDateRange} onDateChange={setTempDateRange} className="flex-1" />
+                      <Button variant="secondary" size="sm" onClick={() => setFilterDateRange(tempDateRange)}>
+                        Buscar
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Strict filters row */}
+                <div className="flex flex-wrap gap-2 items-center pt-2 md:pt-0 border-t md:border-t">
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground shrink-0">
+                    <Filter className="h-3.5 w-3.5" />
+                    <span className="hidden sm:inline">Filtros Estritos:</span>
+                    <span className="sm:hidden">Filtros:</span>
+                  </div>
+
+                  {/* Lançado? */}
+                  <div className="w-[110px]">
+                    <Select value={launchedFilter} onValueChange={setLaunchedFilter}>
+                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Lançado?" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Lançado: Todos</SelectItem>
+                        <SelectItem value="yes">Lançado: Sim</SelectItem>
+                        <SelectItem value="no">Lançado: Não</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Financial */}
+                  <div className="w-[140px]">
+                    <Select value={financialStatusFilter} onValueChange={setFinancialStatusFilter}>
+                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Financeiro" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Todos (Fin.)</SelectItem>
+                        <SelectItem value="pago">Liberado/Pago</SelectItem>
+                        <SelectItem value="pendente">Pendente</SelectItem>
+                        <SelectItem value="bloqueado">Bloqueado</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Picking Status */}
+                  <div className="w-[170px]">
+                    <Select value={pickingStatusFilter[0] || "all"} onValueChange={(val) => setPickingStatusFilter(val === "all" ? [] : [val])}>
+                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Status Sep." /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Todos os Status</SelectItem>
+                        {statusOptions.map(opt => (
+                          <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Route */}
+                  <div className="w-[150px]">
+                    <Select value={routeFilter} onValueChange={setRouteFilter}>
+                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Rota" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Todas Rotas</SelectItem>
+                        <SelectItem value="unassigned">Sem Rota</SelectItem>
+                        {routes?.filter(r => r.active).map(r => (
+                          <SelectItem key={r.id} value={String(r.id)}>{r.code} - {r.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Priority */}
+                  <div className="w-[120px]">
+                    <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+                      <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Prioridade" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Todas</SelectItem>
+                        <SelectItem value="normal">Normal</SelectItem>
+                        <SelectItem value="high">Alta / Vips</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="ml-auto hidden md:block">
+                    <span className="text-xs text-muted-foreground">{filteredOrders.length} pedidos encontrados</span>
+                  </div>
+                </div>
+
+                {/* Mobile count */}
+                <div className="flex justify-between items-center md:hidden pt-1">
+                  <span className="text-xs text-muted-foreground">{filteredOrders.length} pedidos encontrados</span>
+                  {activeSecondaryCount > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 text-xs text-muted-foreground hover:text-destructive px-2"
+                      onClick={() => {
+                        setSearchLoadCode("");
+                        setLaunchedFilter("all");
+                        setFinancialStatusFilter("all");
+                        setPickingStatusFilter([]);
+                        setRouteFilter("all");
+                        setPriorityFilter("all");
+                      }}
+                    >
+                      <X className="h-3 w-3 mr-1" /> Limpar filtros
+                    </Button>
+                  )}
+                </div>
               </div>
             </div>
-
-            {/* 7. Launched */}
-            <div className="w-full sm:w-[120px] space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">Lançado?</label>
-              <Select value={launchedFilter} onValueChange={setLaunchedFilter}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos</SelectItem>
-                  <SelectItem value="yes">Sim</SelectItem>
-                  <SelectItem value="no">Não</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap gap-3 md:gap-4 items-end pt-2 border-t">
-            <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-              <Filter className="h-4 w-4" /> <span className="hidden sm:inline">Filtros Estritos:</span><span className="sm:hidden">Filtros:</span>
-            </div>
-
-            {/* 3. Financial */}
-            <div className="w-full sm:w-[140px] space-y-1">
-              <Select value={financialStatusFilter} onValueChange={setFinancialStatusFilter}>
-                <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Financeiro" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos (Fin.)</SelectItem>
-                  <SelectItem value="pago">Liberado/Pago</SelectItem>
-                  <SelectItem value="pendente">Pendente</SelectItem>
-                  <SelectItem value="bloqueado">Bloqueado</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* 4. Picking Status - Simplified as Single Select for UI, can swap to MultiSelect component if available */}
-            <div className="w-full sm:w-[180px] space-y-1">
-              <Select value={pickingStatusFilter[0] || "all"} onValueChange={(val) => setPickingStatusFilter(val === "all" ? [] : [val])}>
-                <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Status Separação" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todos os Status</SelectItem>
-                  {statusOptions.map(opt => (
-                    <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* 5. Route */}
-            <div className="w-full sm:w-[150px] space-y-1">
-              <Select value={routeFilter} onValueChange={setRouteFilter}>
-                <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Rota" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas Rotas</SelectItem>
-                  <SelectItem value="unassigned">Sem Rota</SelectItem>
-                  {routes?.filter(r => r.active).map(r => (
-                    <SelectItem key={r.id} value={String(r.id)}>{r.code} - {r.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* 6. Priority */}
-            <div className="w-full sm:w-[120px] space-y-1">
-              <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-                <SelectTrigger className="h-8 text-xs"><SelectValue placeholder="Prioridade" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Todas</SelectItem>
-                  <SelectItem value="normal">Normal</SelectItem>
-                  <SelectItem value="high">Alta / Vips</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="ml-auto">
-              <span className="text-xs text-muted-foreground mr-2">{filteredOrders.length} pedidos encontrados</span>
-            </div>
-          </div>
-        </div>
+          );
+        })()}
 
         {/* BULK ACTIONS */}
         {selectedOrders.length > 0 && (
