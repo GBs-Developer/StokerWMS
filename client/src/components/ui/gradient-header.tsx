@@ -13,28 +13,32 @@ export function GradientHeader({ title, subtitle, children, className, compact =
   return (
     <div
       className={cn(
-        "relative overflow-hidden",
-        "bg-gradient-to-br from-[hsl(222,47%,14%)] via-[hsl(217,60%,28%)] to-[hsl(199,89%,30%)]",
+        "relative overflow-hidden bg-sidebar text-sidebar-foreground",
         compact ? "px-4 py-3" : "px-4 py-4 md:px-6 md:py-5",
-        "text-white",
         className
       )}
+      style={{
+        background: "linear-gradient(135deg, hsl(var(--sidebar)) 0%, hsl(var(--sidebar-primary) / 0.25) 100%)",
+      }}
     >
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_rgba(99,179,237,0.15),_transparent_60%)]" />
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,_rgba(56,178,172,0.1),_transparent_50%)]" />
+      {/* Accent overlays */}
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_rgba(99,179,237,0.12),_transparent_60%)] pointer-events-none" />
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_left,_rgba(56,178,172,0.07),_transparent_50%)] pointer-events-none" />
+      {/* Top edge accent */}
+      <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent pointer-events-none" />
 
       <div className="relative max-w-7xl mx-auto">
         {title ? (
           <div className="flex items-center justify-between gap-3 min-w-0 overflow-hidden">
             <div className="min-w-0">
               <h1 className={cn(
-                "font-bold tracking-tight truncate",
+                "font-bold tracking-tight truncate text-sidebar-foreground",
                 compact ? "text-lg" : "text-xl md:text-2xl"
               )}>
                 {title}
               </h1>
               {subtitle && (
-                <p className="text-white/60 text-xs truncate">{subtitle}</p>
+                <p className="text-sidebar-foreground/50 text-xs truncate mt-0.5">{subtitle}</p>
               )}
             </div>
             {children && <div className="flex items-center gap-2 shrink-0">{children}</div>}
