@@ -1376,7 +1376,8 @@ export default function SeparacaoPage() {
                                 max={currentProduct.totalQty - currentProduct.separatedQty - currentProduct.exceptionQty}
                                 value={multiplierValue}
                                 onChange={(e) => {
-                                  const newVal = Math.max(1, parseInt(e.target.value) || 1);
+                                  const maxVal = currentProduct.totalQty - currentProduct.separatedQty - currentProduct.exceptionQty;
+                                  const newVal = Math.min(Math.max(1, parseInt(e.target.value) || 1), Math.max(1, maxVal));
                                   setMultiplierValue(newVal);
                                 }}
                                 onFocus={(e) => e.target.select()}

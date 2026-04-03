@@ -1299,7 +1299,10 @@ export default function BalcaoPage() {
                                 min={1}
                                 max={currentProduct.totalQty - currentProduct.separatedQty - currentProduct.exceptionQty}
                                 value={multiplierValue}
-                                onChange={(e) => setMultiplierValue(Math.max(1, parseInt(e.target.value) || 1))}
+                                onChange={(e) => {
+                                  const maxVal = currentProduct.totalQty - currentProduct.separatedQty - currentProduct.exceptionQty;
+                                  setMultiplierValue(Math.min(Math.max(1, parseInt(e.target.value) || 1), Math.max(1, maxVal)));
+                                }}
                                 className="h-10 w-20 text-center text-sm font-bold"
                               />
                             </div>

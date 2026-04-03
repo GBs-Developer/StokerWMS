@@ -1283,7 +1283,10 @@ export default function ConferenciaPage() {
                                 min={1}
                                 max={currentProduct.totalSeparatedQty - currentProduct.checkedQty}
                                 value={multiplierValue}
-                                onChange={(e) => setMultiplierValue(Math.max(1, parseInt(e.target.value) || 1))}
+                                onChange={(e) => {
+                                  const maxVal = currentProduct.totalSeparatedQty - currentProduct.checkedQty;
+                                  setMultiplierValue(Math.min(Math.max(1, parseInt(e.target.value) || 1), Math.max(1, maxVal)));
+                                }}
                                 onFocus={(e) => e.target.select()}
                                 className="h-10 w-20 text-center text-sm font-bold"
                               />
