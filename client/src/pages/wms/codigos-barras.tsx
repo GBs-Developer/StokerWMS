@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { GradientHeader } from "@/components/ui/gradient-header";
@@ -32,6 +31,8 @@ interface FeedEntry {
 }
 
 const QUICK_QTY = [2, 3, 4, 6, 8, 10, 12, 15, 20, 24, 30, 36, 48, 50, 100];
+
+const SCANNER_CHAR_TIMEOUT = 80;
 
 let sharedAudioCtx: AudioContext | null = null;
 function getAudioCtx(): AudioContext {
@@ -86,9 +87,8 @@ function playBeep(type: "success" | "error" | "scan") {
 export default function CodigosBarrasPage() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
-  const inputRef = useRef<HTMLInputElement>(null);
 
-  const [scanValue, setScanValue] = useState("");
+  const [scanBuffer, setScanBuffer] = useState("");
   const [presetQty, setPresetQty] = useState(12);
   const [customQty, setCustomQty] = useState("");
   const [showQtyPicker, setShowQtyPicker] = useState(false);
@@ -110,22 +110,15 @@ export default function CodigosBarrasPage() {
   const presetQtyRef = useRef(12);
   const soundOnRef = useRef(true);
 
+  const scanBufferRef = useRef("");
+  const bufferTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const customQtyInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => { phaseRef.current = phase; }, [phase]);
   useEffect(() => { currentUnitRef.current = currentUnit; }, [currentUnit]);
   useEffect(() => { currentProductRef.current = currentProduct; }, [currentProduct]);
   useEffect(() => { presetQtyRef.current = presetQty; }, [presetQty]);
   useEffect(() => { soundOnRef.current = soundOn; }, [soundOn]);
-
-  const refocus = useCallback(() => {
-    setTimeout(() => {
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    }, 50);
-  }, []);
-
-  useEffect(() => {
-    refocus();
-  }, [phase, refocus]);
 
   useEffect(() => {
     if (flash) {
@@ -180,14 +173,11 @@ export default function CodigosBarrasPage() {
     }
   }, [doQuickLink, toast]);
 
-  const handleScan = useCallback(async () => {
-    const code = scanValue.trim();
-    if (!code) return;
-    if (processingRef.current) return;
+  const processScan = useCallback(async (code: string) => {
+    if (!code || processingRef.current) return;
 
     processingRef.current = true;
     setProcessing(true);
-    setScanValue("");
 
     try {
       if (phaseRef.current === "idle") {
@@ -221,8 +211,7 @@ export default function CodigosBarrasPage() {
               if (soundOnRef.current) playBeep("scan");
               toast({ variant: "destructive", title: "Produto diferente detectado", description: `Trocou para: ${lookupPkg.product.erpCode} — ${lookupPkg.product.name}` });
             }
-          } catch {
-          }
+          } catch {}
 
           if (!isOtherProduct) {
             if (soundOnRef.current) playBeep("scan");
@@ -240,26 +229,64 @@ export default function CodigosBarrasPage() {
     } finally {
       processingRef.current = false;
       setProcessing(false);
-      refocus();
     }
-  }, [scanValue, doLookup, doSave, toast, refocus]);
+  }, [doLookup, doSave, toast]);
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      handleScan();
-    }
-    if (e.key === "Escape") {
-      e.preventDefault();
-      if (phase === "waitPkg") {
-        setPhase("idle");
-        setCurrentUnit("");
-        setCurrentProduct(null);
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isInCustomQtyInput = target === customQtyInputRef.current;
+      if (isInCustomQtyInput) return;
+
+      if (e.key === "Escape") {
+        e.preventDefault();
+        if (phaseRef.current === "waitPkg") {
+          setPhase("idle");
+          setCurrentUnit("");
+          setCurrentProduct(null);
+        }
+        scanBufferRef.current = "";
+        setScanBuffer("");
+        return;
       }
-      setScanValue("");
-      refocus();
-    }
-  };
+
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const code = scanBufferRef.current.trim();
+        if (code) {
+          processScan(code);
+        }
+        scanBufferRef.current = "";
+        setScanBuffer("");
+        if (bufferTimerRef.current) {
+          clearTimeout(bufferTimerRef.current);
+          bufferTimerRef.current = null;
+        }
+        return;
+      }
+
+      if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        e.preventDefault();
+        scanBufferRef.current += e.key;
+        setScanBuffer(scanBufferRef.current);
+
+        if (bufferTimerRef.current) {
+          clearTimeout(bufferTimerRef.current);
+        }
+        bufferTimerRef.current = setTimeout(() => {
+          scanBufferRef.current = "";
+          setScanBuffer("");
+          bufferTimerRef.current = null;
+        }, SCANNER_CHAR_TIMEOUT * 30);
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown, true);
+      if (bufferTimerRef.current) clearTimeout(bufferTimerRef.current);
+    };
+  }, [processScan]);
 
   const removeFeedEntry = (id: string) => {
     setFeed(prev => prev.filter(e => e.id !== id));
@@ -269,7 +296,6 @@ export default function CodigosBarrasPage() {
     setPresetQty(q);
     setShowQtyPicker(false);
     setCustomQty("");
-    refocus();
   };
 
   const handleCustomQty = () => {
@@ -283,8 +309,8 @@ export default function CodigosBarrasPage() {
     setPhase("idle");
     setCurrentUnit("");
     setCurrentProduct(null);
-    setScanValue("");
-    refocus();
+    scanBufferRef.current = "";
+    setScanBuffer("");
   };
 
   const borderColor = flash === "success" ? "border-green-500" : flash === "error" ? "border-red-500" : "border-border/50";
@@ -336,7 +362,7 @@ export default function CodigosBarrasPage() {
               "h-9 px-4 rounded-xl font-bold text-lg min-w-[60px] transition-all",
               !showQtyPicker && "border-primary/50 text-primary bg-primary/5"
             )}
-            onClick={() => { setShowQtyPicker(!showQtyPicker); refocus(); }}
+            onClick={() => setShowQtyPicker(!showQtyPicker)}
             data-testid="button-qty-display"
           >
             {presetQty}
@@ -357,11 +383,12 @@ export default function CodigosBarrasPage() {
               ))}
               <div className="flex items-center gap-1">
                 <Input
+                  ref={customQtyInputRef}
                   type="number"
                   min="1"
                   value={customQty}
                   onChange={e => setCustomQty(e.target.value)}
-                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleCustomQty(); } }}
+                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); handleCustomQty(); } }}
                   placeholder="..."
                   className="h-8 w-14 text-xs text-center rounded-lg px-1"
                   data-testid="input-custom-qty"
@@ -395,6 +422,7 @@ export default function CodigosBarrasPage() {
                 <p className="font-semibold text-sm">Bipe o código UNITÁRIO</p>
                 <p className="text-xs text-muted-foreground">Escaneie o código de barras do produto</p>
               </div>
+              {processing && <Loader2 className="h-5 w-5 animate-spin text-muted-foreground shrink-0" />}
             </div>
           ) : (
             <div className="space-y-2">
@@ -408,9 +436,13 @@ export default function CodigosBarrasPage() {
                     Escaneie a caixa/fardo → salva com <span className="font-bold text-foreground">{presetQty}</span> un
                   </p>
                 </div>
-                <Button variant="ghost" size="sm" className="h-8 px-2 rounded-lg text-xs" onClick={cancelCurrent} data-testid="button-cancel-current">
-                  ESC
-                </Button>
+                {processing ? (
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground shrink-0" />
+                ) : (
+                  <Button variant="ghost" size="sm" className="h-8 px-2 rounded-lg text-xs" onClick={cancelCurrent} data-testid="button-cancel-current">
+                    ESC
+                  </Button>
+                )}
               </div>
               {currentProduct && (
                 <div className="flex items-center gap-2 pl-[52px]">
@@ -422,27 +454,17 @@ export default function CodigosBarrasPage() {
             </div>
           )}
 
-          <div className="relative">
-            <Input
-              ref={inputRef}
-              data-testid="input-scan"
-              value={scanValue}
-              onChange={e => setScanValue(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={phase === "idle" ? "Escanear código unitário..." : "Escanear código da embalagem..."}
-              className={cn(
-                "h-14 text-lg font-mono rounded-xl text-center pr-12 transition-all",
-                phase === "waitPkg" && "border-amber-400/50 focus:border-amber-400",
-              )}
-              autoFocus
-              autoComplete="off"
-              inputMode="none"
-              disabled={processing}
-            />
-            {processing && (
-              <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-              </div>
+          <div className={cn(
+            "h-14 rounded-xl border flex items-center justify-center font-mono text-lg transition-all",
+            scanBuffer ? "bg-muted/30 border-primary/50" : "bg-muted/10 border-border/30",
+            phase === "waitPkg" && !scanBuffer && "border-amber-400/30",
+          )}>
+            {scanBuffer ? (
+              <span className="text-foreground tracking-wider" data-testid="display-scan-buffer">{scanBuffer}<span className="animate-pulse text-primary">|</span></span>
+            ) : (
+              <span className="text-muted-foreground/50 text-sm">
+                {processing ? "Processando..." : phase === "idle" ? "Aguardando leitura do scanner..." : "Aguardando código da embalagem..."}
+              </span>
             )}
           </div>
         </div>
@@ -460,7 +482,7 @@ export default function CodigosBarrasPage() {
               variant="ghost"
               size="sm"
               className="h-6 px-2 text-[10px] text-muted-foreground hover:text-destructive"
-              onClick={() => { setFeed([]); refocus(); }}
+              onClick={() => setFeed([])}
               data-testid="button-clear-feed"
             >
               Limpar
@@ -530,6 +552,9 @@ export default function CodigosBarrasPage() {
               <p>2. Escaneie o código <span className="text-blue-400">unitário</span> do produto</p>
               <p>3. Escaneie o código da <span className="text-amber-400">embalagem</span></p>
               <p>4. Salva automaticamente e passa pro próximo</p>
+            </div>
+            <div className="mt-3 pt-3 border-t border-border/20">
+              <p className="text-[10px] text-muted-foreground/40">O scanner funciona sem precisar clicar em nenhum campo</p>
             </div>
           </div>
         )}
