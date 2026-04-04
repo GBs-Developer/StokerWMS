@@ -1,7 +1,7 @@
 import { db } from "./db";
 import { eq, and, sql, desc, inArray, isNull, gt, lt, or, like } from "drizzle-orm";
 import {
-  users, orders, orderItems, products, routes, workUnits, exceptions, auditLogs, sessions, sections, sectionGroups, db2Mappings, cacheOrcamentos, orderVolumes, systemSettings, nfItems,
+  users, orders, orderItems, products, routes, workUnits, exceptions, auditLogs, sessions, sections, sectionGroups, db2Mappings, cacheOrcamentos, orderVolumes, systemSettings, nfItems, productBarcodes,
   type User, type InsertUser, type Order, type InsertOrder, type OrderItem, type InsertOrderItem,
   type Product, type InsertProduct, type Route, type InsertRoute, type WorkUnit, type InsertWorkUnit,
   type Exception, type InsertException, type AuditLog, type InsertAuditLog, type Session,
@@ -303,6 +303,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getProductByBarcode(barcode: string): Promise<Product | undefined> {
+    const pbMatch = await db.select().from(productBarcodes).where(
+      and(eq(productBarcodes.barcode, barcode), eq(productBarcodes.active, true))
+    ).limit(1);
+    if (pbMatch.length > 0) {
+      const [p] = await db.select().from(products).where(eq(products.id, pbMatch[0].productId)).limit(1);
+      if (p) return p;
+    }
+
     const matchedProducts = await db.select().from(products).where(
       or(
         eq(products.barcode, barcode),
@@ -311,15 +319,27 @@ export class DatabaseStorage implements IStorage {
       )
     );
 
-    // Strict verify in memory for boxBarcodes to avoid false positives with floating point numbers
     for (const p of matchedProducts) {
       if (p.barcode === barcode || p.boxBarcode === barcode) return p;
       if (p.boxBarcodes && Array.isArray(p.boxBarcodes)) {
-        // We expect {code: string, qty: number} objects based on the new sync format
         if (p.boxBarcodes.some((b: any) => b.code === barcode)) return p;
       }
     }
     return undefined;
+  }
+
+  async getBarcodeMultiplier(barcode: string, product: Product): Promise<number> {
+    const [pb] = await db.select().from(productBarcodes).where(
+      and(eq(productBarcodes.barcode, barcode), eq(productBarcodes.active, true), eq(productBarcodes.productId, product.id))
+    ).limit(1);
+    if (pb) return pb.type === "UNITARIO" ? 1 : pb.packagingQty;
+    if (product.barcode === barcode) return 1;
+    if (product.boxBarcodes && Array.isArray(product.boxBarcodes)) {
+      const bx = (product.boxBarcodes as any[]).find((b: any) => b.code === barcode);
+      if (bx && bx.qty) return bx.qty;
+    }
+    if (product.boxBarcode === barcode) return 1;
+    return 1;
   }
 
   async createProduct(product: InsertProduct): Promise<Product> {

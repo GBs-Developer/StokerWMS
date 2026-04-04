@@ -6,7 +6,7 @@ import {
   Package, ClipboardCheck, Store, LogOut, ClipboardList,
   Warehouse, PackagePlus, ArrowRightLeft, MapPin, BarChart3,
   Truck, AlertTriangle, FileText, Users, Settings, ShieldCheck,
-  Printer, Cog, BoxesIcon, ScrollText, Search, Trash2, TrendingUp,
+  Printer, Cog, BoxesIcon, ScrollText, Search, Trash2, TrendingUp, Barcode,
   ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen,
   Menu, X, Sun, Moon,
 } from "lucide-react";
@@ -49,6 +49,7 @@ const ALL_GROUPS: NavGroup[] = [
       { icon: BarChart3,      label: "Contagem",        description: "Ciclos de contagem",           href: "/wms/contagem",        color: "text-indigo-400", bg: "bg-indigo-500/15" },
       { icon: Warehouse,      label: "Endereços",       description: "Gerenciar endereços WMS",      href: "/wms/enderecos",       color: "text-slate-400",  bg: "bg-slate-500/15" },
       { icon: Search,         label: "Buscar Produtos", description: "Pesquisar estoque",            href: "/wms/produtos",        color: "text-sky-400",    bg: "bg-sky-500/15" },
+      { icon: Barcode,        label: "Vínculo Rápido",  description: "Vincular códigos de barras",   href: "/wms/codigos-barras",  color: "text-rose-400",   bg: "bg-rose-500/15" },
     ],
   },
   {
@@ -78,6 +79,7 @@ const ALL_GROUPS: NavGroup[] = [
       { icon: MapPin,        label: "End. Produto",     description: "Vincular produtos a endereços", href: "/supervisor/product-addresses",   color: "text-teal-400",   bg: "bg-teal-500/15" },
       { icon: Settings,      label: "Mapping Studio",   description: "Mapeamento DB2",                href: "/supervisor/mapping-studio",      color: "text-cyan-400",   bg: "bg-cyan-500/15" },
       { icon: ShieldCheck,   label: "Permissões",       description: "Definir acessos",               href: "/admin/permissoes",               color: "text-amber-400",  bg: "bg-amber-500/15" },
+      { icon: Barcode,       label: "Gestão Barcodes",  description: "Gerenciar códigos de barras",   href: "/supervisor/codigos-barras",      color: "text-rose-400",   bg: "bg-rose-500/15" },
       { icon: Cog,           label: "Modo Separação",   description: "Configurar separação",          href: "/supervisor/separation-settings", color: "text-slate-400",  bg: "bg-slate-500/15" },
       { icon: Printer,       label: "Impressoras",      description: "Configurar impressoras",        href: "/supervisor/print-settings",      color: "text-indigo-400", bg: "bg-indigo-500/15" },
       { icon: Trash2,        label: "Limpeza de Dados", description: "Resetar dados de teste",        href: "/admin/limpeza",                  color: "text-red-400",    bg: "bg-red-500/15" },
@@ -95,25 +97,25 @@ const ROLE_LABELS: Record<string, string> = {
 
 const ROLE_MODULE_ACCESS: Record<string, string[]> = {
   administrador: [
-    "/wms/recebimento","/wms/checkin","/wms/transferencia","/wms/contagem","/wms/enderecos","/wms/produtos",
+    "/wms/recebimento","/wms/checkin","/wms/transferencia","/wms/contagem","/wms/enderecos","/wms/produtos","/wms/codigos-barras",
     "/fila-pedidos","/supervisor/orders","/supervisor/routes","/supervisor/route-orders","/supervisor/exceptions",
-    "/supervisor/users","/supervisor/product-addresses","/supervisor/mapping-studio",
+    "/supervisor/users","/supervisor/product-addresses","/supervisor/mapping-studio","/supervisor/codigos-barras",
     "/supervisor/reports","/supervisor/audit","/admin/permissoes","/supervisor/separation-settings",
     "/admin/limpeza","/supervisor/print-settings","/admin/kpi-operadores",
   ],
   supervisor: [
-    "/wms/recebimento","/wms/checkin","/wms/transferencia","/wms/contagem","/wms/enderecos","/wms/produtos",
+    "/wms/recebimento","/wms/checkin","/wms/transferencia","/wms/contagem","/wms/enderecos","/wms/produtos","/wms/codigos-barras",
     "/fila-pedidos","/supervisor/orders","/supervisor/routes","/supervisor/route-orders","/supervisor/exceptions",
     "/supervisor/users","/supervisor/product-addresses","/supervisor/reports","/supervisor/audit",
-    "/supervisor/separation-settings","/admin/kpi-operadores",
+    "/supervisor/separation-settings","/supervisor/codigos-barras","/admin/kpi-operadores",
   ],
-  separacao:      ["/separacao"],
-  conferencia:    ["/conferencia"],
-  balcao:         ["/balcao"],
+  separacao:      ["/separacao","/wms/codigos-barras"],
+  conferencia:    ["/conferencia","/wms/codigos-barras"],
+  balcao:         ["/balcao","/wms/codigos-barras"],
   fila_pedidos:   ["/fila-pedidos"],
-  recebedor:      ["/wms/recebimento","/wms/produtos"],
-  empilhador:     ["/wms/checkin","/wms/transferencia","/wms/produtos"],
-  conferente_wms: ["/wms/contagem","/wms/produtos"],
+  recebedor:      ["/wms/recebimento","/wms/produtos","/wms/codigos-barras"],
+  empilhador:     ["/wms/checkin","/wms/transferencia","/wms/produtos","/wms/codigos-barras"],
+  conferente_wms: ["/wms/contagem","/wms/produtos","/wms/codigos-barras"],
 };
 
 function buildAllowedHrefs(role: string, customModules?: string[] | null): string[] {

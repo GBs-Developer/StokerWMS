@@ -6,9 +6,10 @@ import { eq, and, sql, desc, isNull, ilike, or, inArray, ne } from "drizzle-orm"
 import {
   wmsAddresses, pallets, palletItems, palletMovements, nfCache, nfItems,
   countingCycles, countingCycleItems, productCompanyStock, products, productAddresses,
-  addressPickingLog,
+  addressPickingLog, productBarcodes, barcodeChangeHistory,
   insertProductAddressSchema,
   type WmsAddress, type Pallet, type PalletItem,
+  type BarcodeType, barcodeTypeEnum,
 } from "@shared/schema";
 import { z } from "zod";
 import { broadcastSSE } from "./sse";
@@ -2569,6 +2570,555 @@ export function registerWmsRoutes(app: Express) {
     } catch (error) {
       console.error("Stock discrepancy report error:", error);
       res.status(500).json({ error: "Erro ao gerar relatório de divergências" });
+    }
+  });
+
+  const barcodeCreateSchema = z.object({
+    productId: z.string().min(1),
+    barcode: z.string().min(1),
+    type: z.enum(barcodeTypeEnum),
+    packagingQty: z.number().int().positive().default(1),
+    packagingType: z.string().max(50).optional().nullable(),
+    isPrimary: z.boolean().optional().default(false),
+    notes: z.string().max(500).optional().nullable(),
+  });
+
+  const barcodeUpdateSchema = z.object({
+    barcode: z.string().min(1).optional(),
+    packagingQty: z.number().int().positive().optional(),
+    packagingType: z.string().max(50).optional().nullable(),
+    isPrimary: z.boolean().optional(),
+    notes: z.string().max(500).optional().nullable(),
+  });
+
+  const quickLinkSchema = z.object({
+    productBarcode: z.string().min(1),
+    packageBarcode: z.string().min(1),
+    packagingQty: z.number().int().positive(),
+    packagingType: z.string().max(50).optional().nullable(),
+    notes: z.string().max(500).optional().nullable(),
+  });
+
+  app.get("/api/barcodes", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const { productId, barcode, type, active, search, page, limit: lim } = req.query;
+      const pageNum = Math.max(1, Number(page) || 1);
+      const pageSize = Math.min(100, Math.max(1, Number(lim) || 50));
+
+      const conditions: any[] = [];
+      if (companyId) conditions.push(or(eq(productBarcodes.companyId, companyId), isNull(productBarcodes.companyId)));
+      if (productId) conditions.push(eq(productBarcodes.productId, String(productId)));
+      if (barcode) conditions.push(ilike(productBarcodes.barcode, `%${String(barcode)}%`));
+      if (type) conditions.push(eq(productBarcodes.type, String(type) as BarcodeType));
+      if (active === "true") conditions.push(eq(productBarcodes.active, true));
+      else if (active === "false") conditions.push(eq(productBarcodes.active, false));
+
+      let query = db.select({
+        barcode: productBarcodes,
+        productName: products.name,
+        erpCode: products.erpCode,
+        productSection: products.section,
+      }).from(productBarcodes)
+        .leftJoin(products, eq(productBarcodes.productId, products.id));
+
+      if (search) {
+        const s = `%${String(search)}%`;
+        conditions.push(or(
+          ilike(productBarcodes.barcode, s),
+          ilike(products.name, s),
+          ilike(products.erpCode, s),
+        ));
+      }
+
+      const where = conditions.length > 0 ? and(...conditions) : undefined;
+      const rows = await (where ? query.where(where) : query)
+        .orderBy(desc(productBarcodes.createdAt))
+        .limit(pageSize)
+        .offset((pageNum - 1) * pageSize);
+
+      const [countRow] = await db.select({ count: sql<number>`count(*)` })
+        .from(productBarcodes)
+        .leftJoin(products, eq(productBarcodes.productId, products.id))
+        .where(where ?? sql`true`);
+
+      res.json({
+        data: rows.map(r => ({ ...r.barcode, productName: r.productName, erpCode: r.erpCode, productSection: r.productSection })),
+        total: Number(countRow?.count ?? 0),
+        page: pageNum,
+        pageSize,
+      });
+    } catch (error) {
+      console.error("[Barcodes] List error:", error);
+      res.status(500).json({ error: "Erro ao listar códigos de barras" });
+    }
+  });
+
+  app.get("/api/barcodes/by-product/:productId", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const rows = await db.select().from(productBarcodes)
+        .where(and(eq(productBarcodes.productId, req.params.productId), eq(productBarcodes.companyId, companyId)))
+        .orderBy(desc(productBarcodes.active), productBarcodes.type, productBarcodes.createdAt);
+      res.json(rows);
+    } catch (error) {
+      console.error("[Barcodes] By product error:", error);
+      res.status(500).json({ error: "Erro ao buscar códigos do produto" });
+    }
+  });
+
+  app.get("/api/barcodes/history/:productId", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const rows = await db.select().from(barcodeChangeHistory)
+        .innerJoin(productBarcodes, eq(barcodeChangeHistory.barcodeId, productBarcodes.id))
+        .where(and(eq(barcodeChangeHistory.productId, req.params.productId), eq(productBarcodes.companyId, companyId)))
+        .orderBy(desc(barcodeChangeHistory.createdAt))
+        .limit(100);
+      res.json(rows.map(r => r.barcode_change_history));
+    } catch (error) {
+      console.error("[Barcodes] History error:", error);
+      res.status(500).json({ error: "Erro ao buscar histórico" });
+    }
+  });
+
+  app.get("/api/barcodes/lookup/:barcode", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
+    try {
+      const code = req.params.barcode;
+      const companyId = getCompanyId(req);
+      const rows = await db.select({
+        barcode: productBarcodes,
+        productName: products.name,
+        erpCode: products.erpCode,
+      }).from(productBarcodes)
+        .leftJoin(products, eq(productBarcodes.productId, products.id))
+        .where(and(eq(productBarcodes.barcode, code), eq(productBarcodes.active, true), eq(productBarcodes.companyId, companyId)));
+
+      if (rows.length === 0) {
+        const product = await storage.getProductByBarcode(code);
+        if (product) {
+          const isUnit = product.barcode === code;
+          let qty = 1;
+          if (!isUnit && product.boxBarcodes && Array.isArray(product.boxBarcodes)) {
+            const bx = (product.boxBarcodes as any[]).find((b: any) => b.code === code);
+            if (bx) qty = bx.qty;
+          }
+          return res.json({
+            found: true, source: "legacy",
+            product: { id: product.id, name: product.name, erpCode: product.erpCode },
+            type: isUnit ? "UNITARIO" : "EMBALAGEM",
+            packagingQty: qty,
+          });
+        }
+        return res.json({ found: false });
+      }
+
+      const r = rows[0];
+      res.json({
+        found: true, source: "module",
+        barcodeRecord: { ...r.barcode, productName: r.productName, erpCode: r.erpCode },
+        product: { id: r.barcode.productId, name: r.productName, erpCode: r.erpCode },
+        type: r.barcode.type,
+        packagingQty: r.barcode.packagingQty,
+      });
+    } catch (error) {
+      console.error("[Barcodes] Lookup error:", error);
+      res.status(500).json({ error: "Erro ao consultar código" });
+    }
+  });
+
+  app.post("/api/barcodes", isAuthenticated, requireCompany, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const parsed = barcodeCreateSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: "Dados inválidos", details: parsed.error.flatten() });
+      const data = parsed.data;
+      const companyId = getCompanyId(req);
+      const userId = getUserId(req);
+      const userName = (req as any).user?.name || (req as any).user?.username || "unknown";
+
+      const [prod] = await db.select().from(products).where(eq(products.id, data.productId)).limit(1);
+      if (!prod) return res.status(404).json({ error: "Produto não encontrado" });
+
+      const conflicting = await db.select().from(productBarcodes).where(
+        and(eq(productBarcodes.barcode, data.barcode), eq(productBarcodes.active, true))
+      );
+      if (conflicting.length > 0) {
+        const c = conflicting[0];
+        if (c.productId !== data.productId || c.type !== data.type) {
+          return res.status(409).json({
+            error: "Código de barras já ativo para outro produto/tipo",
+            conflictProductId: c.productId,
+            conflictType: c.type,
+          });
+        }
+        if (c.type === data.type && c.packagingQty === data.packagingQty) {
+          return res.status(409).json({ error: "Código de barras já cadastrado com mesma configuração" });
+        }
+      }
+
+      if (data.type === "UNITARIO") {
+        data.packagingQty = 1;
+        const existing = await db.select().from(productBarcodes).where(
+          and(
+            eq(productBarcodes.productId, data.productId),
+            eq(productBarcodes.type, "UNITARIO"),
+            eq(productBarcodes.active, true),
+          )
+        );
+        if (existing.length > 0 && !data.isPrimary) {
+          data.isPrimary = false;
+        } else if (existing.length === 0) {
+          data.isPrimary = true;
+        }
+      }
+
+      const now = new Date().toISOString();
+      const created = await db.transaction(async (tx) => {
+        const [rec] = await tx.insert(productBarcodes).values({
+          id: randomUUID(),
+          companyId,
+          productId: data.productId,
+          barcode: data.barcode,
+          type: data.type,
+          packagingQty: data.packagingQty,
+          packagingType: data.packagingType ?? null,
+          active: true,
+          isPrimary: data.isPrimary ?? false,
+          notes: data.notes ?? null,
+          createdAt: now,
+          createdBy: userId,
+        }).returning();
+
+        await tx.insert(barcodeChangeHistory).values({
+          barcodeId: rec.id,
+          productId: data.productId,
+          operation: "criacao",
+          newBarcode: data.barcode,
+          barcodeType: data.type,
+          newQty: data.packagingQty,
+          userId,
+          userName,
+          notes: data.notes ?? null,
+          createdAt: now,
+        });
+        return rec;
+      });
+
+      console.log(`[Barcodes] Created: product=${data.productId} barcode=${data.barcode} type=${data.type} qty=${data.packagingQty} by=${userName}`);
+      res.status(201).json(created);
+    } catch (error) {
+      console.error("[Barcodes] Create error:", error);
+      res.status(500).json({ error: "Erro ao cadastrar código de barras" });
+    }
+  });
+
+  app.put("/api/barcodes/:id", isAuthenticated, requireCompany, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const parsed = barcodeUpdateSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: "Dados inválidos", details: parsed.error.flatten() });
+      const data = parsed.data;
+      const companyId = getCompanyId(req);
+      const userId = getUserId(req);
+      const userName = (req as any).user?.name || (req as any).user?.username || "unknown";
+
+      const [existing] = await db.select().from(productBarcodes).where(
+        and(eq(productBarcodes.id, req.params.id), eq(productBarcodes.companyId, companyId))
+      ).limit(1);
+      if (!existing) return res.status(404).json({ error: "Código não encontrado" });
+
+      if (data.barcode && data.barcode !== existing.barcode) {
+        const conflicts = await db.select().from(productBarcodes).where(
+          and(eq(productBarcodes.barcode, data.barcode), eq(productBarcodes.active, true), ne(productBarcodes.id, existing.id))
+        );
+        if (conflicts.length > 0) {
+          return res.status(409).json({ error: "Código de barras já ativo para outro registro" });
+        }
+      }
+
+      const now = new Date().toISOString();
+      const oldBarcode = existing.barcode;
+      const oldQty = existing.packagingQty;
+
+      const updateData: any = { updatedAt: now, updatedBy: userId };
+      if (data.barcode !== undefined) updateData.barcode = data.barcode;
+      if (data.packagingQty !== undefined) updateData.packagingQty = data.packagingQty;
+      if (data.packagingType !== undefined) updateData.packagingType = data.packagingType;
+      if (data.isPrimary !== undefined) updateData.isPrimary = data.isPrimary;
+      if (data.notes !== undefined) updateData.notes = data.notes;
+
+      const result = await db.transaction(async (tx) => {
+        const [updated] = await tx.update(productBarcodes).set(updateData).where(eq(productBarcodes.id, req.params.id)).returning();
+        const isReplace = data.barcode && data.barcode !== oldBarcode;
+        await tx.insert(barcodeChangeHistory).values({
+          barcodeId: existing.id,
+          productId: existing.productId,
+          operation: isReplace ? "substituicao" : "edicao",
+          oldBarcode,
+          newBarcode: data.barcode ?? oldBarcode,
+          barcodeType: existing.type as BarcodeType,
+          oldQty,
+          newQty: data.packagingQty ?? oldQty,
+          userId,
+          userName,
+          notes: data.notes ?? null,
+          createdAt: now,
+        });
+        return { updated, isReplace };
+      });
+
+      console.log(`[Barcodes] Updated: id=${existing.id} ${result.isReplace ? "replaced" : "edited"} by=${userName}`);
+      res.json(result.updated);
+    } catch (error) {
+      console.error("[Barcodes] Update error:", error);
+      res.status(500).json({ error: "Erro ao atualizar código de barras" });
+    }
+  });
+
+  app.patch("/api/barcodes/:id/deactivate", isAuthenticated, requireCompany, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const userId = getUserId(req);
+      const userName = (req as any).user?.name || (req as any).user?.username || "unknown";
+      const notes = req.body.notes || null;
+
+      const [existing] = await db.select().from(productBarcodes).where(
+        and(eq(productBarcodes.id, req.params.id), eq(productBarcodes.companyId, companyId))
+      ).limit(1);
+      if (!existing) return res.status(404).json({ error: "Código não encontrado" });
+      if (!existing.active) return res.status(400).json({ error: "Código já está inativo" });
+
+      const now = new Date().toISOString();
+      const updated = await db.transaction(async (tx) => {
+        const [upd] = await tx.update(productBarcodes).set({
+          active: false, deactivatedAt: now, deactivatedBy: userId, updatedAt: now, updatedBy: userId,
+        }).where(eq(productBarcodes.id, req.params.id)).returning();
+
+        await tx.insert(barcodeChangeHistory).values({
+          barcodeId: existing.id,
+          productId: existing.productId,
+          operation: "desativacao",
+          oldBarcode: existing.barcode,
+          barcodeType: existing.type as BarcodeType,
+          oldQty: existing.packagingQty,
+          userId,
+          userName,
+          notes,
+          createdAt: now,
+        });
+        return upd;
+      });
+
+      console.log(`[Barcodes] Deactivated: id=${existing.id} barcode=${existing.barcode} by=${userName}`);
+      res.json(updated);
+    } catch (error) {
+      console.error("[Barcodes] Deactivate error:", error);
+      res.status(500).json({ error: "Erro ao desativar código" });
+    }
+  });
+
+  app.patch("/api/barcodes/:id/activate", isAuthenticated, requireCompany, requireRole("supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const companyId = getCompanyId(req);
+      const userId = getUserId(req);
+      const userName = (req as any).user?.name || (req as any).user?.username || "unknown";
+
+      const [existing] = await db.select().from(productBarcodes).where(
+        and(eq(productBarcodes.id, req.params.id), eq(productBarcodes.companyId, companyId))
+      ).limit(1);
+      if (!existing) return res.status(404).json({ error: "Código não encontrado" });
+      if (existing.active) return res.status(400).json({ error: "Código já está ativo" });
+
+      const conflicts = await db.select().from(productBarcodes).where(
+        and(eq(productBarcodes.barcode, existing.barcode), eq(productBarcodes.active, true))
+      );
+      if (conflicts.length > 0) {
+        return res.status(409).json({ error: "Outro código ativo já usa este barcode" });
+      }
+
+      const now = new Date().toISOString();
+      const updated = await db.transaction(async (tx) => {
+        const [upd] = await tx.update(productBarcodes).set({
+          active: true, deactivatedAt: null, deactivatedBy: null, updatedAt: now, updatedBy: userId,
+        }).where(eq(productBarcodes.id, req.params.id)).returning();
+
+        await tx.insert(barcodeChangeHistory).values({
+          barcodeId: existing.id,
+          productId: existing.productId,
+          operation: "ativacao",
+          newBarcode: existing.barcode,
+          barcodeType: existing.type as BarcodeType,
+          newQty: existing.packagingQty,
+          userId,
+          userName,
+          createdAt: now,
+        });
+        return upd;
+      });
+
+      console.log(`[Barcodes] Activated: id=${existing.id} barcode=${existing.barcode} by=${userName}`);
+      res.json(updated);
+    } catch (error) {
+      console.error("[Barcodes] Activate error:", error);
+      res.status(500).json({ error: "Erro ao ativar código" });
+    }
+  });
+
+  app.post("/api/barcodes/quick-link", isAuthenticated, requireCompany, requireRole("operador", "supervisor", "administrador"), async (req: Request, res: Response) => {
+    try {
+      const parsed = quickLinkSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: "Dados inválidos", details: parsed.error.flatten() });
+      const data = parsed.data;
+      const companyId = getCompanyId(req);
+      const userId = getUserId(req);
+      const userName = (req as any).user?.name || (req as any).user?.username || "unknown";
+
+      const product = await storage.getProductByBarcode(data.productBarcode);
+      if (!product) return res.status(404).json({ error: "Produto não encontrado pelo código unitário" });
+
+      if (data.productBarcode === data.packageBarcode) {
+        return res.status(400).json({ error: "Código de embalagem não pode ser igual ao unitário" });
+      }
+
+      const now = new Date().toISOString();
+      await db.transaction(async (tx) => {
+        const conflicting = await tx.select().from(productBarcodes).where(
+          and(eq(productBarcodes.barcode, data.packageBarcode), eq(productBarcodes.active, true))
+        );
+        for (const c of conflicting) {
+          if (c.productId !== product.id) {
+            throw new Error("Código de embalagem já ativo para outro produto");
+          }
+        }
+
+        const existingUnit = await tx.select().from(productBarcodes).where(
+          and(
+            eq(productBarcodes.productId, product.id),
+            eq(productBarcodes.barcode, data.productBarcode),
+            eq(productBarcodes.type, "UNITARIO"),
+            eq(productBarcodes.active, true),
+          )
+        );
+        if (existingUnit.length === 0) {
+          const unitId = randomUUID();
+          await tx.insert(productBarcodes).values({
+            id: unitId, companyId, productId: product.id,
+            barcode: data.productBarcode, type: "UNITARIO",
+            packagingQty: 1, active: true, isPrimary: true,
+            createdAt: now, createdBy: userId,
+          });
+          await tx.insert(barcodeChangeHistory).values({
+            barcodeId: unitId, productId: product.id, operation: "criacao",
+            newBarcode: data.productBarcode, barcodeType: "UNITARIO", newQty: 1,
+            userId, userName, notes: "Auto-criado via vínculo rápido", createdAt: now,
+          });
+        }
+
+        const existingPkg = await tx.select().from(productBarcodes).where(
+          and(
+            eq(productBarcodes.productId, product.id),
+            eq(productBarcodes.barcode, data.packageBarcode),
+            eq(productBarcodes.type, "EMBALAGEM"),
+            eq(productBarcodes.active, true),
+          )
+        );
+
+        if (existingPkg.length > 0) {
+          const old = existingPkg[0];
+          if (old.packagingQty === data.packagingQty && old.packagingType === (data.packagingType ?? null)) {
+            return;
+          }
+          await tx.update(productBarcodes).set({
+            packagingQty: data.packagingQty,
+            packagingType: data.packagingType ?? null,
+            updatedAt: now, updatedBy: userId,
+          }).where(eq(productBarcodes.id, old.id));
+          await tx.insert(barcodeChangeHistory).values({
+            barcodeId: old.id, productId: product.id, operation: "edicao",
+            oldBarcode: data.packageBarcode, newBarcode: data.packageBarcode,
+            barcodeType: "EMBALAGEM", oldQty: old.packagingQty, newQty: data.packagingQty,
+            userId, userName, notes: data.notes ?? "Atualizado via vínculo rápido", createdAt: now,
+          });
+        } else {
+          for (const c of conflicting) {
+            if (c.productId === product.id && c.type === "EMBALAGEM") {
+              await tx.update(productBarcodes).set({
+                active: false, deactivatedAt: now, deactivatedBy: userId, updatedAt: now, updatedBy: userId,
+              }).where(eq(productBarcodes.id, c.id));
+              await tx.insert(barcodeChangeHistory).values({
+                barcodeId: c.id, productId: product.id, operation: "substituicao",
+                oldBarcode: c.barcode, newBarcode: data.packageBarcode,
+                barcodeType: "EMBALAGEM", oldQty: c.packagingQty, newQty: data.packagingQty,
+                userId, userName, notes: "Substituído via vínculo rápido", createdAt: now,
+              });
+            }
+          }
+
+          const pkgId = randomUUID();
+          await tx.insert(productBarcodes).values({
+            id: pkgId, companyId, productId: product.id,
+            barcode: data.packageBarcode, type: "EMBALAGEM",
+            packagingQty: data.packagingQty, packagingType: data.packagingType ?? null,
+            active: true, isPrimary: false,
+            createdAt: now, createdBy: userId,
+          });
+          await tx.insert(barcodeChangeHistory).values({
+            barcodeId: pkgId, productId: product.id, operation: "criacao",
+            newBarcode: data.packageBarcode, barcodeType: "EMBALAGEM", newQty: data.packagingQty,
+            userId, userName, notes: data.notes ?? "Criado via vínculo rápido", createdAt: now,
+          });
+        }
+      });
+
+      console.log(`[Barcodes] Quick-link: product=${product.erpCode} unit=${data.productBarcode} pkg=${data.packageBarcode} qty=${data.packagingQty} by=${userName}`);
+      res.json({ status: "success", productId: product.id, productName: product.name, erpCode: product.erpCode });
+    } catch (error: any) {
+      console.error("[Barcodes] Quick-link error:", error);
+      if (error.message === "Código de embalagem já ativo para outro produto") {
+        return res.status(409).json({ error: error.message });
+      }
+      res.status(500).json({ error: "Erro ao vincular códigos" });
+    }
+  });
+
+  app.get("/api/barcodes/multiplier/:barcode", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const code = req.params.barcode;
+      const [pb] = await db.select().from(productBarcodes).where(
+        and(eq(productBarcodes.barcode, code), eq(productBarcodes.active, true))
+      ).limit(1);
+      if (pb) {
+        return res.json({ multiplier: pb.type === "UNITARIO" ? 1 : pb.packagingQty, type: pb.type, source: "module" });
+      }
+      const product = await storage.getProductByBarcode(code);
+      if (!product) return res.json({ multiplier: 1, type: "UNITARIO", source: "none" });
+      if (product.barcode === code) return res.json({ multiplier: 1, type: "UNITARIO", source: "legacy" });
+      if (product.boxBarcodes && Array.isArray(product.boxBarcodes)) {
+        const bx = (product.boxBarcodes as any[]).find((b: any) => b.code === code);
+        if (bx && bx.qty) return res.json({ multiplier: bx.qty, type: "EMBALAGEM", source: "legacy" });
+      }
+      if (product.boxBarcode === code) return res.json({ multiplier: 1, type: "EMBALAGEM", source: "legacy" });
+      res.json({ multiplier: 1, type: "UNITARIO", source: "legacy" });
+    } catch (error) {
+      console.error("[Barcodes] Multiplier lookup error:", error);
+      res.status(500).json({ error: "Erro ao buscar multiplicador" });
+    }
+  });
+
+  app.get("/api/products/search-for-barcode", isAuthenticated, requireCompany, async (req: Request, res: Response) => {
+    try {
+      const { q } = req.query;
+      if (!q || String(q).length < 2) return res.json([]);
+      const s = `%${String(q)}%`;
+      const rows = await db.select({
+        id: products.id, erpCode: products.erpCode, name: products.name,
+        barcode: products.barcode, section: products.section,
+      }).from(products).where(
+        or(ilike(products.name, s), ilike(products.erpCode, s), ilike(products.barcode, s))
+      ).limit(20);
+      res.json(rows);
+    } catch (error) {
+      console.error("[Barcodes] Product search error:", error);
+      res.status(500).json({ error: "Erro ao buscar produtos" });
     }
   });
 }

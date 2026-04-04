@@ -83,6 +83,8 @@ import PrintAgentsPage from "@/pages/admin/print-agents";
 import SeparationSettingsPage from "@/pages/supervisor/separation-settings";
 import ProductAddressesPage from "@/pages/supervisor/product-addresses";
 import PrintSettingsPage from "@/pages/supervisor/print-settings";
+import BarcodeManagementPage from "@/pages/supervisor/barcode-management";
+import CodigosBarrasPage from "@/pages/wms/codigos-barras";
 import NotFound from "@/pages/not-found";
 import VolumeLabelPage from "@/pages/print/volume-label";
 import PalletLabelPage from "@/pages/print/pallet-label";
@@ -363,6 +365,18 @@ function Router() {
       <Route path="/supervisor/print-settings">
         <ProtectedRoute allowedRoles={["supervisor", "administrador"]}>
           <PrintSettingsPage />
+        </ProtectedRoute>
+      </Route>
+
+      <Route path="/supervisor/codigos-barras">
+        <ProtectedRoute allowedRoles={["supervisor", "administrador"]}>
+          <BarcodeManagementPage />
+        </ProtectedRoute>
+      </Route>
+
+      <Route path="/wms/codigos-barras">
+        <ProtectedRoute allowedRoles={["separacao", "conferencia", "balcao", "recebedor", "empilhador", "conferente_wms", "supervisor", "administrador"]}>
+          <CodigosBarrasPage />
         </ProtectedRoute>
       </Route>
 

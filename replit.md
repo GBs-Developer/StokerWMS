@@ -29,7 +29,7 @@ Preferred communication style: Simple, everyday language.
 
 The frontend is organized with pages under `client/src/pages/` grouped by function:
 - **Auth pages**: `login.tsx`, `company-select.tsx`, `home.tsx`
-- **WMS / Operação modules**: `wms/recebimento.tsx`, `wms/checkin.tsx` (Endereçamento), `wms/transferencia.tsx`, `wms/contagem.tsx`, `wms/enderecos.tsx`, `wms/produtos.tsx`
+- **WMS / Operação modules**: `wms/recebimento.tsx`, `wms/checkin.tsx` (Endereçamento), `wms/transferencia.tsx`, `wms/contagem.tsx`, `wms/enderecos.tsx`, `wms/produtos.tsx`, `wms/codigos-barras.tsx` (Vínculo Rápido)
 - **Logística modules**: `fila-pedidos/`, `supervisor/orders.tsx`, `supervisor/routes.tsx`, `supervisor/route-orders.tsx` (Expedição), `supervisor/exceptions.tsx`
 - **Administração modules**: `supervisor/users.tsx`, `supervisor/mapping-studio.tsx`, `supervisor/reports.tsx`, `supervisor/audit.tsx`, `admin/permissoes.tsx`, `admin/kpi-dashboard.tsx` (KPIs de Operadores — desempenho por operador com ranking, tempo médio, exceções, volumes)
 - **WMS Report pages** (under `supervisor/reports/`): `counting-cycles.tsx` (contagem), `wms-addresses.tsx` (endereços), `pallet-movements.tsx` (movimentações), `stock-discrepancy.tsx` (divergências de estoque) — accessible from the Reports hub with filters, summary stats, expandable details, and print support
@@ -208,6 +208,20 @@ Shared constants exported from `shared/schema.ts` for type-safe status compariso
 - Approval updates product_company_stock with counted quantities
 - Divergence percentage calculated automatically
 
+#### Barcode Management (Gestão de Códigos de Barras)
+- **Tables**: `productBarcodes` (unit + packaging barcodes per product), `barcodeChangeHistory` (full audit trail)
+- **Types**: UNITARIO (unit barcode), EMBALAGEM (packaging barcode with qty multiplier)
+- **Multiple barcodes per product**: one unit + N packaging codes with different quantities (6-pack, 12-pack, etc.)
+- **History/audit**: every creation, edit, replacement, deactivation logged with user, timestamp, old/new values
+- **Conflict detection**: prevents same barcode active for different products; prevents duplicate active barcodes
+- **Scan integration**: `getProductByBarcode` and `getBarcodeMultiplier` check the new table first, then fall back to legacy `products.barcode`/`boxBarcodes` fields
+- **Pages**:
+  - `/wms/codigos-barras` — Operational fast-scan: unit barcode → package barcode → qty → save (4-step wizard, scanner-compatible)
+  - `/supervisor/codigos-barras` — Management: search/filter, create, edit, deactivate/activate, view history per product
+- **Permissions**: Operators can use the fast-scan page; supervisors/admins can access full management
+- **Quick-link endpoint** (`POST /api/barcodes/quick-link`): transactional — auto-creates unit barcode if missing, replaces conflicting packaging codes
+- **Multiplier endpoint** (`GET /api/barcodes/multiplier/:barcode`): returns packaging qty for a barcode, checking module first then legacy
+
 ### Database Schema
 Tables defined in `shared/schema.ts`:
 
@@ -232,6 +246,8 @@ Tables defined in `shared/schema.ts`:
 - `countingCycles` - Counting cycle headers with approval workflow
 - `countingCycleItems` - Individual count items with divergence tracking
 - `productCompanyStock` - Per-company stock quantities
+- `productBarcodes` - Product barcode management (unit + packaging, with history)
+- `barcodeChangeHistory` - Audit trail for barcode changes (creation, edit, replacement, deactivation)
 
 ### ERP Synchronization (DB2)
 - `sync_db2.py` syncs data from IBM DB2 ERP to local SQLite every 10 minutes

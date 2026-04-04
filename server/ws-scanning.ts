@@ -151,11 +151,7 @@ async function handleScanItem(client: ScanningClient, msg: any) {
     const exceptionQty = Number(item.exceptionQty || 0);
     const adjustedTarget = Number(item.quantity) - exceptionQty;
 
-    let multiplier = 1;
-    if (product.barcode !== barcode && product.boxBarcodes && Array.isArray(product.boxBarcodes)) {
-      const bx = (product.boxBarcodes as any[]).find((b: any) => b.code === barcode);
-      if (bx && bx.qty) multiplier = bx.qty;
-    }
+    const multiplier = await storage.getBarcodeMultiplier(barcode, product);
 
     const requestedQty = (quantity !== undefined && quantity !== null) ? Number(quantity) : multiplier;
 
@@ -248,11 +244,7 @@ async function handleCheckItem(client: ScanningClient, msg: any) {
       return sendMsg(client.ws, { type: "check_ack", msgId, status: "not_found", message: "Item totalmente em exceção" });
     }
 
-    let multiplier = 1;
-    if (product.barcode !== barcode && product.boxBarcodes && Array.isArray(product.boxBarcodes)) {
-      const bx = (product.boxBarcodes as any[]).find((b: any) => b.code === barcode);
-      if (bx && bx.qty) multiplier = bx.qty;
-    }
+    const multiplier = await storage.getBarcodeMultiplier(barcode, product);
 
     const requestedQty = (quantity !== undefined && quantity !== null) ? Number(quantity) : multiplier;
 

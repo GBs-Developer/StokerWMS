@@ -1654,23 +1654,13 @@ export async function registerRoutes(
       const exceptionQty = Number(item.exceptionQty || 0);
       const adjustedTarget = Number(item.quantity) - exceptionQty;
 
-      // Calculate multiplier from box barcodes
-      let multiplier = 1;
-      if (product.barcode !== barcode && product.boxBarcodes && Array.isArray(product.boxBarcodes)) {
-        const bx = product.boxBarcodes.find((b: any) => b.code === barcode);
-        if (bx && bx.qty) multiplier = bx.qty;
-      }
+      const multiplier = await storage.getBarcodeMultiplier(barcode, product);
 
-      // When the frontend sends an explicit quantity (manual entry), it refers to the
-      // number of units already accounting for any multiplier – do NOT multiply again.
-      // Only apply the multiplier when the quantity comes from a single barcode scan (default = 1).
       const rawQty = req.body.quantity !== undefined && req.body.quantity !== null
         ? Number(req.body.quantity)
         : 1;
       const requestedQty = rawQty === 1 ? multiplier : rawQty;
 
-      // Atomic check-and-increment: uses SELECT FOR UPDATE to prevent race conditions
-      // between simultaneous scans of the same item.
       const scanResult = await storage.atomicScanSeparatedQty(
         item.id, requestedQty, adjustedTarget, req.params.id as string, workUnit.orderId
       );
@@ -1767,15 +1757,10 @@ export async function registerRoutes(
       const targetQty = separatedQty > 0 ? separatedQty : (itemExcQty > 0 ? 0 : Number(item.quantity));
 
       if (targetQty <= 0) {
-        // Item is fully excepted or genuinely empty — skip
         return res.json({ status: "not_found" });
       }
 
-      let multiplier = 1;
-      if (product.barcode !== barcode && product.boxBarcodes && Array.isArray(product.boxBarcodes)) {
-        const bx = product.boxBarcodes.find((b: any) => b.code === barcode);
-        if (bx && bx.qty) multiplier = bx.qty;
-      }
+      const multiplier = await storage.getBarcodeMultiplier(barcode, product);
 
       const rawQty = req.body.quantity !== undefined && req.body.quantity !== null
         ? Number(req.body.quantity)
@@ -1963,11 +1948,7 @@ export async function registerRoutes(
         return res.json({ status: "not_found" });
       }
 
-      let multiplier = 1;
-      if (product.barcode !== barcode && product.boxBarcodes && Array.isArray(product.boxBarcodes)) {
-        const bx = product.boxBarcodes.find((b: any) => b.code === barcode);
-        if (bx && bx.qty) multiplier = bx.qty;
-      }
+      const multiplier = await storage.getBarcodeMultiplier(barcode, product);
 
       const rawQty = req.body.quantity !== undefined && req.body.quantity !== null
         ? Number(req.body.quantity)

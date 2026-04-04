@@ -703,3 +703,60 @@ export type PalletWithItems = Pallet & {
 export type Section = typeof sections.$inferSelect;
 export type ProductAddress = typeof productAddresses.$inferSelect;
 export type InsertProductAddress = z.infer<typeof insertProductAddressSchema>;
+
+export const barcodeTypeEnum = ["UNITARIO", "EMBALAGEM"] as const;
+export type BarcodeType = typeof barcodeTypeEnum[number];
+
+export const barcodeOperationEnum = ["criacao", "edicao", "substituicao", "desativacao", "ativacao"] as const;
+export type BarcodeOperation = typeof barcodeOperationEnum[number];
+
+export const productBarcodes = pgTable("product_barcodes", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  companyId: integer("company_id"),
+  productId: text("product_id").notNull(),
+  barcode: text("barcode").notNull(),
+  type: text("type").notNull().$type<BarcodeType>(),
+  packagingQty: integer("packaging_qty").notNull().default(1),
+  packagingType: text("packaging_type"),
+  active: boolean("active").notNull().default(true),
+  isPrimary: boolean("is_primary").notNull().default(false),
+  notes: text("notes"),
+  createdAt: text("created_at").notNull().default(new Date().toISOString()),
+  createdBy: text("created_by"),
+  updatedAt: text("updated_at"),
+  updatedBy: text("updated_by"),
+  deactivatedAt: text("deactivated_at"),
+  deactivatedBy: text("deactivated_by"),
+}, (table) => ({
+  barcodeIdx: index("idx_product_barcodes_barcode").on(table.barcode),
+  productIdx: index("idx_product_barcodes_product").on(table.productId),
+  activeIdx: index("idx_product_barcodes_active").on(table.active),
+  companyIdx: index("idx_product_barcodes_company").on(table.companyId),
+}));
+
+export const barcodeChangeHistory = pgTable("barcode_change_history", {
+  id: serial("id").primaryKey(),
+  barcodeId: text("barcode_id"),
+  productId: text("product_id").notNull(),
+  operation: text("operation").notNull().$type<BarcodeOperation>(),
+  oldBarcode: text("old_barcode"),
+  newBarcode: text("new_barcode"),
+  barcodeType: text("barcode_type").$type<BarcodeType>(),
+  oldQty: integer("old_qty"),
+  newQty: integer("new_qty"),
+  userId: text("user_id"),
+  userName: text("user_name"),
+  notes: text("notes"),
+  createdAt: text("created_at").notNull().default(new Date().toISOString()),
+}, (table) => ({
+  productIdx: index("idx_barcode_history_product").on(table.productId),
+  barcodeIdx: index("idx_barcode_history_barcode_id").on(table.barcodeId),
+  userIdx: index("idx_barcode_history_user").on(table.userId),
+}));
+
+export const insertProductBarcodeSchema = createInsertSchema(productBarcodes).omit({
+  id: true, createdAt: true, updatedAt: true, deactivatedAt: true, deactivatedBy: true,
+});
+export type InsertProductBarcode = z.infer<typeof insertProductBarcodeSchema>;
+export type ProductBarcode = typeof productBarcodes.$inferSelect;
+export type BarcodeHistory = typeof barcodeChangeHistory.$inferSelect;
