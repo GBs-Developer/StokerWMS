@@ -248,7 +248,7 @@ export default function HomePage() {
             {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </button>
 
-          {!collapsed && (
+          {!isMobile && !collapsed && (
             <button
               onClick={() => setSidebarCollapsed(true)}
               className="flex items-center justify-center w-8 h-8 rounded-lg text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
@@ -259,7 +259,7 @@ export default function HomePage() {
             </button>
           )}
 
-          {collapsed && (
+          {!isMobile && collapsed && (
             <button
               onClick={() => setSidebarCollapsed(false)}
               className="flex items-center justify-center w-9 h-9 rounded-lg text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
