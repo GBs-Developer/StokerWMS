@@ -201,35 +201,669 @@ def formatar_hora(valor) -> str:
 
 
 # ─────────────────────────────────────────────────────────────
-#  SYSTEM SETTINGS
+#  SCHEMA BOOTSTRAP — garante todas as tabelas e colunas
 # ─────────────────────────────────────────────────────────────
 
-def ensurar_system_settings():
-    """Garante que a tabela system_settings existe no PostgreSQL."""
+_TABLES_DDL = [
+    ("companies", """
+        CREATE TABLE IF NOT EXISTS companies (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            cnpj TEXT
+        )
+    """),
+    ("users", """
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            username TEXT NOT NULL,
+            password TEXT NOT NULL,
+            name TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'separacao',
+            sections JSONB,
+            settings JSONB DEFAULT '{}',
+            active BOOLEAN NOT NULL DEFAULT TRUE,
+            badge_code TEXT,
+            default_company_id INTEGER,
+            allowed_companies JSONB DEFAULT '[1,3]',
+            allowed_modules JSONB,
+            allowed_reports JSONB,
+            created_at TEXT NOT NULL DEFAULT ''
+        )
+    """),
+    ("routes", """
+        CREATE TABLE IF NOT EXISTS routes (
+            id TEXT PRIMARY KEY,
+            code TEXT NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT,
+            active BOOLEAN NOT NULL DEFAULT TRUE,
+            created_at TEXT NOT NULL DEFAULT ''
+        )
+    """),
+    ("sections", """
+        CREATE TABLE IF NOT EXISTS sections (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL
+        )
+    """),
+    ("pickup_points", """
+        CREATE TABLE IF NOT EXISTS pickup_points (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            active BOOLEAN NOT NULL DEFAULT TRUE
+        )
+    """),
+    ("section_groups", """
+        CREATE TABLE IF NOT EXISTS section_groups (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            sections JSONB NOT NULL,
+            created_at TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT ''
+        )
+    """),
+    ("cache_orcamentos", """
+        CREATE TABLE IF NOT EXISTS cache_orcamentos (
+            id SERIAL PRIMARY KEY,
+            "CHAVE" TEXT NOT NULL UNIQUE,
+            "IDEMPRESA" INTEGER,
+            "IDORCAMENTO" INTEGER,
+            "IDPRODUTO" TEXT,
+            "IDSUBPRODUTO" TEXT,
+            "NUMSEQUENCIA" INTEGER,
+            "QTDPRODUTO" DOUBLE PRECISION,
+            "UNIDADE" TEXT,
+            "FABRICANTE" TEXT,
+            "VALUNITBRUTO" DOUBLE PRECISION,
+            "VALTOTLIQUIDO" DOUBLE PRECISION,
+            "DESCRRESPRODUTO" TEXT,
+            "IDVENDEDOR" TEXT,
+            "IDLOCALRETIRADA" INTEGER,
+            "IDSECAO" INTEGER,
+            "DESCRSECAO" TEXT,
+            "TIPOENTREGA" TEXT,
+            "NOMEVENDEDOR" TEXT,
+            "TIPOENTREGA_DESCR" TEXT,
+            "LOCALRETESTOQUE" TEXT,
+            "FLAGCANCELADO" TEXT,
+            "IDCLIFOR" TEXT,
+            "DESCLIENTE" TEXT,
+            "DTMOVIMENTO" TEXT,
+            "IDRECEBIMENTO" TEXT,
+            "DESCRRECEBIMENTO" TEXT,
+            "FLAGPRENOTAPAGA" TEXT,
+            sync_at TEXT,
+            "CODBARRAS" TEXT,
+            "CODBARRAS_CAIXA" TEXT,
+            "OBSERVACAO" TEXT,
+            "OBSERVACAO2" TEXT,
+            "DESCRCIDADE" TEXT,
+            "UF" TEXT,
+            "IDCEP" TEXT,
+            "ENDERECO" TEXT,
+            "BAIRRO" TEXT,
+            "CNPJCPF" TEXT,
+            "NUMERO" TEXT
+        )
+    """),
+    ("products", """
+        CREATE TABLE IF NOT EXISTS products (
+            id TEXT PRIMARY KEY,
+            erp_code TEXT NOT NULL UNIQUE,
+            barcode TEXT,
+            box_barcode TEXT,
+            box_barcodes JSONB,
+            name TEXT NOT NULL,
+            section TEXT NOT NULL,
+            pickup_point INTEGER NOT NULL,
+            unit TEXT NOT NULL DEFAULT 'UN',
+            manufacturer TEXT,
+            price DOUBLE PRECISION NOT NULL DEFAULT 0,
+            stock_qty DOUBLE PRECISION NOT NULL DEFAULT 0,
+            erp_updated_at TEXT
+        )
+    """),
+    ("orders", """
+        CREATE TABLE IF NOT EXISTS orders (
+            id TEXT PRIMARY KEY,
+            erp_order_id TEXT NOT NULL UNIQUE,
+            customer_name TEXT NOT NULL,
+            customer_code TEXT,
+            total_value DOUBLE PRECISION NOT NULL DEFAULT 0,
+            observation TEXT,
+            observation2 TEXT,
+            city TEXT,
+            state TEXT,
+            zip_code TEXT,
+            address TEXT,
+            neighborhood TEXT,
+            cnpj_cpf TEXT,
+            address_number TEXT,
+            status TEXT NOT NULL DEFAULT 'pendente',
+            priority INTEGER NOT NULL DEFAULT 0,
+            is_launched BOOLEAN NOT NULL DEFAULT FALSE,
+            launched_at TEXT,
+            separated_at TEXT,
+            load_code TEXT,
+            route_id TEXT REFERENCES routes(id),
+            separation_code TEXT,
+            pickup_points JSONB,
+            erp_updated_at TEXT,
+            financial_status TEXT NOT NULL DEFAULT 'pendente',
+            company_id INTEGER,
+            created_at TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT ''
+        )
+    """),
+    ("order_items", """
+        CREATE TABLE IF NOT EXISTS order_items (
+            id TEXT PRIMARY KEY,
+            order_id TEXT NOT NULL REFERENCES orders(id),
+            product_id TEXT NOT NULL REFERENCES products(id),
+            quantity DOUBLE PRECISION NOT NULL,
+            separated_qty DOUBLE PRECISION NOT NULL DEFAULT 0,
+            checked_qty DOUBLE PRECISION NOT NULL DEFAULT 0,
+            section TEXT NOT NULL,
+            pickup_point INTEGER NOT NULL,
+            qty_picked DOUBLE PRECISION DEFAULT 0,
+            qty_checked DOUBLE PRECISION DEFAULT 0,
+            status TEXT DEFAULT 'pendente',
+            exception_type TEXT
+        )
+    """),
+    ("picking_sessions", """
+        CREATE TABLE IF NOT EXISTS picking_sessions (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id),
+            order_id TEXT NOT NULL REFERENCES orders(id),
+            section_id TEXT NOT NULL,
+            last_heartbeat TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT ''
+        )
+    """),
+    ("work_units", """
+        CREATE TABLE IF NOT EXISTS work_units (
+            id TEXT PRIMARY KEY,
+            order_id TEXT NOT NULL REFERENCES orders(id),
+            pickup_point INTEGER NOT NULL,
+            section TEXT,
+            type TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pendente',
+            locked_by TEXT REFERENCES users(id),
+            locked_at TEXT,
+            lock_expires_at TEXT,
+            cart_qr_code TEXT,
+            pallet_qr_code TEXT,
+            started_at TEXT,
+            completed_at TEXT,
+            company_id INTEGER,
+            created_at TEXT NOT NULL DEFAULT ''
+        )
+    """),
+    ("exceptions", """
+        CREATE TABLE IF NOT EXISTS exceptions (
+            id TEXT PRIMARY KEY,
+            work_unit_id TEXT REFERENCES work_units(id),
+            order_item_id TEXT NOT NULL REFERENCES order_items(id),
+            type TEXT NOT NULL,
+            quantity DOUBLE PRECISION NOT NULL,
+            observation TEXT,
+            reported_by TEXT NOT NULL REFERENCES users(id),
+            authorized_by TEXT REFERENCES users(id),
+            authorized_by_name TEXT,
+            authorized_at TEXT,
+            created_at TEXT NOT NULL DEFAULT ''
+        )
+    """),
+    ("audit_logs", """
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id TEXT PRIMARY KEY,
+            user_id TEXT REFERENCES users(id),
+            action TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            entity_id TEXT,
+            details TEXT,
+            previous_value TEXT,
+            new_value TEXT,
+            ip_address TEXT,
+            user_agent TEXT,
+            company_id INTEGER,
+            created_at TEXT NOT NULL DEFAULT ''
+        )
+    """),
+    ("order_volumes", """
+        CREATE TABLE IF NOT EXISTS order_volumes (
+            id TEXT PRIMARY KEY,
+            order_id TEXT NOT NULL REFERENCES orders(id),
+            erp_order_id TEXT NOT NULL,
+            sacola INTEGER NOT NULL DEFAULT 0,
+            caixa INTEGER NOT NULL DEFAULT 0,
+            saco INTEGER NOT NULL DEFAULT 0,
+            avulso INTEGER NOT NULL DEFAULT 0,
+            total_volumes INTEGER NOT NULL DEFAULT 0,
+            created_by TEXT REFERENCES users(id),
+            created_at TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT ''
+        )
+    """),
+    ("sessions", """
+        CREATE TABLE IF NOT EXISTS sessions (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL REFERENCES users(id),
+            token TEXT NOT NULL,
+            session_key TEXT NOT NULL,
+            company_id INTEGER,
+            expires_at TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT ''
+        )
+    """),
+    ("manual_qty_rules", """
+        CREATE TABLE IF NOT EXISTS manual_qty_rules (
+            id TEXT PRIMARY KEY,
+            rule_type TEXT NOT NULL,
+            value TEXT NOT NULL,
+            description TEXT,
+            active BOOLEAN NOT NULL DEFAULT TRUE,
+            created_by TEXT REFERENCES users(id),
+            created_at TEXT NOT NULL DEFAULT ''
+        )
+    """),
+    ("db2_mappings", """
+        CREATE TABLE IF NOT EXISTS db2_mappings (
+            id TEXT PRIMARY KEY,
+            dataset TEXT NOT NULL,
+            version INTEGER NOT NULL DEFAULT 1,
+            is_active BOOLEAN NOT NULL DEFAULT FALSE,
+            mapping_json JSONB NOT NULL,
+            description TEXT,
+            created_by TEXT REFERENCES users(id),
+            created_at TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT '',
+            extra JSONB
+        )
+    """),
+    ("product_company_stock", """
+        CREATE TABLE IF NOT EXISTS product_company_stock (
+            id TEXT PRIMARY KEY,
+            product_id TEXT NOT NULL REFERENCES products(id),
+            company_id INTEGER NOT NULL,
+            stock_qty DOUBLE PRECISION NOT NULL DEFAULT 0,
+            erp_updated_at TEXT,
+            palletized_stock DOUBLE PRECISION,
+            picking_stock DOUBLE PRECISION,
+            unit TEXT
+        )
+    """),
+    ("wms_addresses", """
+        CREATE TABLE IF NOT EXISTS wms_addresses (
+            id TEXT PRIMARY KEY,
+            company_id INTEGER NOT NULL,
+            bairro TEXT NOT NULL,
+            rua TEXT NOT NULL,
+            bloco TEXT NOT NULL,
+            nivel TEXT NOT NULL,
+            code TEXT NOT NULL,
+            type TEXT NOT NULL DEFAULT 'standard',
+            active BOOLEAN NOT NULL DEFAULT TRUE,
+            created_by TEXT REFERENCES users(id),
+            created_at TEXT NOT NULL DEFAULT '',
+            capacity TEXT,
+            description TEXT
+        )
+    """),
+    ("pallets", """
+        CREATE TABLE IF NOT EXISTS pallets (
+            id TEXT PRIMARY KEY,
+            company_id INTEGER NOT NULL,
+            code TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'sem_endereco',
+            address_id TEXT REFERENCES wms_addresses(id),
+            created_by TEXT REFERENCES users(id),
+            created_at TEXT NOT NULL DEFAULT '',
+            allocated_at TEXT,
+            cancelled_at TEXT,
+            cancelled_by TEXT REFERENCES users(id),
+            cancel_reason TEXT,
+            notes TEXT,
+            work_unit_id TEXT,
+            nf_id TEXT
+        )
+    """),
+    ("pallet_items", """
+        CREATE TABLE IF NOT EXISTS pallet_items (
+            id TEXT PRIMARY KEY,
+            pallet_id TEXT NOT NULL REFERENCES pallets(id),
+            product_id TEXT NOT NULL REFERENCES products(id),
+            erp_nf_id TEXT,
+            quantity DOUBLE PRECISION NOT NULL,
+            lot TEXT,
+            expiry_date TEXT,
+            fefo_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+            company_id INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT '',
+            unit TEXT,
+            nf_item_id TEXT,
+            nf_id TEXT
+        )
+    """),
+    ("pallet_movements", """
+        CREATE TABLE IF NOT EXISTS pallet_movements (
+            id TEXT PRIMARY KEY,
+            pallet_id TEXT NOT NULL REFERENCES pallets(id),
+            company_id INTEGER NOT NULL,
+            movement_type TEXT NOT NULL,
+            from_address_id TEXT REFERENCES wms_addresses(id),
+            to_address_id TEXT REFERENCES wms_addresses(id),
+            from_pallet_id TEXT,
+            user_id TEXT REFERENCES users(id),
+            notes TEXT,
+            created_at TEXT NOT NULL DEFAULT ''
+        )
+    """),
+    ("nf_cache", """
+        CREATE TABLE IF NOT EXISTS nf_cache (
+            id TEXT PRIMARY KEY,
+            company_id INTEGER NOT NULL,
+            nf_number TEXT NOT NULL,
+            nf_series TEXT,
+            supplier_name TEXT,
+            supplier_cnpj TEXT,
+            issue_date TEXT,
+            total_value DOUBLE PRECISION,
+            status TEXT NOT NULL DEFAULT 'pendente',
+            synced_at TEXT,
+            received_by TEXT,
+            received_at TEXT,
+            notes TEXT
+        )
+    """),
+    ("nf_items", """
+        CREATE TABLE IF NOT EXISTS nf_items (
+            id TEXT PRIMARY KEY,
+            nf_id TEXT NOT NULL REFERENCES nf_cache(id),
+            product_id TEXT,
+            erp_code TEXT,
+            product_name TEXT,
+            quantity DOUBLE PRECISION NOT NULL,
+            unit TEXT,
+            lot TEXT,
+            expiry_date TEXT,
+            company_id INTEGER NOT NULL,
+            unit_cost DOUBLE PRECISION,
+            total_cost DOUBLE PRECISION,
+            barcode TEXT
+        )
+    """),
+    ("system_settings", """
+        CREATE TABLE IF NOT EXISTS system_settings (
+            id TEXT PRIMARY KEY DEFAULT 'global',
+            separation_mode TEXT NOT NULL DEFAULT 'by_order',
+            updated_at TEXT NOT NULL DEFAULT '',
+            updated_by TEXT
+        )
+    """),
+    ("counting_cycles", """
+        CREATE TABLE IF NOT EXISTS counting_cycles (
+            id TEXT PRIMARY KEY,
+            company_id INTEGER NOT NULL,
+            type TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pendente',
+            created_by TEXT REFERENCES users(id),
+            approved_by TEXT REFERENCES users(id),
+            approved_at TEXT,
+            notes TEXT,
+            created_at TEXT NOT NULL DEFAULT '',
+            completed_at TEXT,
+            name TEXT
+        )
+    """),
+    ("counting_cycle_items", """
+        CREATE TABLE IF NOT EXISTS counting_cycle_items (
+            id TEXT PRIMARY KEY,
+            cycle_id TEXT NOT NULL REFERENCES counting_cycles(id),
+            company_id INTEGER NOT NULL,
+            address_id TEXT REFERENCES wms_addresses(id),
+            product_id TEXT REFERENCES products(id),
+            pallet_id TEXT REFERENCES pallets(id),
+            expected_qty DOUBLE PRECISION,
+            counted_qty DOUBLE PRECISION,
+            lot TEXT,
+            expiry_date TEXT,
+            old_lot TEXT,
+            old_expiry_date TEXT,
+            status TEXT NOT NULL DEFAULT 'pendente',
+            counted_by TEXT REFERENCES users(id),
+            counted_at TEXT,
+            divergence_pct DOUBLE PRECISION,
+            created_at TEXT NOT NULL DEFAULT '',
+            notes TEXT
+        )
+    """),
+    ("product_addresses", """
+        CREATE TABLE IF NOT EXISTS product_addresses (
+            id TEXT PRIMARY KEY,
+            product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+            company_id INTEGER NOT NULL,
+            address_id TEXT NOT NULL REFERENCES wms_addresses(id) ON DELETE CASCADE,
+            created_at TEXT NOT NULL DEFAULT ''
+        )
+    """),
+    ("address_picking_log", """
+        CREATE TABLE IF NOT EXISTS address_picking_log (
+            id TEXT PRIMARY KEY,
+            company_id INTEGER NOT NULL,
+            address_id TEXT NOT NULL REFERENCES wms_addresses(id),
+            address_code TEXT NOT NULL,
+            product_id TEXT NOT NULL REFERENCES products(id),
+            product_name TEXT,
+            erp_code TEXT,
+            quantity INTEGER NOT NULL,
+            order_id TEXT,
+            erp_order_id TEXT,
+            work_unit_id TEXT,
+            user_id TEXT NOT NULL,
+            user_name TEXT,
+            created_at TEXT NOT NULL DEFAULT '',
+            notes TEXT
+        )
+    """),
+    ("print_agents", """
+        CREATE TABLE IF NOT EXISTS print_agents (
+            id TEXT PRIMARY KEY,
+            company_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            machine_id TEXT NOT NULL DEFAULT '',
+            token_hash TEXT NOT NULL,
+            active BOOLEAN NOT NULL DEFAULT TRUE,
+            created_at TEXT NOT NULL DEFAULT '',
+            last_seen_at TEXT,
+            printers TEXT
+        )
+    """),
+    ("product_barcodes", """
+        CREATE TABLE IF NOT EXISTS product_barcodes (
+            id TEXT PRIMARY KEY,
+            company_id INTEGER,
+            product_id TEXT NOT NULL,
+            barcode TEXT NOT NULL,
+            type TEXT NOT NULL,
+            packaging_qty INTEGER NOT NULL DEFAULT 1,
+            packaging_type TEXT,
+            active BOOLEAN NOT NULL DEFAULT TRUE,
+            is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+            notes TEXT,
+            created_at TEXT NOT NULL DEFAULT '',
+            created_by TEXT,
+            updated_at TEXT,
+            updated_by TEXT,
+            deactivated_at TEXT,
+            deactivated_by TEXT
+        )
+    """),
+    ("barcode_change_history", """
+        CREATE TABLE IF NOT EXISTS barcode_change_history (
+            id SERIAL PRIMARY KEY,
+            barcode_id TEXT,
+            product_id TEXT NOT NULL,
+            operation TEXT NOT NULL,
+            old_barcode TEXT,
+            new_barcode TEXT,
+            barcode_type TEXT,
+            old_qty INTEGER,
+            new_qty INTEGER,
+            user_id TEXT,
+            user_name TEXT,
+            notes TEXT,
+            created_at TEXT NOT NULL DEFAULT ''
+        )
+    """),
+]
+
+_EXTRA_COLUMNS = [
+    ("users", "badge_code", "TEXT"),
+    ("users", "default_company_id", "INTEGER"),
+    ("users", "allowed_companies", "JSONB DEFAULT '[1,3]'"),
+    ("users", "allowed_modules", "JSONB"),
+    ("users", "allowed_reports", "JSONB"),
+    ("orders", "observation2", "TEXT"),
+    ("orders", "city", "TEXT"),
+    ("orders", "state", "TEXT"),
+    ("orders", "zip_code", "TEXT"),
+    ("orders", "address", "TEXT"),
+    ("orders", "neighborhood", "TEXT"),
+    ("orders", "cnpj_cpf", "TEXT"),
+    ("orders", "address_number", "TEXT"),
+    ("orders", "financial_status", "TEXT NOT NULL DEFAULT 'pendente'"),
+    ("orders", "company_id", "INTEGER"),
+    ("orders", "separation_code", "TEXT"),
+    ("orders", "pickup_points", "JSONB"),
+    ("orders", "erp_updated_at", "TEXT"),
+    ("products", "box_barcodes", "JSONB"),
+    ("products", "manufacturer", "TEXT"),
+    ("work_units", "company_id", "INTEGER"),
+    ("work_units", "pallet_qr_code", "TEXT"),
+    ("pallets", "notes", "TEXT"),
+    ("pallets", "work_unit_id", "TEXT"),
+    ("pallets", "nf_id", "TEXT"),
+    ("pallet_items", "unit", "TEXT"),
+    ("pallet_items", "nf_item_id", "TEXT"),
+    ("pallet_items", "nf_id", "TEXT"),
+    ("nf_cache", "received_by", "TEXT"),
+    ("nf_cache", "received_at", "TEXT"),
+    ("nf_cache", "notes", "TEXT"),
+    ("nf_items", "unit_cost", "DOUBLE PRECISION"),
+    ("nf_items", "total_cost", "DOUBLE PRECISION"),
+    ("nf_items", "barcode", "TEXT"),
+    ("product_company_stock", "palletized_stock", "DOUBLE PRECISION"),
+    ("product_company_stock", "picking_stock", "DOUBLE PRECISION"),
+    ("product_company_stock", "unit", "TEXT"),
+    ("counting_cycles", "name", "TEXT"),
+    ("counting_cycle_items", "notes", "TEXT"),
+    ("counting_cycle_items", "old_lot", "TEXT"),
+    ("counting_cycle_items", "old_expiry_date", "TEXT"),
+    ("wms_addresses", "capacity", "TEXT"),
+    ("wms_addresses", "description", "TEXT"),
+    ("db2_mappings", "extra", "JSONB"),
+]
+
+_INDEXES_DDL = [
+    "CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)",
+    "CREATE INDEX IF NOT EXISTS idx_users_badge_code ON users(badge_code)",
+    "CREATE INDEX IF NOT EXISTS idx_products_barcode ON products(barcode)",
+    "CREATE INDEX IF NOT EXISTS idx_products_section ON products(section)",
+    "CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status)",
+    "CREATE INDEX IF NOT EXISTS idx_orders_company_status ON orders(company_id, status)",
+    "CREATE INDEX IF NOT EXISTS idx_orders_load_code ON orders(load_code)",
+    "CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id)",
+    "CREATE INDEX IF NOT EXISTS idx_order_items_product_id ON order_items(product_id)",
+    "CREATE INDEX IF NOT EXISTS idx_work_units_order_id ON work_units(order_id)",
+    "CREATE INDEX IF NOT EXISTS idx_work_units_company_status ON work_units(company_id, status)",
+    "CREATE INDEX IF NOT EXISTS idx_work_units_locked_by ON work_units(locked_by)",
+    "CREATE INDEX IF NOT EXISTS idx_pallets_company_status ON pallets(company_id, status)",
+    "CREATE INDEX IF NOT EXISTS idx_pallet_items_pallet ON pallet_items(pallet_id)",
+    "CREATE INDEX IF NOT EXISTS idx_nf_cache_company_nf ON nf_cache(company_id, nf_number)",
+    "CREATE INDEX IF NOT EXISTS idx_wms_addresses_company_code ON wms_addresses(company_id, code)",
+    "CREATE INDEX IF NOT EXISTS idx_counting_cycles_company_status ON counting_cycles(company_id, status)",
+    "CREATE INDEX IF NOT EXISTS idx_product_barcodes_barcode ON product_barcodes(barcode)",
+    "CREATE INDEX IF NOT EXISTS idx_product_barcodes_product ON product_barcodes(product_id)",
+    "CREATE INDEX IF NOT EXISTS idx_product_barcodes_active ON product_barcodes(active)",
+    "CREATE INDEX IF NOT EXISTS idx_product_barcodes_company ON product_barcodes(company_id)",
+    "CREATE INDEX IF NOT EXISTS idx_barcode_history_product ON barcode_change_history(product_id)",
+    "CREATE INDEX IF NOT EXISTS idx_barcode_history_barcode_id ON barcode_change_history(barcode_id)",
+    "CREATE INDEX IF NOT EXISTS idx_barcode_history_user ON barcode_change_history(user_id)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_product_company_stock_unique ON product_company_stock(product_id, company_id)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS product_addresses_unique_idx ON product_addresses(product_id, company_id, address_id)",
+    "CREATE INDEX IF NOT EXISTS idx_product_addresses_product_company ON product_addresses(product_id, company_id)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_product_barcodes_unique_active ON product_barcodes(barcode) WHERE active = true",
+]
+
+
+def ensure_schema():
+    """Cria todas as tabelas e colunas necessárias no PostgreSQL (idempotente)."""
+    log_section("Verificando schema do banco")
     try:
         conn = psycopg2.connect(DATABASE_PATH)
         conn.autocommit = True
         cursor = conn.cursor()
 
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS system_settings (
-                id TEXT PRIMARY KEY DEFAULT 'global',
-                separation_mode TEXT NOT NULL DEFAULT 'by_order',
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_by TEXT
-            )
+            SELECT table_name FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
         """)
+        existing_tables = set(r[0] for r in cursor.fetchall())
+        created = 0
+
+        for table_name, ddl in _TABLES_DDL:
+            if table_name not in existing_tables:
+                cursor.execute(ddl)
+                log(f"  Tabela criada: {table_name}", "ok")
+                created += 1
+
+        if created == 0:
+            log(f"  Todas as {len(_TABLES_DDL)} tabelas já existem", "detalhe")
+        else:
+            log(f"  {created} tabela(s) criada(s)", "ok")
+
+        added_cols = 0
+        for table_name, col_name, col_type in _EXTRA_COLUMNS:
+            cursor.execute("""
+                SELECT 1 FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = %s AND column_name = %s
+            """, (table_name, col_name))
+            if not cursor.fetchone():
+                try:
+                    cursor.execute(f'ALTER TABLE {table_name} ADD COLUMN {col_name} {col_type}')
+                    log(f"  Coluna adicionada: {table_name}.{col_name}", "ok")
+                    added_cols += 1
+                except Exception as col_err:
+                    log(f"  Aviso coluna {table_name}.{col_name}: {col_err}", "warn")
+
+        if added_cols > 0:
+            log(f"  {added_cols} coluna(s) adicionada(s)", "ok")
+        else:
+            log("  Todas as colunas verificadas — nada a adicionar", "detalhe")
+
+        for idx_sql in _INDEXES_DDL:
+            try:
+                cursor.execute(idx_sql)
+            except Exception:
+                pass
+
+        log("  Índices verificados", "detalhe")
 
         cursor.execute("SELECT id FROM system_settings WHERE id = 'global'")
         if not cursor.fetchone():
             cursor.execute(
                 "INSERT INTO system_settings (id, separation_mode) VALUES ('global', 'by_order')"
             )
-            log("system_settings — registro 'global' criado", "ok")
+            log("  system_settings — registro 'global' criado", "ok")
 
         conn.close()
+        log("Schema verificado com sucesso", "ok")
     except Exception as e:
-        log(f"Erro ao garantir system_settings: {e}", "erro")
+        log(f"Erro ao verificar schema: {e}", "erro")
+        import traceback
+        traceback.print_exc()
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1303,8 +1937,8 @@ Exemplos:
 
     log_banner("STOKER SYNC", f"modo={modo_str} · SO={platform.system()}")
 
-    # Garantir tabelas essenciais
-    ensurar_system_settings()
+    # Garantir tabelas e colunas essenciais
+    ensure_schema()
 
     # ── 1. Sync inicial ──
     sucesso = sincronizar(data_inicial=args.desde)
