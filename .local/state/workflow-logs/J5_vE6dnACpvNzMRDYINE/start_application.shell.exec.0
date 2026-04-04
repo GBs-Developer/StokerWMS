@@ -1,0 +1,20 @@
+
+> rest-express@1.0.0 dev
+> NODE_ENV=development tsx server/index.ts
+
+[1G[0KSeeding database...
+Checking for existing users...
+Existing users count: [33m14[39m
+Database already seeded
+12:36:42 AM [express] [Routes] Registering routes...
+12:36:42 AM [print] [agent] WebSocket server iniciado em /ws/print-agent
+12:36:42 AM [express] [scanning-ws] WebSocket scanning server iniciado em /ws/scanning
+12:36:42 AM [print] AVISO: não foi possível listar impressoras — Operating System not supported
+12:36:42 AM [express] Servidor iniciado na porta 5000
+12:36:47 AM [express] [Auto-Sync] Triggering DB sync...
+12:36:47 AM [print] AVISO: não foi possível listar impressoras — Operating System not supported
+[Barcodes] Created: product=dd7443ae-ba2b-4d0a-af60-68d6cdcc2122 barcode=7890001 type=UNITARIO qty=1 by=Gustavo
+[Barcodes] Created: product=dd7443ae-ba2b-4d0a-af60-68d6cdcc2122 barcode=7890002 type=EMBALAGEM qty=6 by=Gustavo
+[Barcodes] Updated: id=f67a94be-5fa0-4320-8666-353d268679b2 edited by=Gustavo
+
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.

@@ -1,0 +1,97 @@
+
+> rest-express@1.0.0 dev
+> NODE_ENV=development tsx server/index.ts
+
+[1G[0KSeeding database...
+Checking for existing users...
+Existing users count: [33m13[39m
+Database already seeded
+6:50:35 PM [express] [Routes] Registering routes...
+6:50:35 PM [print] [agent] WebSocket server iniciado em /ws/print-agent
+6:50:35 PM [express] [scanning-ws] WebSocket scanning server iniciado em /ws/scanning
+6:50:35 PM [print] AVISO: não foi possível listar impressoras — Operating System not supported
+6:50:37 PM [express] Servidor iniciado na porta 5000
+
+A PostCSS plugin did not pass the `from` option to `postcss.parse`. This may cause imported assets to be incorrectly transformed. If you've recently added a PostCSS plugin that raised this warning, please contact the package author to fix the issue.
+6:50:41 PM [express] [Auto-Sync] Triggering DB sync...
+6:50:41 PM [print] AVISO: não foi possível listar impressoras — Operating System not supported
+6:56:31 PM [express] [scanning-ws] Gustavo conectado
+7:00:18 PM [express] [scanning-ws] Gustavo desconectado
+7:00:32 PM [express] [scanning-ws] Gustavo conectado
+7:00:35 PM [express] [Auto-Sync] Triggering DB sync...
+7:00:35 PM [print] AVISO: não foi possível listar impressoras — Operating System not supported
+7:00:50 PM [express] [scanning-ws] Gustavo desconectado
+7:02:03 PM [express] [scanning-ws] Gustavo conectado
+7:02:17 PM [express] [scanning-ws] Gustavo desconectado
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m7:02:32 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/separacao/index.tsx, /src/index.css[22m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m7:02:38 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/conferencia/index.tsx, /src/index.css[22m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[1;1H[0J[2m7:02:51 PM[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/pages/balcao/index.tsx, /src/index.css[22m

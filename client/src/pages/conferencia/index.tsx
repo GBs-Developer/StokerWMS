@@ -31,7 +31,10 @@ import {
   X,
   SlidersHorizontal,
   ChevronDown,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
+import { beep, getSoundEnabled, setSoundEnabled as persistSoundEnabled } from "@/lib/audio-feedback";
 import { VolumeModal } from "@/components/conferencia/VolumeModal";
 import { ScanQuantityModal } from "@/components/ui/scan-quantity-modal";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -113,6 +116,7 @@ export default function ConferenciaPage() {
 
   const [scanStatus, setScanStatus] = useState<"idle" | "success" | "error" | "warning">("idle");
   const [scanMessage, setScanMessage] = useState("");
+  const [soundOn, setSoundOn] = useState(getSoundEnabled);
   const [showResultDialog, setShowResultDialog] = useState(false);
   const [resultDialogConfig, setResultDialogConfig] = useState({
     type: "success" as "success" | "error" | "warning",
@@ -424,6 +428,7 @@ export default function ConferenciaPage() {
       queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
     },
     onError: (error: Error) => {
+      beep("error");
       toast({ title: "Erro", description: error.message || "Falha ao bloquear unidades", variant: "destructive" });
     },
   });
@@ -481,6 +486,7 @@ export default function ConferenciaPage() {
       setExceptionItem(null);
     },
     onError: (error: Error) => {
+      beep("error");
       let message = "Falha ao registrar problema";
       try {
         const errorData = JSON.parse(error.message);
@@ -519,6 +525,7 @@ export default function ConferenciaPage() {
       toast({ title: "Exceções Limpas", description: "As exceções foram removidas com sucesso" });
     },
     onError: () => {
+      beep("error");
       toast({ title: "Erro", description: "Falha ao limpar exceções", variant: "destructive" });
     },
   });
