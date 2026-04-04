@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
   ArrowLeft, Barcode, Check, Loader2, Package, ScanLine, Zap,
-  Volume2, VolumeX, Trash2,
+  Volume2, VolumeX, Trash2, RotateCcw, ShieldCheck, AlertTriangle,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { cn } from "@/lib/utils";
@@ -25,14 +25,51 @@ interface FeedEntry {
   productName: string;
   erpCode: string;
   qty: number;
-  timestamp: Date;
-  status: "saving" | "saved" | "error";
+  timestamp: string;
+  status: "saving" | "saved" | "error" | "pending";
   errorMsg?: string;
 }
 
-const QUICK_QTY = [2, 3, 4, 6, 8, 10, 12, 15, 20, 24, 30, 36, 48, 50, 100];
+interface SessionState {
+  feed: FeedEntry[];
+  phase: "idle" | "waitPkg";
+  currentUnit: string;
+  currentProduct: ProductInfo | null;
+  presetQty: number;
+  soundOn: boolean;
+  sessionCount: number;
+  savedAt: number;
+}
 
+const STORAGE_KEY = "stoker_vinculo_rapido_session";
+const QUICK_QTY = [2, 3, 4, 6, 8, 10, 12, 15, 20, 24, 30, 36, 48, 50, 100];
 const SCANNER_CHAR_TIMEOUT = 80;
+
+function saveSession(state: SessionState) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...state, savedAt: Date.now() }));
+  } catch {}
+}
+
+function loadSession(): SessionState | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as SessionState;
+    const age = Date.now() - (parsed.savedAt || 0);
+    if (age > 24 * 60 * 60 * 1000) {
+      localStorage.removeItem(STORAGE_KEY);
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function clearSession() {
+  try { localStorage.removeItem(STORAGE_KEY); } catch {}
+}
 
 let sharedAudioCtx: AudioContext | null = null;
 function getAudioCtx(): AudioContext {
@@ -88,27 +125,43 @@ export default function CodigosBarrasPage() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
 
+  const restored = useRef<SessionState | null>(null);
+  if (!restored.current) {
+    restored.current = loadSession();
+  }
+  const initial = restored.current;
+
   const [scanBuffer, setScanBuffer] = useState("");
-  const [presetQty, setPresetQty] = useState(12);
+  const [presetQty, setPresetQty] = useState(initial?.presetQty ?? 12);
   const [customQty, setCustomQty] = useState("");
   const [showQtyPicker, setShowQtyPicker] = useState(false);
 
-  const [phase, setPhase] = useState<"idle" | "waitPkg">("idle");
-  const [currentUnit, setCurrentUnit] = useState("");
-  const [currentProduct, setCurrentProduct] = useState<ProductInfo | null>(null);
+  const [phase, setPhase] = useState<"idle" | "waitPkg">(initial?.phase ?? "idle");
+  const [currentUnit, setCurrentUnit] = useState(initial?.currentUnit ?? "");
+  const [currentProduct, setCurrentProduct] = useState<ProductInfo | null>(initial?.currentProduct ?? null);
 
-  const [feed, setFeed] = useState<FeedEntry[]>([]);
+  const initialFeed = (initial?.feed ?? []).map(e => ({
+    ...e,
+    status: (e.status === "saving" ? "pending" : e.status) as FeedEntry["status"],
+  }));
+  const [feed, setFeed] = useState<FeedEntry[]>(initialFeed);
   const [flash, setFlash] = useState<"success" | "error" | null>(null);
-  const [soundOn, setSoundOn] = useState(true);
-  const [sessionCount, setSessionCount] = useState(0);
+  const [soundOn, setSoundOn] = useState(initial?.soundOn ?? true);
+  const [sessionCount, setSessionCount] = useState(initial?.sessionCount ?? 0);
   const [processing, setProcessing] = useState(false);
+  const [showRecoveryBanner, setShowRecoveryBanner] = useState(
+    initial !== null && initial.feed.length > 0
+  );
+  const [retrying, setRetrying] = useState(false);
 
   const processingRef = useRef(false);
-  const phaseRef = useRef<"idle" | "waitPkg">("idle");
-  const currentUnitRef = useRef("");
-  const currentProductRef = useRef<ProductInfo | null>(null);
-  const presetQtyRef = useRef(12);
-  const soundOnRef = useRef(true);
+  const phaseRef = useRef<"idle" | "waitPkg">(phase);
+  const currentUnitRef = useRef(currentUnit);
+  const currentProductRef = useRef<ProductInfo | null>(currentProduct);
+  const presetQtyRef = useRef(presetQty);
+  const soundOnRef = useRef(soundOn);
+  const feedRef = useRef(feed);
+  const sessionCountRef = useRef(sessionCount);
 
   const scanBufferRef = useRef("");
   const bufferTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -119,6 +172,40 @@ export default function CodigosBarrasPage() {
   useEffect(() => { currentProductRef.current = currentProduct; }, [currentProduct]);
   useEffect(() => { presetQtyRef.current = presetQty; }, [presetQty]);
   useEffect(() => { soundOnRef.current = soundOn; }, [soundOn]);
+  useEffect(() => { feedRef.current = feed; }, [feed]);
+  useEffect(() => { sessionCountRef.current = sessionCount; }, [sessionCount]);
+
+  useEffect(() => {
+    const persist = () => {
+      saveSession({
+        feed: feedRef.current,
+        phase: phaseRef.current,
+        currentUnit: currentUnitRef.current,
+        currentProduct: currentProductRef.current,
+        presetQty: presetQtyRef.current,
+        soundOn: soundOnRef.current,
+        sessionCount: sessionCountRef.current,
+        savedAt: Date.now(),
+      });
+    };
+
+    const saveInterval = setInterval(persist, 2000);
+
+    const handleBeforeUnload = () => persist();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") persist();
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      clearInterval(saveInterval);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      persist();
+    };
+  }, []);
 
   useEffect(() => {
     if (flash) {
@@ -147,7 +234,7 @@ export default function CodigosBarrasPage() {
       productName: product.name,
       erpCode: product.erpCode,
       qty,
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
       status: "saving",
     };
 
@@ -172,6 +259,40 @@ export default function CodigosBarrasPage() {
       toast({ variant: "destructive", title: "Erro ao salvar", description: err.message || "Falha ao vincular" });
     }
   }, [doQuickLink, toast]);
+
+  const retryPending = useCallback(async () => {
+    const pendingEntries = feedRef.current.filter(e => e.status === "pending" || e.status === "error");
+    if (pendingEntries.length === 0) return;
+
+    setRetrying(true);
+    let successCount = 0;
+
+    for (const entry of pendingEntries) {
+      setFeed(prev => prev.map(e => e.id === entry.id ? { ...e, status: "saving" as const, errorMsg: undefined } : e));
+
+      try {
+        await doQuickLink({
+          productBarcode: entry.unitBarcode,
+          packageBarcode: entry.packageBarcode,
+          packagingQty: entry.qty,
+        });
+
+        setFeed(prev => prev.map(e => e.id === entry.id ? { ...e, status: "saved" as const } : e));
+        successCount++;
+      } catch (err: any) {
+        setFeed(prev => prev.map(e => e.id === entry.id ? { ...e, status: "error" as const, errorMsg: err.message || "Erro" } : e));
+      }
+    }
+
+    if (successCount > 0) {
+      setSessionCount(c => c + successCount);
+      if (soundOnRef.current) playBeep("success");
+      queryClient.invalidateQueries({ queryKey: ["/api/barcodes"] });
+    }
+
+    setRetrying(false);
+    setShowRecoveryBanner(false);
+  }, [doQuickLink]);
 
   const processScan = useCallback(async (code: string) => {
     if (!code || processingRef.current) return;
@@ -313,6 +434,23 @@ export default function CodigosBarrasPage() {
     setScanBuffer("");
   };
 
+  const clearAll = () => {
+    setFeed([]);
+    setSessionCount(0);
+    setPhase("idle");
+    setCurrentUnit("");
+    setCurrentProduct(null);
+    setShowRecoveryBanner(false);
+    clearSession();
+  };
+
+  const dismissRecovery = () => {
+    setFeed(prev => prev.filter(e => e.status !== "pending"));
+    setShowRecoveryBanner(false);
+  };
+
+  const pendingCount = feed.filter(e => e.status === "pending" || e.status === "error").length;
+
   const borderColor = flash === "success" ? "border-green-500" : flash === "error" ? "border-red-500" : "border-border/50";
 
   return (
@@ -352,6 +490,50 @@ export default function CodigosBarrasPage() {
       </GradientHeader>
 
       <div className="max-w-lg mx-auto px-4 py-3 space-y-3 safe-bottom">
+
+        {showRecoveryBanner && pendingCount > 0 && (
+          <div className="rounded-2xl border-2 border-amber-500/50 bg-amber-500/10 p-4 space-y-3 animate-in fade-in slide-in-from-top-2 duration-300" data-testid="recovery-banner">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center shrink-0">
+                <AlertTriangle className="h-5 w-5 text-amber-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-sm text-amber-400">Sessão recuperada</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {pendingCount} vínculo{pendingCount !== 1 ? "s" : ""} pendente{pendingCount !== 1 ? "s" : ""} da sessão anterior.
+                  {feed.filter(e => e.status === "saved").length > 0 && (
+                    <span> {feed.filter(e => e.status === "saved").length} já salvo{feed.filter(e => e.status === "saved").length !== 1 ? "s" : ""}.</span>
+                  )}
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                className="flex-1 h-9 rounded-xl font-semibold text-xs"
+                onClick={retryPending}
+                disabled={retrying}
+                data-testid="button-retry-pending"
+              >
+                {retrying ? (
+                  <><Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />Reenviando...</>
+                ) : (
+                  <><RotateCcw className="h-3.5 w-3.5 mr-1.5" />Reenviar {pendingCount} pendente{pendingCount !== 1 ? "s" : ""}</>
+                )}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 rounded-xl text-xs"
+                onClick={dismissRecovery}
+                disabled={retrying}
+                data-testid="button-dismiss-recovery"
+              >
+                Descartar
+              </Button>
+            </div>
+          </div>
+        )}
 
         <div className="flex items-center gap-2">
           <span className="text-xs text-muted-foreground whitespace-nowrap">Qtd/emb:</span>
@@ -482,10 +664,10 @@ export default function CodigosBarrasPage() {
               variant="ghost"
               size="sm"
               className="h-6 px-2 text-[10px] text-muted-foreground hover:text-destructive"
-              onClick={() => setFeed([])}
+              onClick={clearAll}
               data-testid="button-clear-feed"
             >
-              Limpar
+              Limpar tudo
             </Button>
           )}
         </div>
@@ -501,6 +683,7 @@ export default function CodigosBarrasPage() {
                   entry.status === "saving" && "border-blue-400/30 bg-blue-500/5",
                   entry.status === "saved" && "border-green-500/30 bg-green-500/5",
                   entry.status === "error" && "border-red-500/30 bg-red-500/5",
+                  entry.status === "pending" && "border-amber-400/30 bg-amber-500/5",
                 )}
                 data-testid={`feed-entry-${entry.id}`}
               >
@@ -509,7 +692,8 @@ export default function CodigosBarrasPage() {
                     <div className="flex items-center gap-2">
                       {entry.status === "saving" && <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-400 shrink-0" />}
                       {entry.status === "saved" && <Check className="h-3.5 w-3.5 text-green-400 shrink-0" />}
-                      {entry.status === "error" && <span className="h-3.5 w-3.5 text-red-400 text-xs shrink-0">✗</span>}
+                      {entry.status === "error" && <AlertTriangle className="h-3.5 w-3.5 text-red-400 shrink-0" />}
+                      {entry.status === "pending" && <RotateCcw className="h-3.5 w-3.5 text-amber-400 shrink-0" />}
                       <span className="text-sm font-medium truncate">{entry.erpCode} — {entry.productName}</span>
                     </div>
                     <div className="flex items-center gap-1.5 pl-5">
@@ -522,10 +706,13 @@ export default function CodigosBarrasPage() {
                     {entry.status === "error" && entry.errorMsg && (
                       <p className="text-[10px] text-red-400 pl-5">{entry.errorMsg}</p>
                     )}
+                    {entry.status === "pending" && (
+                      <p className="text-[10px] text-amber-400 pl-5">Pendente — não foi enviado ao servidor</p>
+                    )}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
                     <span className="text-[10px] text-muted-foreground">
-                      {entry.timestamp.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                      {new Date(entry.timestamp).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
                     </span>
                     <Button
                       variant="ghost"
@@ -553,8 +740,9 @@ export default function CodigosBarrasPage() {
               <p>3. Escaneie o código da <span className="text-amber-400">embalagem</span></p>
               <p>4. Salva automaticamente e passa pro próximo</p>
             </div>
-            <div className="mt-3 pt-3 border-t border-border/20">
-              <p className="text-[10px] text-muted-foreground/40">O scanner funciona sem precisar clicar em nenhum campo</p>
+            <div className="mt-3 pt-3 border-t border-border/20 flex items-center justify-center gap-2">
+              <ShieldCheck className="h-3.5 w-3.5 text-green-400/60" />
+              <p className="text-[10px] text-muted-foreground/40">Sessão protegida — dados recuperados se a página fechar</p>
             </div>
           </div>
         )}
