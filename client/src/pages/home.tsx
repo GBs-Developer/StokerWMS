@@ -7,7 +7,7 @@ import {
   Warehouse, PackagePlus, ArrowRightLeft, MapPin, BarChart3,
   Truck, AlertTriangle, FileText, Users, Settings, ShieldCheck,
   Printer, Cog, BoxesIcon, ScrollText, Search, Trash2, TrendingUp, Barcode,
-  ChevronDown, ChevronRight, PanelLeftClose, PanelLeftOpen,
+  PanelLeftClose, PanelLeftOpen,
   Menu, X, Sun, Moon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -171,108 +171,129 @@ export default function HomePage() {
     setMobileOpen(false);
   }
 
-  const SidebarContent = ({ isMobile = false }: { isMobile?: boolean }) => (
-    <>
-      {/* User info */}
-      <div className={cn(
-        "border-b border-sidebar-border shrink-0",
-        sidebarCollapsed && !isMobile ? "px-2 py-3 flex flex-col items-center gap-2" : "px-4 py-3"
-      )}>
+  const SidebarContent = ({ isMobile = false }: { isMobile?: boolean }) => {
+    const collapsed = sidebarCollapsed && !isMobile;
+
+    return (
+      <>
         <div className={cn(
-          "flex items-center",
-          sidebarCollapsed && !isMobile ? "justify-center" : "gap-3"
+          "border-b border-sidebar-border shrink-0",
+          collapsed ? "px-2 py-3" : "px-4 py-3"
         )}>
-          <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center text-[11px] font-bold text-primary shrink-0 select-none">
-            {initials}
-          </div>
-          {(!sidebarCollapsed || isMobile) && (
-            <div className="flex-1 min-w-0">
-              <p className="text-[13px] font-semibold text-sidebar-foreground truncate leading-tight">{userName}</p>
-              {companyName && <p className="text-[10px] text-sidebar-foreground/40 truncate">{companyName}</p>}
+          <div className={cn(
+            "flex items-center",
+            collapsed ? "justify-center" : "gap-3"
+          )}>
+            <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center text-[11px] font-bold text-primary shrink-0 select-none">
+              {initials}
             </div>
-          )}
-          {(!sidebarCollapsed || isMobile) && (
+            {!collapsed && (
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] font-semibold text-sidebar-foreground truncate leading-tight">{userName}</p>
+                {companyName && <p className="text-[10px] text-sidebar-foreground/40 truncate">{companyName}</p>}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <nav className="flex-1 overflow-y-auto py-2 space-y-0.5">
+          {visibleGroups.map(group => {
+            const GIcon = group.icon;
+            const isActive = activeGroup === group.id;
+
+            return (
+              <div key={group.id}>
+                <button
+                  onClick={() => handleGroupClick(group.id)}
+                  className={cn(
+                    "w-full flex items-center rounded-xl transition-colors",
+                    collapsed ? "justify-center h-10 w-10 mx-auto" : "gap-3 px-3 py-2.5 mx-2",
+                    isActive
+                      ? "bg-sidebar-primary text-sidebar-primary-foreground"
+                      : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-black/5 dark:hover:bg-white/5"
+                  )}
+                  title={collapsed ? group.label : undefined}
+                  data-testid={`nav-group-${group.id}`}
+                >
+                  <GIcon className={cn("h-[18px] w-[18px] shrink-0", isActive ? "text-sidebar-primary-foreground" : group.accentColor)} />
+                  {!collapsed && (
+                    <>
+                      <span className="flex-1 text-left text-[13px] font-medium">{group.label}</span>
+                      <span className={cn("text-[10px] font-semibold tabular-nums px-1.5 py-0.5 rounded-md",
+                        isActive ? "bg-white/20 text-white" : "bg-black/5 dark:bg-white/5 text-sidebar-foreground/40"
+                      )}>
+                        {group.items.length}
+                      </span>
+                    </>
+                  )}
+                </button>
+              </div>
+            );
+          })}
+        </nav>
+
+        <div className={cn(
+          "border-t border-sidebar-border shrink-0",
+          collapsed ? "px-2 py-3 flex flex-col items-center gap-1" : "px-3 py-3 flex items-center gap-2"
+        )}>
+          <button
+            onClick={toggleTheme}
+            className={cn(
+              "flex items-center justify-center rounded-lg text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-black/5 dark:hover:bg-white/5 transition-colors",
+              collapsed ? "w-9 h-9" : "w-8 h-8"
+            )}
+            title={theme === "dark" ? "Tema claro" : "Tema escuro"}
+            data-testid="btn-theme-toggle"
+          >
+            {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          </button>
+
+          {!collapsed && (
             <button
-              onClick={logout}
-              className="p-1.5 rounded-lg text-sidebar-foreground/30 hover:text-red-400 hover:bg-black/5 dark:hover:bg-white/5 transition-colors shrink-0"
-              title="Sair"
-              data-testid="btn-logout-sidebar"
+              onClick={() => setSidebarCollapsed(true)}
+              className="flex items-center justify-center w-8 h-8 rounded-lg text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+              title="Recolher menu"
+              data-testid="btn-sidebar-collapse"
             >
-              <LogOut className="h-4 w-4" />
+              <PanelLeftClose className="h-4 w-4" />
             </button>
           )}
-        </div>
-      </div>
 
-      {/* Nav groups */}
-      <nav className="flex-1 overflow-y-auto py-2 space-y-0.5">
-        {visibleGroups.map(group => {
-          const GIcon = group.icon;
-          const isActive = activeGroup === group.id;
+          {collapsed && (
+            <button
+              onClick={() => setSidebarCollapsed(false)}
+              className="flex items-center justify-center w-9 h-9 rounded-lg text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+              title="Expandir menu"
+            >
+              <PanelLeftOpen className="h-4 w-4" />
+            </button>
+          )}
 
-          return (
-            <div key={group.id}>
-              <button
-                onClick={() => handleGroupClick(group.id)}
-                className={cn(
-                  "w-full flex items-center gap-3 px-3 py-2.5 mx-1 rounded-xl transition-colors",
-                  sidebarCollapsed && !isMobile ? "justify-center w-auto mx-1.5" : "mx-2",
-                  isActive
-                    ? "bg-sidebar-primary text-sidebar-primary-foreground"
-                    : "text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-black/5 dark:hover:bg-white/5"
-                )}
-                title={sidebarCollapsed && !isMobile ? group.label : undefined}
-                data-testid={`nav-group-${group.id}`}
-              >
-                <GIcon className={cn("h-4 w-4 shrink-0", isActive ? "text-sidebar-primary-foreground" : group.accentColor)} />
-                {(!sidebarCollapsed || isMobile) && (
-                  <>
-                    <span className="flex-1 text-left text-[13px] font-medium">{group.label}</span>
-                    <span className={cn("text-[10px] font-semibold tabular-nums px-1.5 py-0.5 rounded-md",
-                      isActive ? "bg-white/20 text-white" : "bg-black/5 dark:bg-white/5 text-sidebar-foreground/40"
-                    )}>
-                      {group.items.length}
-                    </span>
-                  </>
-                )}
-              </button>
-            </div>
-          );
-        })}
-      </nav>
+          {!collapsed && <div className="flex-1" />}
 
-      {/* Bottom actions */}
-      {(sidebarCollapsed && !isMobile) && (
-        <div className="border-t border-sidebar-border px-1.5 py-3 space-y-1">
-          <button
-            onClick={() => setSidebarCollapsed(false)}
-            className="flex items-center justify-center w-9 h-9 mx-auto rounded-lg text-sidebar-foreground/30 hover:text-sidebar-foreground hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-            title="Expandir menu"
-          >
-            <PanelLeftOpen className="h-4 w-4" />
-          </button>
           <button
             onClick={logout}
-            className="flex items-center justify-center w-9 h-9 mx-auto rounded-lg text-sidebar-foreground/30 hover:text-red-400 hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+            className={cn(
+              "flex items-center justify-center rounded-lg text-sidebar-foreground/40 hover:text-red-400 hover:bg-black/5 dark:hover:bg-white/5 transition-colors",
+              collapsed ? "w-9 h-9" : "w-8 h-8"
+            )}
             title="Sair"
-            data-testid="btn-logout-collapsed"
+            data-testid="button-logout"
           >
             <LogOut className="h-4 w-4" />
           </button>
         </div>
-      )}
-    </>
-  );
+      </>
+    );
+  };
 
   return (
     <div className="flex h-[100dvh] bg-background overflow-hidden">
 
-      {/* Desktop Sidebar */}
       <aside className={cn(
         "hidden lg:flex flex-col h-screen sticky top-0 bg-sidebar border-r border-sidebar-border shrink-0 transition-all duration-300 ease-in-out",
         sidebarCollapsed ? "w-[72px]" : "w-[260px]"
       )}>
-        {/* Logo + collapse */}
         <div className={cn(
           "flex items-center h-14 border-b border-sidebar-border shrink-0",
           sidebarCollapsed ? "justify-center px-3" : "px-4 justify-between"
@@ -288,21 +309,11 @@ export default function HomePage() {
               <span className="font-bold text-sidebar-foreground text-sm tracking-tight">Stoker</span>
             )}
           </div>
-          {!sidebarCollapsed && (
-            <button
-              onClick={() => setSidebarCollapsed(true)}
-              className="p-1.5 rounded-lg text-sidebar-foreground/30 hover:text-sidebar-foreground hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-              data-testid="btn-sidebar-collapse"
-            >
-              <PanelLeftClose className="h-4 w-4" />
-            </button>
-          )}
         </div>
 
         <SidebarContent />
       </aside>
 
-      {/* Mobile Drawer */}
       {mobileOpen && (
         <>
           <div className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm lg:hidden" onClick={() => setMobileOpen(false)} />
@@ -329,10 +340,8 @@ export default function HomePage() {
         </>
       )}
 
-      {/* Main content area */}
       <div className="flex-1 flex flex-col overflow-hidden">
 
-        {/* Topbar */}
         <header className="flex items-center gap-3 px-4 lg:px-5 h-14 border-b border-border/40 bg-card shrink-0">
           <button
             onClick={() => setMobileOpen(true)}
@@ -355,34 +364,10 @@ export default function HomePage() {
               </>
             )}
           </div>
-
-          {/* Theme toggle */}
-          <button
-            onClick={toggleTheme}
-            className="flex items-center justify-center w-8 h-8 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-            title={theme === "dark" ? "Mudar para tema claro" : "Mudar para tema escuro"}
-            data-testid="btn-theme-toggle"
-          >
-            {theme === "dark"
-              ? <Sun className="h-4 w-4" />
-              : <Moon className="h-4 w-4" />
-            }
-          </button>
-
-          <button
-            onClick={logout}
-            className="hidden lg:flex items-center justify-center w-8 h-8 rounded-xl text-muted-foreground hover:text-red-500 hover:bg-muted transition-colors"
-            title="Sair"
-            data-testid="button-logout"
-          >
-            <LogOut className="h-4 w-4" />
-          </button>
         </header>
 
-        {/* Page content */}
         <main className="flex-1 overflow-y-auto">
           {activeGroupData ? (
-            /* Module grid */
             <div className="max-w-5xl mx-auto px-4 lg:px-6 py-6 animate-fade-in">
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
                 {activeGroupData.items.map(item => (
@@ -391,7 +376,6 @@ export default function HomePage() {
               </div>
             </div>
           ) : (
-            /* Logo splash */
             <div className="flex flex-col items-center justify-center h-full gap-5 animate-fade-in select-none px-6">
               <div className={cn(
                 "relative w-[100px] h-[100px] rounded-[24px] flex items-center justify-center shadow-xl",
