@@ -29,7 +29,10 @@ import {
   X,
   SlidersHorizontal,
   ChevronDown,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
+import { beep, getSoundEnabled, setSoundEnabled as persistSoundEnabled } from "@/lib/audio-feedback";
 import { ScanQuantityModal } from "@/components/ui/scan-quantity-modal";
 import {
   Select,
@@ -116,6 +119,7 @@ export default function SeparacaoPage() {
 
   const [scanStatus, setScanStatus] = useState<"idle" | "success" | "error" | "warning">("idle");
   const [scanMessage, setScanMessage] = useState("");
+  const [soundOn, setSoundOn] = useState(getSoundEnabled);
   const [showResultDialog, setShowResultDialog] = useState(false);
   const [resultDialogConfig, setResultDialogConfig] = useState({
     type: "success" as "success" | "error" | "warning",
@@ -428,6 +432,7 @@ export default function SeparacaoPage() {
       return res.json();
     },
     onError: (error: Error) => {
+      beep("error");
       toast({ title: "Erro", description: error.message || "Falha ao bloquear unidades", variant: "destructive" });
     },
   });
@@ -485,6 +490,7 @@ export default function SeparacaoPage() {
       setExceptionItem(null);
     },
     onError: (error: Error) => {
+      beep("error");
       let message = "Falha ao registrar problema";
       try {
         const errorData = JSON.parse(error.message);
@@ -523,6 +529,7 @@ export default function SeparacaoPage() {
       toast({ title: "Exceções Limpas", description: "As exceções foram removidas com sucesso" });
     },
     onError: () => {
+      beep("error");
       toast({ title: "Erro", description: "Falha ao limpar exceções", variant: "destructive" });
     },
   });
@@ -583,6 +590,7 @@ export default function SeparacaoPage() {
 
   const handleStartSeparation = async () => {
     if (selectedWorkUnits.length === 0) {
+      beep("warning");
       toast({ title: "Atenção", description: "Selecione pelo menos um pedido", variant: "destructive" });
       return;
     }
@@ -640,6 +648,7 @@ export default function SeparacaoPage() {
           });
           toast({ title: "Auto-autorização", description: "Exceções autorizadas automaticamente." });
         } catch (error) {
+          beep("error");
           toast({ title: "Erro", description: "Falha ao auto-autorizar exceções", variant: "destructive" });
           return;
         }
@@ -658,6 +667,7 @@ export default function SeparacaoPage() {
     });
 
     if (pendingItems.length > 0) {
+      beep("warning");
       toast({
         title: "Separação Incompleta",
         description: `Existem ${pendingItems.length} itens com quantidade pendente. Verifique se separou tudo.`,
@@ -727,12 +737,14 @@ export default function SeparacaoPage() {
       clearSession();
       setStep("select");
       setSelectedWorkUnits([]);
+      beep("complete");
       if (anyUnlock) {
         toast({ title: "Salvo", description: "Sua parte foi concluída. Pedido liberado para outras seções.", variant: "default" });
       } else {
         toast({ title: "Concluído", description: "Separação finalizada com sucesso", variant: "default" });
       }
     } catch (error: any) {
+      beep("error");
       console.error("Error completing work units:", error);
       const detail = error?.message || "Falha ao finalizar separação";
       toast({ title: "Erro", description: detail, variant: "destructive" });
@@ -752,6 +764,7 @@ export default function SeparacaoPage() {
     if (ack.status === "success") {
       queryClient.invalidateQueries({ queryKey: workUnitsQueryKey });
     } else if (ack.status === "over_quantity" || ack.status === "over_quantity_with_exception") {
+      beep("error");
       ctx.apItems.forEach(item => {
         usePendingDeltaStore.getState().clearItem("separacao", item.id);
         usePendingDeltaStore.getState().resetBaseline("separacao", item.id);
@@ -769,10 +782,12 @@ export default function SeparacaoPage() {
       setOverQtyModalOpen(true);
       overQtyModalOpenRef.current = true;
     } else if (ack.status === "not_found") {
+      beep("warning");
       usePendingDeltaStore.getState().dec("separacao", ctx.itemId, ctx.qty);
       setScanStatus("warning");
       setScanMessage("Produto não encontrado neste pedido");
     } else if (ack.status === "error") {
+      beep("error");
       usePendingDeltaStore.getState().dec("separacao", ctx.itemId, ctx.qty);
       setScanStatus("error");
       setScanMessage(ack.message || "Erro ao processar scan");
@@ -804,6 +819,7 @@ export default function SeparacaoPage() {
         );
 
         if (unitsWithProduct.length === 0) {
+          beep("warning");
           setScanStatus("warning");
           setScanMessage("Produto não encontrado nos seus pedidos em aberto");
           continue;
@@ -838,6 +854,7 @@ export default function SeparacaoPage() {
         const alreadyComplete = serverSeparated + itemDelta + exceptionQty >= Number(matchedItem.quantity);
 
         if (alreadyComplete) {
+          beep("error");
           setQtyModal(null);
           usePendingDeltaStore.getState().clearItem("separacao", matchedItem.id);
           usePendingDeltaStore.getState().resetBaseline("separacao", matchedItem.id);
@@ -907,14 +924,17 @@ export default function SeparacaoPage() {
                 ),
               }));
             });
+            beep("error");
             toast({ title: "Quantidade excedida", description: "Produto zerado para recontagem. Escaneie novamente.", variant: "destructive" });
             apiRequest("POST", `/api/work-units/${currentModal.workUnitId}/reset-item-picking`, { itemIds: [currentModal.itemId] })
               .catch(err => console.error("Reset error:", err))
               .finally(() => queryClient.invalidateQueries({ queryKey: workUnitsQueryKey }));
           } else {
+            beep("scan");
             setQtyModal({ ...currentModal, accumulated: newAccumulated, maxRemaining: remaining });
           }
         } else {
+          beep("scan");
           setQtyModal({
             productId,
             productName: matchedItem.product.name,
@@ -1012,6 +1032,7 @@ export default function SeparacaoPage() {
           ),
         }));
       });
+      beep("error");
       toast({ title: "Quantidade excedida", description: "Produto zerado para recontagem. Escaneie novamente.", variant: "destructive" });
       apiRequest("POST", `/api/work-units/${modal.workUnitId}/reset-item-picking`, { itemIds: [modal.itemId] })
         .catch(err => console.error("Reset error:", err))
@@ -1328,7 +1349,18 @@ export default function SeparacaoPage() {
               <span className="text-xs text-muted-foreground truncate">
                 {allMyUnits.map(wu => wu.order.erpOrderId).filter((v, i, a) => a.indexOf(v) === i).join(", ")}
               </span>
-              <ConnectionStatusIndicator status={wsStatus} />
+              <div className="flex items-center gap-1.5">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => { setSoundOn(s => { const next = !s; persistSoundEnabled(next); return next; }); }}
+                  data-testid="button-toggle-sound-separacao"
+                >
+                  {soundOn ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5 text-muted-foreground" />}
+                </Button>
+                <ConnectionStatusIndicator status={wsStatus} />
+              </div>
             </div>
             <ScanInput
               placeholder="Leia o código de barras..."

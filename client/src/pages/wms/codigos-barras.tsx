@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { cn } from "@/lib/utils";
+import { playBeep, getSoundEnabled, setSoundEnabled as persistSoundEnabled } from "@/lib/audio-feedback";
 
 interface ProductInfo {
   id: string;
@@ -71,56 +72,6 @@ function clearSession() {
   try { localStorage.removeItem(STORAGE_KEY); } catch {}
 }
 
-let sharedAudioCtx: AudioContext | null = null;
-function getAudioCtx(): AudioContext {
-  if (!sharedAudioCtx || sharedAudioCtx.state === "closed") {
-    sharedAudioCtx = new AudioContext();
-  }
-  if (sharedAudioCtx.state === "suspended") {
-    sharedAudioCtx.resume();
-  }
-  return sharedAudioCtx;
-}
-
-function playBeep(type: "success" | "error" | "scan") {
-  try {
-    const ctx = getAudioCtx();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-
-    if (type === "success") {
-      osc.frequency.value = 880;
-      gain.gain.value = 0.15;
-      osc.start();
-      osc.stop(ctx.currentTime + 0.08);
-      setTimeout(() => {
-        try {
-          const osc2 = ctx.createOscillator();
-          const g2 = ctx.createGain();
-          osc2.connect(g2);
-          g2.connect(ctx.destination);
-          osc2.frequency.value = 1320;
-          g2.gain.value = 0.15;
-          osc2.start();
-          osc2.stop(ctx.currentTime + 0.12);
-        } catch {}
-      }, 100);
-    } else if (type === "error") {
-      osc.frequency.value = 200;
-      gain.gain.value = 0.2;
-      osc.start();
-      osc.stop(ctx.currentTime + 0.3);
-    } else {
-      osc.frequency.value = 660;
-      gain.gain.value = 0.08;
-      osc.start();
-      osc.stop(ctx.currentTime + 0.05);
-    }
-  } catch {}
-}
-
 export default function CodigosBarrasPage() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
@@ -146,7 +97,7 @@ export default function CodigosBarrasPage() {
   }));
   const [feed, setFeed] = useState<FeedEntry[]>(initialFeed);
   const [flash, setFlash] = useState<"success" | "error" | null>(null);
-  const [soundOn, setSoundOn] = useState(initial?.soundOn ?? true);
+  const [soundOn, setSoundOn] = useState(initial?.soundOn ?? getSoundEnabled());
   const [sessionCount, setSessionCount] = useState(initial?.sessionCount ?? 0);
   const [processing, setProcessing] = useState(false);
   const [showRecoveryBanner, setShowRecoveryBanner] = useState(
@@ -484,7 +435,7 @@ export default function CodigosBarrasPage() {
               variant="ghost"
               size="icon"
               className="rounded-xl h-8 w-8"
-              onClick={() => setSoundOn(s => !s)}
+              onClick={() => { setSoundOn(s => { const next = !s; persistSoundEnabled(next); return next; }); }}
               data-testid="button-toggle-sound"
             >
               {soundOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4 text-muted-foreground" />}
