@@ -1,445 +1,536 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { useAuth } from "@/lib/auth";
+import { useToast } from "@/hooks/use-toast";
 import { GradientHeader } from "@/components/ui/gradient-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { useToast } from "@/hooks/use-toast";
 import {
-  ArrowLeft, Barcode, Check, Loader2, Package, ScanLine, Hash, AlertCircle,
+  ArrowLeft, Barcode, Check, Loader2, Package, ScanLine, Zap,
+  Volume2, VolumeX, Trash2,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 
-type Step = "unit" | "package" | "qty" | "confirm";
+interface ProductInfo {
+  id: string;
+  name: string;
+  erpCode: string;
+}
 
-interface LookupResult {
-  found: boolean;
-  source?: string;
-  product?: { id: string; name: string; erpCode: string };
-  type?: string;
-  packagingQty?: number;
+interface FeedEntry {
+  id: string;
+  unitBarcode: string;
+  packageBarcode: string;
+  productName: string;
+  erpCode: string;
+  qty: number;
+  timestamp: Date;
+  status: "saving" | "saved" | "error";
+  errorMsg?: string;
+}
+
+const QUICK_QTY = [2, 3, 4, 6, 8, 10, 12, 15, 20, 24, 30, 36, 48, 50, 100];
+
+let sharedAudioCtx: AudioContext | null = null;
+function getAudioCtx(): AudioContext {
+  if (!sharedAudioCtx || sharedAudioCtx.state === "closed") {
+    sharedAudioCtx = new AudioContext();
+  }
+  if (sharedAudioCtx.state === "suspended") {
+    sharedAudioCtx.resume();
+  }
+  return sharedAudioCtx;
+}
+
+function playBeep(type: "success" | "error" | "scan") {
+  try {
+    const ctx = getAudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+
+    if (type === "success") {
+      osc.frequency.value = 880;
+      gain.gain.value = 0.15;
+      osc.start();
+      osc.stop(ctx.currentTime + 0.08);
+      setTimeout(() => {
+        try {
+          const osc2 = ctx.createOscillator();
+          const g2 = ctx.createGain();
+          osc2.connect(g2);
+          g2.connect(ctx.destination);
+          osc2.frequency.value = 1320;
+          g2.gain.value = 0.15;
+          osc2.start();
+          osc2.stop(ctx.currentTime + 0.12);
+        } catch {}
+      }, 100);
+    } else if (type === "error") {
+      osc.frequency.value = 200;
+      gain.gain.value = 0.2;
+      osc.start();
+      osc.stop(ctx.currentTime + 0.3);
+    } else {
+      osc.frequency.value = 660;
+      gain.gain.value = 0.08;
+      osc.start();
+      osc.stop(ctx.currentTime + 0.05);
+    }
+  } catch {}
 }
 
 export default function CodigosBarrasPage() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
-  const [step, setStep] = useState<Step>("unit");
-  const [unitBarcode, setUnitBarcode] = useState("");
-  const [packageBarcode, setPackageBarcode] = useState("");
-  const [qty, setQty] = useState("");
-  const [pkgType, setPkgType] = useState("");
-  const [productInfo, setProductInfo] = useState<{ id: string; name: string; erpCode: string } | null>(null);
-  const [success, setSuccess] = useState(false);
-  const [successInfo, setSuccessInfo] = useState<{ name: string; erpCode: string; pkg: string; qty: number } | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  const unitRef = useRef<HTMLInputElement>(null);
-  const pkgRef = useRef<HTMLInputElement>(null);
-  const qtyRef = useRef<HTMLInputElement>(null);
+  const [scanValue, setScanValue] = useState("");
+  const [presetQty, setPresetQty] = useState(12);
+  const [customQty, setCustomQty] = useState("");
+  const [showQtyPicker, setShowQtyPicker] = useState(false);
+
+  const [phase, setPhase] = useState<"idle" | "waitPkg">("idle");
+  const [currentUnit, setCurrentUnit] = useState("");
+  const [currentProduct, setCurrentProduct] = useState<ProductInfo | null>(null);
+
+  const [feed, setFeed] = useState<FeedEntry[]>([]);
+  const [flash, setFlash] = useState<"success" | "error" | null>(null);
+  const [soundOn, setSoundOn] = useState(true);
+  const [sessionCount, setSessionCount] = useState(0);
+  const [processing, setProcessing] = useState(false);
+
+  const processingRef = useRef(false);
+  const phaseRef = useRef<"idle" | "waitPkg">("idle");
+  const currentUnitRef = useRef("");
+  const currentProductRef = useRef<ProductInfo | null>(null);
+  const presetQtyRef = useRef(12);
+  const soundOnRef = useRef(true);
+
+  useEffect(() => { phaseRef.current = phase; }, [phase]);
+  useEffect(() => { currentUnitRef.current = currentUnit; }, [currentUnit]);
+  useEffect(() => { currentProductRef.current = currentProduct; }, [currentProduct]);
+  useEffect(() => { presetQtyRef.current = presetQty; }, [presetQty]);
+  useEffect(() => { soundOnRef.current = soundOn; }, [soundOn]);
+
+  const refocus = useCallback(() => {
+    setTimeout(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }, 50);
+  }, []);
 
   useEffect(() => {
-    if (step === "unit") unitRef.current?.focus();
-    else if (step === "package") pkgRef.current?.focus();
-    else if (step === "qty") qtyRef.current?.focus();
-  }, [step]);
+    refocus();
+  }, [phase, refocus]);
 
   useEffect(() => {
-    if (success) {
-      const t = setTimeout(() => {
-        setSuccess(false);
-        setSuccessInfo(null);
-        resetAll();
-      }, 2500);
+    if (flash) {
+      const t = setTimeout(() => setFlash(null), 600);
       return () => clearTimeout(t);
     }
-  }, [success]);
+  }, [flash]);
 
-  const lookupMutation = useMutation({
-    mutationFn: async (barcode: string) => {
-      const res = await fetch(`/api/barcodes/lookup/${encodeURIComponent(barcode)}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Erro na consulta");
-      return res.json() as Promise<LookupResult>;
-    },
-    onSuccess: (data) => {
-      if (!data.found) {
-        toast({ variant: "destructive", title: "Código não encontrado", description: "Nenhum produto com esse código" });
-        return;
-      }
-      if (data.product) {
-        setProductInfo(data.product);
-        setStep("package");
-      }
-    },
-    onError: () => {
-      toast({ variant: "destructive", title: "Erro", description: "Falha ao consultar código" });
-    },
-  });
+  const doLookup = useCallback(async (barcode: string) => {
+    const res = await fetch(`/api/barcodes/lookup/${encodeURIComponent(barcode)}`, { credentials: "include" });
+    if (!res.ok) throw new Error("Erro na consulta");
+    return res.json();
+  }, []);
 
-  const quickLinkMutation = useMutation({
-    mutationFn: async (body: any) => {
-      const res = await apiRequest("POST", "/api/barcodes/quick-link", body);
-      return res.json();
-    },
-    onSuccess: (data) => {
-      setSuccessInfo({
-        name: data.productName || productInfo?.name || "",
-        erpCode: data.erpCode || productInfo?.erpCode || "",
-        pkg: packageBarcode,
-        qty: Number(qty),
+  const doQuickLink = useCallback(async (body: { productBarcode: string; packageBarcode: string; packagingQty: number }) => {
+    const res = await apiRequest("POST", "/api/barcodes/quick-link", body);
+    return res.json();
+  }, []);
+
+  const doSave = useCallback(async (unitCode: string, pkgCode: string, qty: number, product: ProductInfo) => {
+    const entryId = crypto.randomUUID();
+    const entry: FeedEntry = {
+      id: entryId,
+      unitBarcode: unitCode,
+      packageBarcode: pkgCode,
+      productName: product.name,
+      erpCode: product.erpCode,
+      qty,
+      timestamp: new Date(),
+      status: "saving",
+    };
+
+    setFeed(prev => [entry, ...prev]);
+
+    try {
+      await doQuickLink({
+        productBarcode: unitCode,
+        packageBarcode: pkgCode,
+        packagingQty: qty,
       });
-      setSuccess(true);
+
+      setFeed(prev => prev.map(e => e.id === entryId ? { ...e, status: "saved" as const } : e));
+      setSessionCount(c => c + 1);
+      setFlash("success");
+      if (soundOnRef.current) playBeep("success");
       queryClient.invalidateQueries({ queryKey: ["/api/barcodes"] });
-    },
-    onError: (e: Error) => {
-      toast({ variant: "destructive", title: "Erro ao salvar", description: e.message || "Falha ao vincular código" });
-    },
-  });
-
-  function resetAll() {
-    setStep("unit");
-    setUnitBarcode("");
-    setPackageBarcode("");
-    setQty("");
-    setPkgType("");
-    setProductInfo(null);
-    setTimeout(() => unitRef.current?.focus(), 100);
-  }
-
-  function handleUnitSubmit() {
-    const code = unitBarcode.trim();
-    if (!code) return;
-    lookupMutation.mutate(code);
-  }
-
-  function handlePackageSubmit() {
-    const code = packageBarcode.trim();
-    if (!code) return;
-    if (code === unitBarcode.trim()) {
-      toast({ variant: "destructive", title: "Código inválido", description: "Embalagem não pode ser igual ao unitário" });
-      return;
+    } catch (err: any) {
+      setFeed(prev => prev.map(e => e.id === entryId ? { ...e, status: "error" as const, errorMsg: err.message || "Erro" } : e));
+      setFlash("error");
+      if (soundOnRef.current) playBeep("error");
+      toast({ variant: "destructive", title: "Erro ao salvar", description: err.message || "Falha ao vincular" });
     }
-    setStep("qty");
-  }
+  }, [doQuickLink, toast]);
 
-  function handleQtySubmit() {
-    const q = Number(qty);
-    if (!q || q < 1 || !Number.isInteger(q)) {
-      toast({ variant: "destructive", title: "Quantidade inválida", description: "Informe um número inteiro maior que zero" });
-      return;
+  const handleScan = useCallback(async () => {
+    const code = scanValue.trim();
+    if (!code) return;
+    if (processingRef.current) return;
+
+    processingRef.current = true;
+    setProcessing(true);
+    setScanValue("");
+
+    try {
+      if (phaseRef.current === "idle") {
+        if (soundOnRef.current) playBeep("scan");
+
+        const data = await doLookup(code);
+        if (data.found && data.product) {
+          setCurrentUnit(code);
+          setCurrentProduct(data.product);
+          setPhase("waitPkg");
+        } else {
+          setFlash("error");
+          if (soundOnRef.current) playBeep("error");
+          toast({ variant: "destructive", title: "Produto não encontrado", description: `Código "${code}" não corresponde a nenhum produto` });
+        }
+      } else if (phaseRef.current === "waitPkg" && currentProductRef.current) {
+        const unit = currentUnitRef.current;
+        const product = currentProductRef.current;
+
+        if (code === unit) {
+          if (soundOnRef.current) playBeep("error");
+          toast({ variant: "destructive", title: "Mesmo código", description: "O código da embalagem deve ser diferente do unitário" });
+        } else {
+          let isOtherProduct = false;
+          try {
+            const lookupPkg = await doLookup(code);
+            if (lookupPkg?.found && lookupPkg.product && lookupPkg.product.id !== product.id) {
+              isOtherProduct = true;
+              setCurrentUnit(code);
+              setCurrentProduct(lookupPkg.product);
+              if (soundOnRef.current) playBeep("scan");
+              toast({ variant: "destructive", title: "Produto diferente detectado", description: `Trocou para: ${lookupPkg.product.erpCode} — ${lookupPkg.product.name}` });
+            }
+          } catch {
+          }
+
+          if (!isOtherProduct) {
+            if (soundOnRef.current) playBeep("scan");
+            doSave(unit, code, presetQtyRef.current, product);
+            setPhase("idle");
+            setCurrentUnit("");
+            setCurrentProduct(null);
+          }
+        }
+      }
+    } catch {
+      setFlash("error");
+      if (soundOnRef.current) playBeep("error");
+      toast({ variant: "destructive", title: "Erro", description: "Falha ao processar leitura" });
+    } finally {
+      processingRef.current = false;
+      setProcessing(false);
+      refocus();
     }
-    setStep("confirm");
-  }
+  }, [scanValue, doLookup, doSave, toast, refocus]);
 
-  function handleConfirm() {
-    if (quickLinkMutation.isPending) return;
-    quickLinkMutation.mutate({
-      productBarcode: unitBarcode.trim(),
-      packageBarcode: packageBarcode.trim(),
-      packagingQty: Number(qty),
-      packagingType: pkgType.trim() || null,
-    });
-  }
-
-  function handleKeyDown(e: React.KeyboardEvent, action: () => void) {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      action();
+      handleScan();
     }
-  }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      if (phase === "waitPkg") {
+        setPhase("idle");
+        setCurrentUnit("");
+        setCurrentProduct(null);
+      }
+      setScanValue("");
+      refocus();
+    }
+  };
 
-  const { data: recentBarcodes = [] } = useQuery<any[]>({
-    queryKey: ["/api/barcodes", "recent"],
-    queryFn: async () => {
-      const res = await fetch(`/api/barcodes?limit=5&active=true`, { credentials: "include" });
-      if (!res.ok) throw new Error("Erro");
-      const json = await res.json();
-      return json.data || [];
-    },
-  });
+  const removeFeedEntry = (id: string) => {
+    setFeed(prev => prev.filter(e => e.id !== id));
+  };
 
-  if (success && successInfo) {
-    return (
-      <div className="min-h-screen bg-background">
-        <GradientHeader compact>
+  const handleSetQty = (q: number) => {
+    setPresetQty(q);
+    setShowQtyPicker(false);
+    setCustomQty("");
+    refocus();
+  };
+
+  const handleCustomQty = () => {
+    const q = Number(customQty);
+    if (q >= 1 && Number.isInteger(q)) {
+      handleSetQty(q);
+    }
+  };
+
+  const cancelCurrent = () => {
+    setPhase("idle");
+    setCurrentUnit("");
+    setCurrentProduct(null);
+    setScanValue("");
+    refocus();
+  };
+
+  const borderColor = flash === "success" ? "border-green-500" : flash === "error" ? "border-red-500" : "border-border/50";
+
+  return (
+    <div className={cn(
+      "min-h-screen bg-background transition-colors duration-300",
+      flash === "success" && "bg-green-500/5",
+      flash === "error" && "bg-red-500/5",
+    )}>
+      <GradientHeader compact>
+        <div className="flex items-center justify-between w-full">
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" className="rounded-xl" onClick={() => navigate("/")}>
+            <Button variant="ghost" size="icon" className="rounded-xl" onClick={() => navigate("/")} data-testid="button-back">
               <ArrowLeft className="h-5 w-5" />
             </Button>
             <div className="flex items-center gap-2">
-              <ScanLine className="h-5 w-5 text-primary" />
+              <Zap className="h-5 w-5 text-amber-400" />
               <h1 className="text-lg font-bold text-foreground">Vínculo Rápido</h1>
             </div>
           </div>
-        </GradientHeader>
-        <div className="max-w-lg mx-auto px-4 py-8">
-          <div className="rounded-2xl border-2 border-green-500/50 bg-green-500/10 p-8 text-center space-y-4 animate-in fade-in duration-300">
-            <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center mx-auto">
-              <Check className="h-8 w-8 text-green-400" />
-            </div>
-            <div>
-              <p className="text-lg font-bold text-green-400">Vínculo salvo!</p>
-              <p className="text-sm text-muted-foreground mt-1">{successInfo.erpCode} - {successInfo.name}</p>
-              <p className="text-sm text-muted-foreground mt-1">
-                Embalagem <span className="font-mono font-medium text-foreground">{successInfo.pkg}</span> = <span className="font-bold text-foreground">{successInfo.qty}</span> unidades
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-background">
-      <GradientHeader compact>
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" className="rounded-xl" onClick={() => navigate("/")}>
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
           <div className="flex items-center gap-2">
-            <ScanLine className="h-5 w-5 text-primary" />
-            <h1 className="text-lg font-bold text-foreground">Vínculo Rápido</h1>
+            {sessionCount > 0 && (
+              <Badge variant="outline" className="text-xs border-green-400/50 text-green-400" data-testid="badge-session-count">
+                {sessionCount} salvo{sessionCount !== 1 ? "s" : ""}
+              </Badge>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="rounded-xl h-8 w-8"
+              onClick={() => setSoundOn(s => !s)}
+              data-testid="button-toggle-sound"
+            >
+              {soundOn ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4 text-muted-foreground" />}
+            </Button>
           </div>
         </div>
       </GradientHeader>
 
-      <div className="max-w-lg mx-auto px-4 py-4 space-y-3 safe-bottom">
-        <div className="flex items-center gap-2 mb-2">
-          {(["unit", "package", "qty", "confirm"] as Step[]).map((s, i) => (
-            <div key={s} className="flex items-center gap-2">
-              <div className={cn(
-                "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-colors",
-                step === s ? "bg-primary text-primary-foreground" :
-                  (["unit", "package", "qty", "confirm"].indexOf(step) > i) ? "bg-green-500/20 text-green-400 border border-green-500/50" :
-                    "bg-muted text-muted-foreground"
-              )}>
-                {["unit", "package", "qty", "confirm"].indexOf(step) > i ? <Check className="h-4 w-4" /> : i + 1}
+      <div className="max-w-lg mx-auto px-4 py-3 space-y-3 safe-bottom">
+
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground whitespace-nowrap">Qtd/emb:</span>
+          <Button
+            variant="outline"
+            size="sm"
+            className={cn(
+              "h-9 px-4 rounded-xl font-bold text-lg min-w-[60px] transition-all",
+              !showQtyPicker && "border-primary/50 text-primary bg-primary/5"
+            )}
+            onClick={() => { setShowQtyPicker(!showQtyPicker); refocus(); }}
+            data-testid="button-qty-display"
+          >
+            {presetQty}
+          </Button>
+          {showQtyPicker && (
+            <div className="flex flex-wrap gap-1.5 flex-1 animate-in fade-in slide-in-from-left-2 duration-200">
+              {QUICK_QTY.map(q => (
+                <Button
+                  key={q}
+                  variant={q === presetQty ? "default" : "outline"}
+                  size="sm"
+                  className="h-8 px-2.5 rounded-lg text-xs font-semibold"
+                  onClick={() => handleSetQty(q)}
+                  data-testid={`button-qty-${q}`}
+                >
+                  {q}
+                </Button>
+              ))}
+              <div className="flex items-center gap-1">
+                <Input
+                  type="number"
+                  min="1"
+                  value={customQty}
+                  onChange={e => setCustomQty(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleCustomQty(); } }}
+                  placeholder="..."
+                  className="h-8 w-14 text-xs text-center rounded-lg px-1"
+                  data-testid="input-custom-qty"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-2 rounded-lg"
+                  onClick={handleCustomQty}
+                  disabled={!customQty || Number(customQty) < 1}
+                  data-testid="button-custom-qty-ok"
+                >
+                  OK
+                </Button>
               </div>
-              {i < 3 && <div className={cn("w-6 h-0.5", ["unit", "package", "qty", "confirm"].indexOf(step) > i ? "bg-green-500/50" : "bg-border")} />}
             </div>
-          ))}
+          )}
         </div>
 
-        {step === "unit" && (
-          <div className="space-y-4 animate-in fade-in duration-200">
-            <div className="rounded-2xl border border-border/50 bg-card p-5 space-y-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-blue-500/15 flex items-center justify-center">
-                  <Barcode className="h-5 w-5 text-blue-400" />
-                </div>
-                <div>
-                  <p className="font-semibold">Código Unitário</p>
-                  <p className="text-xs text-muted-foreground">Bipe ou digite o código de barras do produto</p>
-                </div>
+        <div className={cn(
+          "rounded-2xl border-2 bg-card p-4 space-y-3 transition-all duration-300",
+          borderColor,
+          phase === "waitPkg" && !flash && "border-amber-500/60 bg-amber-500/5",
+        )}>
+          {phase === "idle" ? (
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-500/15 flex items-center justify-center shrink-0">
+                <Barcode className="h-5 w-5 text-blue-400" />
               </div>
-              <Input
-                ref={unitRef}
-                data-testid="input-unit-barcode"
-                value={unitBarcode}
-                onChange={e => setUnitBarcode(e.target.value)}
-                onKeyDown={e => handleKeyDown(e, handleUnitSubmit)}
-                placeholder="Bipar código unitário..."
-                className="h-14 text-lg font-mono rounded-xl text-center"
-                autoFocus
-                inputMode="numeric"
-              />
-              <Button
-                className="w-full h-14 rounded-xl font-semibold shadow-lg shadow-primary/15 active:scale-[0.98]"
-                onClick={handleUnitSubmit}
-                disabled={!unitBarcode.trim() || lookupMutation.isPending}
-                data-testid="button-submit-unit"
-              >
-                {lookupMutation.isPending ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : <ScanLine className="h-5 w-5 mr-2" />}
-                Consultar Produto
-              </Button>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-sm">Bipe o código UNITÁRIO</p>
+                <p className="text-xs text-muted-foreground">Escaneie o código de barras do produto</p>
+              </div>
             </div>
-          </div>
-        )}
-
-        {step === "package" && productInfo && (
-          <div className="space-y-4 animate-in fade-in duration-200">
-            <div className="rounded-2xl border border-green-500/30 bg-green-500/5 p-4">
+          ) : (
+            <div className="space-y-2">
               <div className="flex items-center gap-3">
-                <Package className="h-5 w-5 text-green-400" />
+                <div className="w-10 h-10 rounded-xl bg-amber-500/15 flex items-center justify-center shrink-0 animate-pulse">
+                  <Package className="h-5 w-5 text-amber-400" />
+                </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold truncate">{productInfo.name}</p>
-                  <p className="text-xs text-muted-foreground font-mono">{productInfo.erpCode}</p>
+                  <p className="font-semibold text-sm">Agora bipe a EMBALAGEM</p>
+                  <p className="text-xs text-muted-foreground">
+                    Escaneie a caixa/fardo → salva com <span className="font-bold text-foreground">{presetQty}</span> un
+                  </p>
                 </div>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-border/50 bg-card p-5 space-y-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-amber-500/15 flex items-center justify-center">
-                  <Barcode className="h-5 w-5 text-amber-400" />
-                </div>
-                <div>
-                  <p className="font-semibold">Código da Embalagem</p>
-                  <p className="text-xs text-muted-foreground">Bipe ou digite o código da caixa/fardo/embalagem</p>
-                </div>
-              </div>
-              <Input
-                ref={pkgRef}
-                data-testid="input-package-barcode"
-                value={packageBarcode}
-                onChange={e => setPackageBarcode(e.target.value)}
-                onKeyDown={e => handleKeyDown(e, handlePackageSubmit)}
-                placeholder="Bipar código da embalagem..."
-                className="h-14 text-lg font-mono rounded-xl text-center"
-                autoFocus
-                inputMode="numeric"
-              />
-              <div className="flex gap-2">
-                <Button variant="outline" className="flex-1 h-12 rounded-xl" onClick={resetAll} data-testid="button-back-to-unit">
-                  Voltar
-                </Button>
-                <Button
-                  className="flex-1 h-12 rounded-xl font-semibold"
-                  onClick={handlePackageSubmit}
-                  disabled={!packageBarcode.trim()}
-                  data-testid="button-submit-package"
-                >
-                  Avançar
+                <Button variant="ghost" size="sm" className="h-8 px-2 rounded-lg text-xs" onClick={cancelCurrent} data-testid="button-cancel-current">
+                  ESC
                 </Button>
               </div>
-            </div>
-          </div>
-        )}
-
-        {step === "qty" && productInfo && (
-          <div className="space-y-4 animate-in fade-in duration-200">
-            <div className="rounded-2xl border border-green-500/30 bg-green-500/5 p-4">
-              <div className="flex items-center gap-3">
-                <Package className="h-5 w-5 text-green-400" />
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold truncate">{productInfo.name}</p>
-                  <div className="flex gap-2 mt-1">
-                    <Badge variant="outline" className="text-xs font-mono">{unitBarcode}</Badge>
-                    <span className="text-xs text-muted-foreground">→</span>
-                    <Badge variant="outline" className="text-xs font-mono border-amber-400/50 text-amber-400">{packageBarcode}</Badge>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-border/50 bg-card p-5 space-y-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-violet-500/15 flex items-center justify-center">
-                  <Hash className="h-5 w-5 text-violet-400" />
-                </div>
-                <div>
-                  <p className="font-semibold">Quantidade por Embalagem</p>
-                  <p className="text-xs text-muted-foreground">Quantas unidades dentro dessa embalagem?</p>
-                </div>
-              </div>
-              <Input
-                ref={qtyRef}
-                data-testid="input-packaging-qty"
-                type="number"
-                min="1"
-                value={qty}
-                onChange={e => setQty(e.target.value)}
-                onKeyDown={e => handleKeyDown(e, handleQtySubmit)}
-                placeholder="Ex: 6, 12, 24..."
-                className="h-14 text-2xl font-bold rounded-xl text-center"
-                autoFocus
-                inputMode="numeric"
-              />
-              <Input
-                data-testid="input-pkg-type"
-                value={pkgType}
-                onChange={e => setPkgType(e.target.value)}
-                placeholder="Tipo: caixa, fardo, display (opcional)"
-                className="h-12 rounded-xl text-center"
-                onKeyDown={e => handleKeyDown(e, handleQtySubmit)}
-              />
-              <div className="flex gap-2">
-                <Button variant="outline" className="flex-1 h-12 rounded-xl" onClick={() => setStep("package")} data-testid="button-back-to-package">
-                  Voltar
-                </Button>
-                <Button
-                  className="flex-1 h-12 rounded-xl font-semibold"
-                  onClick={handleQtySubmit}
-                  disabled={!qty || Number(qty) < 1}
-                  data-testid="button-submit-qty"
-                >
-                  Avançar
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {step === "confirm" && productInfo && (
-          <div className="space-y-4 animate-in fade-in duration-200">
-            <div className="rounded-2xl border border-border/50 bg-card p-5 space-y-4">
-              <p className="font-semibold text-center">Confirmar Vínculo</p>
-              <div className="space-y-3">
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-muted-foreground">Produto</span>
-                  <span className="font-medium text-right max-w-[60%] truncate">{productInfo.name}</span>
-                </div>
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-muted-foreground">Código Interno</span>
-                  <span className="font-mono text-xs">{productInfo.erpCode}</span>
-                </div>
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-muted-foreground">Cód. Unitário</span>
-                  <span className="font-mono text-xs">{unitBarcode}</span>
-                </div>
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-muted-foreground">Cód. Embalagem</span>
-                  <span className="font-mono text-xs text-amber-400">{packageBarcode}</span>
-                </div>
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-muted-foreground">Qtd Embalagem</span>
-                  <span className="font-bold text-lg">{qty} un</span>
-                </div>
-                {pkgType && (
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-muted-foreground">Tipo</span>
-                    <span>{pkgType}</span>
-                  </div>
-                )}
-              </div>
-              <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-400">
-                <AlertCircle className="h-4 w-4 flex-shrink-0" />
-                <span>Se já existir vínculo ativo para esse código, ele será substituído automaticamente.</span>
-              </div>
-              <div className="flex gap-2">
-                <Button variant="outline" className="flex-1 h-12 rounded-xl" onClick={() => setStep("qty")} data-testid="button-back-to-qty">
-                  Voltar
-                </Button>
-                <Button
-                  className="flex-1 h-14 rounded-xl font-semibold shadow-lg shadow-primary/15 active:scale-[0.98]"
-                  onClick={handleConfirm}
-                  disabled={quickLinkMutation.isPending}
-                  data-testid="button-confirm-link"
-                >
-                  {quickLinkMutation.isPending ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : <Check className="h-5 w-5 mr-2" />}
-                  Salvar Vínculo
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {step === "unit" && recentBarcodes.length > 0 && (
-          <div className="rounded-2xl border border-border/50 bg-card p-4 space-y-2">
-            <p className="text-xs font-medium text-muted-foreground">Últimos cadastros</p>
-            {recentBarcodes.slice(0, 5).map((b: any) => (
-              <div key={b.id} className="flex items-center justify-between text-xs py-1.5 border-b border-border/20 last:border-0">
-                <div className="flex items-center gap-2 min-w-0">
-                  <Badge variant="outline" className={cn("text-[10px]", b.type === "UNITARIO" ? "border-blue-400/50 text-blue-400" : "border-amber-400/50 text-amber-400")}>
-                    {b.type === "UNITARIO" ? "UN" : "EMB"}
+              {currentProduct && (
+                <div className="flex items-center gap-2 pl-[52px]">
+                  <Badge variant="outline" className="text-[10px] border-green-400/50 text-green-400 max-w-full">
+                    <span className="truncate">{currentProduct.erpCode} — {currentProduct.name}</span>
                   </Badge>
-                  <span className="font-mono truncate">{b.barcode}</span>
                 </div>
-                <span className="text-muted-foreground truncate ml-2">{b.productName || "-"}</span>
+              )}
+            </div>
+          )}
+
+          <div className="relative">
+            <Input
+              ref={inputRef}
+              data-testid="input-scan"
+              value={scanValue}
+              onChange={e => setScanValue(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={phase === "idle" ? "Escanear código unitário..." : "Escanear código da embalagem..."}
+              className={cn(
+                "h-14 text-lg font-mono rounded-xl text-center pr-12 transition-all",
+                phase === "waitPkg" && "border-amber-400/50 focus:border-amber-400",
+              )}
+              autoFocus
+              autoComplete="off"
+              inputMode="none"
+              disabled={processing}
+            />
+            {processing && (
+              <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between px-1">
+          <p className="text-xs text-muted-foreground">
+            {phase === "idle" ? (
+              <>Fluxo: <span className="text-blue-400">Unitário</span> → <span className="text-amber-400">Embalagem</span> → auto-salva</>
+            ) : (
+              <span className="text-amber-400 font-medium animate-pulse">Aguardando código da embalagem...</span>
+            )}
+          </p>
+          {feed.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-[10px] text-muted-foreground hover:text-destructive"
+              onClick={() => { setFeed([]); refocus(); }}
+              data-testid="button-clear-feed"
+            >
+              Limpar
+            </Button>
+          )}
+        </div>
+
+        {feed.length > 0 && (
+          <div className="space-y-1.5 max-h-[calc(100vh-340px)] overflow-y-auto">
+            {feed.map((entry, i) => (
+              <div
+                key={entry.id}
+                className={cn(
+                  "rounded-xl border p-3 transition-all duration-300",
+                  i === 0 && entry.status === "saved" && "animate-in slide-in-from-top-2 fade-in duration-300",
+                  entry.status === "saving" && "border-blue-400/30 bg-blue-500/5",
+                  entry.status === "saved" && "border-green-500/30 bg-green-500/5",
+                  entry.status === "error" && "border-red-500/30 bg-red-500/5",
+                )}
+                data-testid={`feed-entry-${entry.id}`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <div className="flex items-center gap-2">
+                      {entry.status === "saving" && <Loader2 className="h-3.5 w-3.5 animate-spin text-blue-400 shrink-0" />}
+                      {entry.status === "saved" && <Check className="h-3.5 w-3.5 text-green-400 shrink-0" />}
+                      {entry.status === "error" && <span className="h-3.5 w-3.5 text-red-400 text-xs shrink-0">✗</span>}
+                      <span className="text-sm font-medium truncate">{entry.erpCode} — {entry.productName}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 pl-5">
+                      <span className="font-mono text-[11px] text-blue-400">{entry.unitBarcode}</span>
+                      <span className="text-muted-foreground text-[10px]">→</span>
+                      <span className="font-mono text-[11px] text-amber-400">{entry.packageBarcode}</span>
+                      <span className="text-[10px] text-muted-foreground">=</span>
+                      <span className="font-bold text-xs">{entry.qty}un</span>
+                    </div>
+                    {entry.status === "error" && entry.errorMsg && (
+                      <p className="text-[10px] text-red-400 pl-5">{entry.errorMsg}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <span className="text-[10px] text-muted-foreground">
+                      {entry.timestamp.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                    </span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 rounded-md"
+                      onClick={() => removeFeedEntry(entry.id)}
+                      data-testid={`button-remove-${entry.id}`}
+                    >
+                      <Trash2 className="h-3 w-3 text-muted-foreground hover:text-destructive" />
+                    </Button>
+                  </div>
+                </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {feed.length === 0 && phase === "idle" && (
+          <div className="rounded-2xl border border-dashed border-border/40 p-6 text-center space-y-2">
+            <ScanLine className="h-8 w-8 text-muted-foreground/40 mx-auto" />
+            <p className="text-sm text-muted-foreground">Comece escaneando o código unitário</p>
+            <div className="text-xs text-muted-foreground/60 space-y-0.5">
+              <p>1. Defina a quantidade por embalagem acima</p>
+              <p>2. Escaneie o código <span className="text-blue-400">unitário</span> do produto</p>
+              <p>3. Escaneie o código da <span className="text-amber-400">embalagem</span></p>
+              <p>4. Salva automaticamente e passa pro próximo</p>
+            </div>
           </div>
         )}
       </div>
