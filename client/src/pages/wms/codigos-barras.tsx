@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
   ArrowLeft, Barcode, Check, Loader2, Package, ScanLine, Zap,
-  Volume2, VolumeX, Trash2, RotateCcw, ShieldCheck, AlertTriangle,
+  Volume2, VolumeX, Trash2, RotateCcw, ShieldCheck, AlertTriangle, Keyboard,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { cn } from "@/lib/utils";
@@ -153,6 +153,9 @@ export default function CodigosBarrasPage() {
     initial !== null && initial.feed.length > 0
   );
   const [retrying, setRetrying] = useState(false);
+  const [manualMode, setManualMode] = useState(false);
+  const [manualValue, setManualValue] = useState("");
+  const manualInputRef = useRef<HTMLInputElement>(null);
 
   const processingRef = useRef(false);
   const phaseRef = useRef<"idle" | "waitPkg">(phase);
@@ -357,7 +360,8 @@ export default function CodigosBarrasPage() {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       const isInCustomQtyInput = target === customQtyInputRef.current;
-      if (isInCustomQtyInput) return;
+      const isInManualInput = target === manualInputRef.current;
+      if (isInCustomQtyInput || isInManualInput) return;
 
       if (e.key === "Escape") {
         e.preventDefault();
@@ -636,18 +640,80 @@ export default function CodigosBarrasPage() {
             </div>
           )}
 
-          <div className={cn(
-            "h-14 rounded-xl border flex items-center justify-center font-mono text-lg transition-all",
-            scanBuffer ? "bg-muted/30 border-primary/50" : "bg-muted/10 border-border/30",
-            phase === "waitPkg" && !scanBuffer && "border-amber-400/30",
-          )}>
-            {scanBuffer ? (
-              <span className="text-foreground tracking-wider" data-testid="display-scan-buffer">{scanBuffer}<span className="animate-pulse text-primary">|</span></span>
+          <div className="flex gap-2">
+            {manualMode ? (
+              <div className="flex-1 relative">
+                <Input
+                  ref={manualInputRef}
+                  data-testid="input-manual-barcode"
+                  value={manualValue}
+                  onChange={e => setManualValue(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      const code = manualValue.trim();
+                      if (code) {
+                        processScan(code);
+                        setManualValue("");
+                      }
+                    }
+                    if (e.key === "Escape") {
+                      e.preventDefault();
+                      setManualMode(false);
+                      setManualValue("");
+                    }
+                  }}
+                  placeholder={phase === "idle" ? "Digite o código unitário..." : "Digite o código da embalagem..."}
+                  className={cn(
+                    "h-14 text-lg font-mono rounded-xl text-center transition-all",
+                    phase === "waitPkg" && "border-amber-400/50 focus:border-amber-400",
+                  )}
+                  autoFocus
+                  autoComplete="off"
+                  inputMode="numeric"
+                  disabled={processing}
+                />
+                {processing && (
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  </div>
+                )}
+              </div>
             ) : (
-              <span className="text-muted-foreground/50 text-sm">
-                {processing ? "Processando..." : phase === "idle" ? "Aguardando leitura do scanner..." : "Aguardando código da embalagem..."}
-              </span>
+              <div className={cn(
+                "flex-1 h-14 rounded-xl border flex items-center justify-center font-mono text-lg transition-all",
+                scanBuffer ? "bg-muted/30 border-primary/50" : "bg-muted/10 border-border/30",
+                phase === "waitPkg" && !scanBuffer && "border-amber-400/30",
+              )}>
+                {scanBuffer ? (
+                  <span className="text-foreground tracking-wider" data-testid="display-scan-buffer">{scanBuffer}<span className="animate-pulse text-primary">|</span></span>
+                ) : (
+                  <span className="text-muted-foreground/50 text-sm">
+                    {processing ? "Processando..." : phase === "idle" ? "Aguardando leitura do scanner..." : "Aguardando código da embalagem..."}
+                  </span>
+                )}
+              </div>
             )}
+            <Button
+              variant={manualMode ? "default" : "outline"}
+              size="icon"
+              className={cn(
+                "h-14 w-14 rounded-xl shrink-0 transition-all",
+                manualMode && "bg-primary text-primary-foreground",
+              )}
+              onClick={() => {
+                setManualMode(m => !m);
+                setManualValue("");
+                if (!manualMode) {
+                  setTimeout(() => manualInputRef.current?.focus(), 50);
+                }
+              }}
+              data-testid="button-toggle-manual"
+              title={manualMode ? "Voltar ao modo scanner" : "Digitar manualmente"}
+            >
+              <Keyboard className="h-5 w-5" />
+            </Button>
           </div>
         </div>
 
